@@ -122,6 +122,11 @@ func (im *IndexManager) Rebuild(motes []*Mote) error {
 		edges = appendEdges(edges, m.ID, "supersedes", m.Supersedes)
 		edges = appendEdges(edges, m.ID, "caused_by", m.CausedBy)
 		edges = appendEdges(edges, m.ID, "informed_by", m.InformedBy)
+
+		// Index-only reverse edges for builds_on
+		for _, target := range m.BuildsOn {
+			edges = append(edges, Edge{Source: target, Target: m.ID, EdgeType: "built_by_ref"})
+		}
 	}
 
 	idx := &EdgeIndex{Edges: edges, TagStats: tagStats}

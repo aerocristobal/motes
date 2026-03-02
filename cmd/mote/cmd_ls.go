@@ -21,6 +21,7 @@ var (
 	lsTag    string
 	lsStatus string
 	lsStale  bool
+	lsReady  bool
 )
 
 func init() {
@@ -28,6 +29,7 @@ func init() {
 	lsCmd.Flags().StringVar(&lsTag, "tag", "", "Filter by tag")
 	lsCmd.Flags().StringVar(&lsStatus, "status", "", "Filter by status")
 	lsCmd.Flags().BoolVar(&lsStale, "stale", false, "Show motes with no access in 90+ days")
+	lsCmd.Flags().BoolVar(&lsReady, "ready", false, "Show tasks with zero unfinished blockers")
 	rootCmd.AddCommand(lsCmd)
 }
 
@@ -37,6 +39,7 @@ func runLs(cmd *cobra.Command, args []string) error {
 		Tag:    lsTag,
 		Status: lsStatus,
 		Stale:  lsStale,
+		Ready:  lsReady,
 	}, false)
 }
 

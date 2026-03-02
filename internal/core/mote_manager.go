@@ -26,6 +26,7 @@ type ListFilters struct {
 	Tag    string
 	Status string
 	Stale  bool
+	Ready  bool
 }
 
 type AccessBatchEntry struct {
@@ -157,6 +158,36 @@ func (mm *MoteManager) List(filters ListFilters) ([]*Mote, error) {
 		}
 		result = append(result, m)
 	}
+
+	if filters.Ready {
+		var ready []*Mote
+		for _, m := range result {
+			if m.Type != "task" || m.Status != "active" {
+				continue
+			}
+			if len(m.DependsOn) == 0 {
+				ready = append(ready, m)
+				continue
+			}
+			allDone := true
+			for _, depID := range m.DependsOn {
+				dep, err := mm.Read(depID)
+				if err != nil {
+					allDone = false
+					break
+				}
+				if dep.Status == "active" {
+					allDone = false
+					break
+				}
+			}
+			if allDone {
+				ready = append(ready, m)
+			}
+		}
+		result = ready
+	}
+
 	return result, nil
 }
 
@@ -323,4 +354,147 @@ func (mm *MoteManager) FlushAccessBatch() error {
 	}
 
 	return os.Remove(batchPath)
+}
+
+// Link creates a link from sourceID to targetID with the given type.
+// Bidirectionality is handled automatically per ValidLinkTypes rules.
+func (mm *MoteManager) Link(sourceID, linkType, targetID string, im *IndexManager) error {
+	behavior, ok := ValidLinkTypes[linkType]
+	if !ok {
+		return fmt.Errorf("unknown link type: %q", linkType)
+	}
+	if sourceID == targetID {
+		return fmt.Errorf("cannot link a mote to itself")
+	}
+
+	source, err := mm.Read(sourceID)
+	if err != nil {
+		return fmt.Errorf("read source %s: %w", sourceID, err)
+	}
+	target, err := mm.Read(targetID)
+	if err != nil {
+		return fmt.Errorf("read target %s: %w", targetID, err)
+	}
+
+	// Add link to source's frontmatter (idempotent)
+	if !sliceContains(GetLinkSlice(source, linkType), targetID) {
+		SetLinkSlice(source, linkType, append(GetLinkSlice(source, linkType), targetID))
+	}
+
+	// Handle bidirectionality on target's frontmatter
+	targetModified := false
+	if behavior.Symmetric {
+		if !sliceContains(GetLinkSlice(target, linkType), sourceID) {
+			SetLinkSlice(target, linkType, append(GetLinkSlice(target, linkType), sourceID))
+			targetModified = true
+		}
+	} else if behavior.InverseType != "" {
+		if !sliceContains(GetLinkSlice(target, behavior.InverseType), sourceID) {
+			SetLinkSlice(target, behavior.InverseType, append(GetLinkSlice(target, behavior.InverseType), sourceID))
+			targetModified = true
+		}
+	}
+
+	if behavior.AutoDeprecate {
+		target.Status = "deprecated"
+		target.DeprecatedBy = sourceID
+		targetModified = true
+	}
+
+	// Persist source
+	sourceData, err := SerializeMote(source)
+	if err != nil {
+		return fmt.Errorf("serialize source: %w", err)
+	}
+	if err := AtomicWrite(mm.moteFilePath(sourceID), sourceData, 0644); err != nil {
+		return fmt.Errorf("write source: %w", err)
+	}
+
+	// Persist target if modified
+	if targetModified {
+		targetData, err := SerializeMote(target)
+		if err != nil {
+			return fmt.Errorf("serialize target: %w", err)
+		}
+		if err := AtomicWrite(mm.moteFilePath(targetID), targetData, 0644); err != nil {
+			return fmt.Errorf("write target: %w", err)
+		}
+	}
+
+	// Update index: forward edge
+	if err := im.AddEdge(Edge{Source: sourceID, Target: targetID, EdgeType: linkType}); err != nil {
+		return fmt.Errorf("add index edge: %w", err)
+	}
+
+	// Reverse edges in index
+	if behavior.Symmetric {
+		_ = im.AddEdge(Edge{Source: targetID, Target: sourceID, EdgeType: linkType})
+	} else if behavior.InverseType != "" {
+		_ = im.AddEdge(Edge{Source: targetID, Target: sourceID, EdgeType: behavior.InverseType})
+	}
+	if behavior.IndexReverse != "" {
+		_ = im.AddEdge(Edge{Source: targetID, Target: sourceID, EdgeType: behavior.IndexReverse})
+	}
+
+	return nil
+}
+
+// Unlink removes a link from sourceID to targetID.
+// Reverses bidirectional writes per ValidLinkTypes rules.
+func (mm *MoteManager) Unlink(sourceID, linkType, targetID string, im *IndexManager) error {
+	behavior, ok := ValidLinkTypes[linkType]
+	if !ok {
+		return fmt.Errorf("unknown link type: %q", linkType)
+	}
+
+	source, err := mm.Read(sourceID)
+	if err != nil {
+		return fmt.Errorf("read source %s: %w", sourceID, err)
+	}
+
+	// Remove from source frontmatter
+	SetLinkSlice(source, linkType, sliceRemove(GetLinkSlice(source, linkType), targetID))
+
+	sourceData, err := SerializeMote(source)
+	if err != nil {
+		return fmt.Errorf("serialize source: %w", err)
+	}
+	if err := AtomicWrite(mm.moteFilePath(sourceID), sourceData, 0644); err != nil {
+		return fmt.Errorf("write source: %w", err)
+	}
+
+	// Remove reverse from target frontmatter
+	if behavior.Symmetric || behavior.InverseType != "" {
+		target, err := mm.Read(targetID)
+		if err != nil {
+			return fmt.Errorf("read target %s: %w", targetID, err)
+		}
+
+		reverseType := linkType
+		if behavior.InverseType != "" {
+			reverseType = behavior.InverseType
+		}
+		SetLinkSlice(target, reverseType, sliceRemove(GetLinkSlice(target, reverseType), sourceID))
+
+		targetData, err := SerializeMote(target)
+		if err != nil {
+			return fmt.Errorf("serialize target: %w", err)
+		}
+		if err := AtomicWrite(mm.moteFilePath(targetID), targetData, 0644); err != nil {
+			return fmt.Errorf("write target: %w", err)
+		}
+	}
+
+	// Remove index edges
+	_ = im.RemoveEdge(sourceID, targetID, linkType)
+	if behavior.Symmetric {
+		_ = im.RemoveEdge(targetID, sourceID, linkType)
+	} else if behavior.InverseType != "" {
+		_ = im.RemoveEdge(targetID, sourceID, behavior.InverseType)
+	}
+	if behavior.IndexReverse != "" {
+		_ = im.RemoveEdge(targetID, sourceID, behavior.IndexReverse)
+	}
+
+	return nil
 }

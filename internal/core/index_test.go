@@ -45,9 +45,9 @@ func TestIndexManager_RebuildWithEdges(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	// 4 edges: A->B depends_on, A->C relates_to, B->A blocks, C->A builds_on
-	if len(idx.Edges) != 4 {
-		t.Errorf("expected 4 edges, got %d", len(idx.Edges))
+	// 5 edges: A->B depends_on, A->C relates_to, B->A blocks, C->A builds_on, A->C built_by_ref
+	if len(idx.Edges) != 5 {
+		t.Errorf("expected 5 edges, got %d", len(idx.Edges))
 	}
 
 	// Tag stats
@@ -61,10 +61,10 @@ func TestIndexManager_RebuildWithEdges(t *testing.T) {
 		t.Errorf("auth count: got %d, want 1", idx.TagStats["auth"])
 	}
 
-	// Outgoing from A
+	// Outgoing from A: depends_on->B, relates_to->C, built_by_ref->C
 	neighbors := idx.Neighbors("p-A", nil)
-	if len(neighbors) != 2 {
-		t.Errorf("A outgoing: got %d, want 2", len(neighbors))
+	if len(neighbors) != 3 {
+		t.Errorf("A outgoing: got %d, want 3", len(neighbors))
 	}
 
 	// Filtered neighbors
