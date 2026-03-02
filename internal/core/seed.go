@@ -1,0 +1,210 @@
+package core
+
+import (
+	"os/exec"
+	"sort"
+	"strings"
+	"unicode"
+)
+
+// SeedSelector finds initial seed motes from topic keywords and ambient signals.
+type SeedSelector struct {
+	motes    []*Mote
+	tagStats map[string]int
+	signals  []SignalConfig
+}
+
+// AmbientContext holds signals collected from the environment.
+type AmbientContext struct {
+	GitBranch   string
+	RecentFiles []string
+	PromptText  string
+}
+
+// NewSeedSelector creates a SeedSelector.
+func NewSeedSelector(motes []*Mote, tagStats map[string]int, signals []SignalConfig) *SeedSelector {
+	return &SeedSelector{motes: motes, tagStats: tagStats, signals: signals}
+}
+
+// SelectSeeds returns seed motes matching the topic and ambient signals.
+func (ss *SeedSelector) SelectSeeds(topic string, ambient *AmbientContext) []*Mote {
+	candidates := make(map[string]float64) // moteID -> signal strength
+
+	keywords := extractKeywords(topic)
+
+	// Tag matching
+	for _, m := range ss.motes {
+		overlap := tagOverlap(keywords, m.Tags)
+		if overlap > 0 {
+			candidates[m.ID] += float64(overlap)
+		}
+	}
+
+	// Title fallback: if no tag matches, try title substring
+	if len(candidates) == 0 && len(keywords) > 0 {
+		for _, m := range ss.motes {
+			titleLower := strings.ToLower(m.Title)
+			for _, kw := range keywords {
+				if strings.Contains(titleLower, kw) {
+					candidates[m.ID] += 0.5
+				}
+			}
+		}
+	}
+
+	// Ambient signals
+	if ambient != nil {
+		for _, signal := range ss.signals {
+			if signal.Type == "built_in" {
+				ss.applyBuiltinSignal(signal.Name, ambient, candidates)
+			}
+		}
+	}
+
+	return ss.topN(candidates, 10)
+}
+
+// MatchedTags returns the keywords from topic that match a mote's tags.
+func MatchedTags(topic string, mote *Mote) []string {
+	keywords := extractKeywords(topic)
+	var matched []string
+	for _, kw := range keywords {
+		for _, tag := range mote.Tags {
+			if strings.EqualFold(kw, tag) {
+				matched = append(matched, tag)
+				break
+			}
+		}
+	}
+	return matched
+}
+
+func (ss *SeedSelector) applyBuiltinSignal(name string, ambient *AmbientContext, candidates map[string]float64) {
+	switch name {
+	case "git_branch":
+		if ambient.GitBranch != "" {
+			keywords := extractKeywords(ambient.GitBranch)
+			ss.matchKeywordsToTags(keywords, candidates, 0.5)
+		}
+	case "recent_files":
+		if len(ambient.RecentFiles) > 0 {
+			keywords := extractKeywordsFromPaths(ambient.RecentFiles)
+			ss.matchKeywordsToTags(keywords, candidates, 0.3)
+		}
+	case "prompt_keywords":
+		if ambient.PromptText != "" {
+			keywords := extractKeywords(ambient.PromptText)
+			ss.matchKeywordsToTags(keywords, candidates, 0.8)
+		}
+	}
+}
+
+func (ss *SeedSelector) matchKeywordsToTags(keywords []string, candidates map[string]float64, boost float64) {
+	for _, m := range ss.motes {
+		overlap := tagOverlap(keywords, m.Tags)
+		if overlap > 0 {
+			candidates[m.ID] += float64(overlap) * boost
+		}
+	}
+}
+
+func (ss *SeedSelector) topN(candidates map[string]float64, n int) []*Mote {
+	type scored struct {
+		mote  *Mote
+		score float64
+	}
+
+	moteMap := make(map[string]*Mote, len(ss.motes))
+	for _, m := range ss.motes {
+		moteMap[m.ID] = m
+	}
+
+	var items []scored
+	for id, s := range candidates {
+		if m, ok := moteMap[id]; ok {
+			items = append(items, scored{mote: m, score: s})
+		}
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].score > items[j].score
+	})
+
+	if len(items) > n {
+		items = items[:n]
+	}
+
+	result := make([]*Mote, len(items))
+	for i, item := range items {
+		result[i] = item.mote
+	}
+	return result
+}
+
+func tagOverlap(keywords, tags []string) int {
+	count := 0
+	for _, kw := range keywords {
+		for _, tag := range tags {
+			if strings.EqualFold(kw, tag) {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
+var stopWords = map[string]bool{
+	"a": true, "an": true, "the": true, "is": true, "of": true,
+	"to": true, "in": true, "for": true, "and": true, "or": true,
+	"with": true, "on": true, "at": true, "by": true, "from": true,
+}
+
+// ExtractKeywords splits a string into lowercase keyword tokens,
+// removing stop words and short words.
+func ExtractKeywords(s string) []string {
+	return extractKeywords(s)
+}
+
+func extractKeywords(s string) []string {
+	words := strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	seen := make(map[string]bool)
+	var result []string
+	for _, w := range words {
+		if len(w) < 2 || stopWords[w] || seen[w] {
+			continue
+		}
+		seen[w] = true
+		result = append(result, w)
+	}
+	return result
+}
+
+func extractKeywordsFromPaths(paths []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, p := range paths {
+		for _, kw := range extractKeywords(p) {
+			if !seen[kw] {
+				seen[kw] = true
+				result = append(result, kw)
+			}
+		}
+	}
+	return result
+}
+
+// CollectAmbientContext gathers signals from the environment.
+func CollectAmbientContext() *AmbientContext {
+	ctx := &AmbientContext{}
+
+	// Git branch
+	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+	if err == nil {
+		ctx.GitBranch = strings.TrimSpace(string(out))
+	}
+
+	return ctx
+}

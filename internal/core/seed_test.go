@@ -1,0 +1,123 @@
+package core
+
+import (
+	"testing"
+)
+
+func TestSelectSeeds_TagMatch(t *testing.T) {
+	motes := []*Mote{
+		{ID: "m1", Tags: []string{"oauth", "api"}},
+		{ID: "m2", Tags: []string{"docker", "ci"}},
+		{ID: "m3", Tags: []string{"oauth", "auth"}},
+	}
+	ss := NewSeedSelector(motes, nil, nil)
+	seeds := ss.SelectSeeds("oauth", nil)
+
+	ids := make(map[string]bool)
+	for _, s := range seeds {
+		ids[s.ID] = true
+	}
+	if !ids["m1"] || !ids["m3"] {
+		t.Errorf("expected m1 and m3, got %v", ids)
+	}
+	if ids["m2"] {
+		t.Errorf("m2 should not match oauth")
+	}
+}
+
+func TestSelectSeeds_MultipleKeywords(t *testing.T) {
+	motes := []*Mote{
+		{ID: "m1", Tags: []string{"oauth"}},
+		{ID: "m2", Tags: []string{"api"}},
+		{ID: "m3", Tags: []string{"oauth", "api"}},
+	}
+	ss := NewSeedSelector(motes, nil, nil)
+	seeds := ss.SelectSeeds("oauth api", nil)
+
+	// m3 has both tags → ranked highest
+	if len(seeds) == 0 {
+		t.Fatal("expected seeds")
+	}
+	if seeds[0].ID != "m3" {
+		t.Errorf("m3 (both tags) should rank first, got %s", seeds[0].ID)
+	}
+}
+
+func TestSelectSeeds_TitleFallback(t *testing.T) {
+	motes := []*Mote{
+		{ID: "m1", Tags: []string{"ci"}, Title: "OAuth implementation plan"},
+		{ID: "m2", Tags: []string{"docker"}, Title: "Docker setup"},
+	}
+	ss := NewSeedSelector(motes, nil, nil)
+	seeds := ss.SelectSeeds("oauth", nil)
+
+	ids := make(map[string]bool)
+	for _, s := range seeds {
+		ids[s.ID] = true
+	}
+	if !ids["m1"] {
+		t.Errorf("m1 should match via title fallback")
+	}
+	if ids["m2"] {
+		t.Errorf("m2 should not match")
+	}
+}
+
+func TestSelectSeeds_AmbientGitBranch(t *testing.T) {
+	motes := []*Mote{
+		{ID: "m1", Tags: []string{"oauth", "auth"}},
+		{ID: "m2", Tags: []string{"docker"}},
+	}
+	signals := []SignalConfig{
+		{Name: "git_branch", Type: "built_in"},
+	}
+	ss := NewSeedSelector(motes, nil, signals)
+
+	ambient := &AmbientContext{GitBranch: "feature/oauth-flow"}
+	seeds := ss.SelectSeeds("", ambient)
+
+	ids := make(map[string]bool)
+	for _, s := range seeds {
+		ids[s.ID] = true
+	}
+	if !ids["m1"] {
+		t.Errorf("m1 should match via git branch 'feature/oauth-flow'")
+	}
+}
+
+func TestSelectSeeds_NoMatches(t *testing.T) {
+	motes := []*Mote{
+		{ID: "m1", Tags: []string{"docker"}},
+	}
+	ss := NewSeedSelector(motes, nil, nil)
+	seeds := ss.SelectSeeds("nonexistent", nil)
+
+	if len(seeds) != 0 {
+		t.Errorf("expected 0 seeds, got %d", len(seeds))
+	}
+}
+
+func TestExtractKeywords(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []string
+	}{
+		{"feature/oauth-flow", []string{"feature", "oauth", "flow"}},
+		{"the api is great", []string{"api", "great"}},
+		{"OAuth OAuth oauth", []string{"oauth"}}, // dedup
+		{"", nil},
+	}
+	for _, tc := range tests {
+		result := ExtractKeywords(tc.input)
+		if len(result) != len(tc.expected) {
+			t.Errorf("ExtractKeywords(%q): got %v, want %v", tc.input, result, tc.expected)
+			continue
+		}
+		for i := range result {
+			if result[i] != tc.expected[i] {
+				t.Errorf("ExtractKeywords(%q)[%d]: got %q, want %q",
+					tc.input, i, result[i], tc.expected[i])
+			}
+		}
+	}
+}
