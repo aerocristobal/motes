@@ -15,10 +15,11 @@ type MoteManager struct {
 }
 
 type CreateOpts struct {
-	Tags   []string
-	Weight float64
-	Origin string
-	Body   string
+	Tags          []string
+	Weight        float64
+	Origin        string
+	Body          string
+	StrataCorpus  string
 }
 
 type ListFilters struct {
@@ -66,16 +67,17 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 
 	now := time.Now().UTC()
 	m := &Mote{
-		ID:          id,
-		Type:        moteType,
-		Status:      "active",
-		Title:       title,
-		Tags:        opts.Tags,
-		Weight:      weight,
-		Origin:      origin,
-		CreatedAt:   now,
-		AccessCount: 0,
-		Body:        opts.Body,
+		ID:           id,
+		Type:         moteType,
+		Status:       "active",
+		Title:        title,
+		Tags:         opts.Tags,
+		Weight:       weight,
+		Origin:       origin,
+		CreatedAt:    now,
+		AccessCount:  0,
+		Body:         opts.Body,
+		StrataCorpus: opts.StrataCorpus,
 	}
 
 	data, err := SerializeMote(m)

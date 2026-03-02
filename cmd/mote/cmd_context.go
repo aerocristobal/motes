@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"motes/internal/core"
 	"motes/internal/format"
+	"motes/internal/strata"
 )
 
 var contextCmd = &cobra.Command{
@@ -78,12 +79,69 @@ func runContext(cmd *cobra.Command, args []string) error {
 	// Contradiction detection
 	printContradictions(results, idx)
 
+	// Strata augmentation: if anchor motes scored, query their corpora
+	if cfg.Strata.ContextAugment.Enabled {
+		augmentFromStrata(root, cfg, topic, results)
+	}
+
 	// Batch access updates
 	for _, sm := range results {
 		_ = mm.AppendAccessBatch(sm.Mote.ID)
 	}
 
 	return nil
+}
+
+func augmentFromStrata(root string, cfg *core.Config, topic string, results []core.ScoredMote) {
+	sm := strata.NewStrataManager(root, cfg.Strata)
+	augCfg := cfg.Strata.ContextAugment
+
+	var corporaQueried int
+	for _, r := range results {
+		if corporaQueried >= augCfg.MaxAugmentCorpora {
+			break
+		}
+		corpus := r.Mote.StrataCorpus
+		if corpus == "" {
+			continue
+		}
+
+		topK := augCfg.ChunksPerCorpus
+		if topK <= 0 {
+			topK = 3
+		}
+		chunks, err := sm.Query(topic, corpus, topK)
+		if err != nil || len(chunks) == 0 {
+			continue
+		}
+
+		// Filter by min relevance
+		minScore := cfg.Strata.Retrieval.MinRelevanceScore
+		var relevant []strata.ChunkResult
+		for _, c := range chunks {
+			if c.Score >= minScore {
+				relevant = append(relevant, c)
+			}
+		}
+		if len(relevant) == 0 {
+			continue
+		}
+
+		fmt.Printf("\n--- Reference (from %s) ---\n", corpus)
+		for _, c := range relevant {
+			heading := c.Chunk.Heading
+			if heading == "" {
+				heading = c.Chunk.SourcePath
+			}
+			text := strings.ReplaceAll(c.Chunk.Text, "\n", " ")
+			fmt.Printf("  [%.2f] %s\n", c.Score, heading)
+			fmt.Printf("         %s\n", format.Truncate(text, 120))
+		}
+		corporaQueried++
+
+		// Update anchor query count
+		updateAnchorQueryCount(root, corpus)
+	}
 }
 
 func printContradictions(results []core.ScoredMote, idx *core.EdgeIndex) {
