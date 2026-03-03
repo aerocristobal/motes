@@ -35,6 +35,10 @@ type auditEntry struct {
 
 func runTagsAudit(cmd *cobra.Command, args []string) error {
 	root := mustFindRoot()
+	cfg, err := core.LoadConfig(root)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
 	mm := core.NewMoteManager(root)
 	im := core.NewIndexManager(root)
 	idx, err := im.Load()
@@ -52,13 +56,18 @@ func runTagsAudit(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	tagOverloadThreshold := cfg.Dream.PreScan.TagOverloadThreshold
+	if tagOverloadThreshold <= 0 {
+		tagOverloadThreshold = 15
+	}
+
 	// Build audit entries
 	var entries []auditEntry
 	for tag, count := range idx.TagStats {
 		specificity := 1.0 / math.Log2(float64(count)+2)
 		status := "ok"
-		if count > 15 {
-			status = "overloaded (>15)"
+		if count > tagOverloadThreshold {
+			status = fmt.Sprintf("overloaded (>%d)", tagOverloadThreshold)
 		} else if count == 1 {
 			status = "unique"
 		}
@@ -82,7 +91,7 @@ func runTagsAudit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Co-occurrence suggestions for overloaded tags
-	overloaded := findOverloadedTags(idx.TagStats)
+	overloaded := findOverloadedTags(idx.TagStats, tagOverloadThreshold)
 	if len(overloaded) > 0 {
 		fmt.Println()
 		fmt.Println("Co-occurrence suggestions for overloaded tags:")
@@ -98,10 +107,13 @@ func runTagsAudit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func findOverloadedTags(tagStats map[string]int) []string {
+func findOverloadedTags(tagStats map[string]int, threshold int) []string {
+	if threshold <= 0 {
+		threshold = 15
+	}
 	var overloaded []string
 	for tag, count := range tagStats {
-		if count > 15 {
+		if count > threshold {
 			overloaded = append(overloaded, tag)
 		}
 	}

@@ -1,6 +1,7 @@
 package dream
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -156,6 +157,48 @@ func TestPreScanner_LinkCandidates(t *testing.T) {
 
 	if len(result.LinkCandidates) != 1 {
 		t.Errorf("expected 1 link candidate, got %d", len(result.LinkCandidates))
+	}
+}
+
+func TestPreScanner_ConstellationEvolution(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+
+	// Create constellation mote and some tagged motes
+	hub := createTestMote(t, mm, "constellation", "Constellation: auth", []string{"auth"})
+	m1 := createTestMote(t, mm, "decision", "Auth decision", []string{"auth"})
+	m2 := createTestMote(t, mm, "lesson", "Auth lesson", []string{"auth"})
+
+	// Write constellations.jsonl recording only 2 members
+	cPath := filepath.Join(root, "constellations.jsonl")
+	record := fmt.Sprintf(`{"tag":"auth","constellation_mote_id":"%s","member_mote_ids":["%s","%s"]}`, hub.ID, m1.ID, m2.ID)
+	os.WriteFile(cPath, []byte(record+"\n"), 0644)
+
+	// Add 2 more motes with "auth" tag (total 5 including hub, 4 non-constellation)
+	// Growth = (5 - 2) / 2 * 100 = 150% which exceeds 30% threshold
+	createTestMote(t, mm, "context", "Auth context 1", []string{"auth"})
+	createTestMote(t, mm, "context", "Auth context 2", []string{"auth"})
+
+	motes, _ := mm.ReadAllParallel()
+	im.Rebuild(motes)
+
+	ps := NewPreScanner(root, mm, im, core.DefaultConfig().Dream)
+	result, err := ps.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.ConstellationEvolution) != 1 {
+		t.Fatalf("expected 1 constellation evolution, got %d", len(result.ConstellationEvolution))
+	}
+	ce := result.ConstellationEvolution[0]
+	if ce.ConstellationID != hub.ID {
+		t.Errorf("expected constellation ID %s, got %s", hub.ID, ce.ConstellationID)
+	}
+	if ce.Tag != "auth" {
+		t.Errorf("expected tag auth, got %s", ce.Tag)
+	}
+	if ce.OldCount != 2 {
+		t.Errorf("expected old count 2, got %d", ce.OldCount)
 	}
 }
 

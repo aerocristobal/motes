@@ -56,7 +56,12 @@ func (bc *BatchConstructor) Build(candidates *ScanResult) []Batch {
 	addMotes(candidates.StaleMotes, "staleness_evaluation")
 	addMotes(candidates.CompressionCandidates, "compression")
 	addMotes(candidates.UncrystallizedIssues, "crystallization")
-	addMotes(candidates.ConstellationEvolution, "constellation_evolution")
+	for _, ce := range candidates.ConstellationEvolution {
+		if moteTaskMap[ce.ConstellationID] == nil {
+			moteTaskMap[ce.ConstellationID] = map[string]bool{}
+		}
+		moteTaskMap[ce.ConstellationID]["constellation_evolution"] = true
+	}
 	for _, sc := range candidates.SignalCandidates {
 		if moteTaskMap[sc.MoteID] == nil {
 			moteTaskMap[sc.MoteID] = map[string]bool{}

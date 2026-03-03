@@ -1,14 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/internal/dream"
 	"motes/internal/format"
 )
 
@@ -159,12 +162,75 @@ func runPrime(cmd *cobra.Command, args []string) error {
 	// Contradiction warnings
 	printContradictions(allResults, idx)
 
+	// Dream notices
+	dreamDir := filepath.Join(root, "dream")
+	printDreamNotices(dreamDir, cfg)
+
+	// Available strata from anchor motes in results
+	printStrataSection(allResults)
+
 	// Batch access updates
 	for _, sm := range allResults {
 		_ = mm.AppendAccessBatch(sm.Mote.ID)
 	}
 
 	return nil
+}
+
+func printDreamNotices(dreamDir string, cfg *core.Config) {
+	// Check last dream run
+	logPath := filepath.Join(dreamDir, "log.jsonl")
+	if data, err := os.ReadFile(logPath); err == nil && len(data) > 0 {
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		if len(lines) > 0 {
+			lastLine := lines[len(lines)-1]
+			var entry dream.RunLogEntry
+			if err := json.Unmarshal([]byte(lastLine), &entry); err == nil && entry.Timestamp != "" {
+				if t, err := time.Parse(time.RFC3339, entry.Timestamp); err == nil {
+					daysSince := int(time.Since(t).Hours() / 24)
+					hint := cfg.Dream.ScheduleHintDays
+					if hint <= 0 {
+						hint = 2
+					}
+					if daysSince > hint {
+						fmt.Printf("## Dream cycle\n\n")
+						fmt.Printf("  Last dream run: %d days ago (hint: every %d days)\n", daysSince, hint)
+						fmt.Printf("  Consider running: mote dream\n\n")
+					}
+				}
+			}
+		}
+	}
+
+	// Count pending visions
+	vw := dream.NewVisionWriter(dreamDir)
+	pending := vw.ReadFinal()
+	if len(pending) > 0 {
+		fmt.Printf("## Pending visions\n\n")
+		fmt.Printf("  %d visions pending review — run: mote dream review\n\n", len(pending))
+	}
+}
+
+func printStrataSection(results []core.ScoredMote) {
+	var anchors []core.ScoredMote
+	for _, sm := range results {
+		if sm.Mote.Type == "anchor" && sm.Mote.StrataCorpus != "" {
+			anchors = append(anchors, sm)
+		}
+	}
+	if len(anchors) == 0 {
+		return
+	}
+	fmt.Println("## Available strata")
+	fmt.Println()
+	for _, sm := range anchors {
+		hint := sm.Mote.StrataQueryHint
+		if hint == "" {
+			hint = sm.Mote.Title
+		}
+		fmt.Printf("  %s — corpus: %s (hint: %s)\n", sm.Mote.ID, sm.Mote.StrataCorpus, hint)
+	}
+	fmt.Println()
 }
 
 func filterByType(results []core.ScoredMote, moteType string) []core.ScoredMote {

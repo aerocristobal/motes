@@ -97,6 +97,42 @@ func TestSelectSeeds_NoMatches(t *testing.T) {
 	}
 }
 
+func TestSelectSeeds_CoAccessSignal(t *testing.T) {
+	motes := []*Mote{
+		{ID: "m1", Tags: []string{"oauth", "auth"}},
+		{ID: "m2", Tags: []string{"database", "auth"}},
+		{ID: "m3", Tags: []string{"docker"}},
+	}
+	signals := []SignalConfig{
+		{Name: "git_branch", Type: "built_in"},
+		{
+			Name:        "auth_coaccess",
+			Type:        "co_access",
+			TriggerTags: []string{"oauth"},
+			BoostTags:   []string{"auth"},
+			BoostAmount: 0.5,
+		},
+	}
+	ss := NewSeedSelector(motes, nil, signals)
+	// Search for "oauth" — m1 matches via tag, triggering co_access signal
+	// which boosts all motes with "auth" tag (m1 and m2)
+	seeds := ss.SelectSeeds("oauth", &AmbientContext{})
+
+	ids := make(map[string]bool)
+	for _, s := range seeds {
+		ids[s.ID] = true
+	}
+	if !ids["m1"] {
+		t.Error("m1 should match via tag + co_access boost")
+	}
+	if !ids["m2"] {
+		t.Error("m2 should match via co_access boost (has auth tag)")
+	}
+	if ids["m3"] {
+		t.Error("m3 should not match (no auth or oauth tags)")
+	}
+}
+
 func TestExtractKeywords(t *testing.T) {
 	tests := []struct {
 		input    string

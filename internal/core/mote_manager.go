@@ -39,6 +39,11 @@ func NewMoteManager(root string) *MoteManager {
 	return &MoteManager{root: root}
 }
 
+// Root returns the .memory root path.
+func (mm *MoteManager) Root() string {
+	return mm.root
+}
+
 func (mm *MoteManager) nodesDir() string {
 	return filepath.Join(mm.root, "nodes")
 }

@@ -183,24 +183,71 @@ func (ps *PreScanner) findStaleMotes(motes []*core.Mote) []string {
 	return stale
 }
 
-// findConstellationCandidates finds tags with 3+ motes but no constellation hub.
-func (ps *PreScanner) findConstellationCandidates(motes []*core.Mote) []string {
-	constellationTags := map[string]bool{}
+// constellationRecord mirrors the record stored in constellations.jsonl.
+type constellationRecord struct {
+	Tag                 string   `json:"tag"`
+	ConstellationMoteID string   `json:"constellation_mote_id"`
+	MemberMoteIDs       []string `json:"member_mote_ids"`
+}
+
+// findConstellationCandidates checks existing constellations for membership growth.
+// A constellation is flagged if its tag's current mote count has grown >= ThemeGrowthThresholdPct
+// beyond the recorded member count.
+func (ps *PreScanner) findConstellationCandidates(motes []*core.Mote) []ConstellationEvolution {
+	// Read constellations.jsonl for recorded member counts
+	cPath := filepath.Join(ps.root, "constellations.jsonl")
+	data, err := os.ReadFile(cPath)
+	if err != nil {
+		return nil
+	}
+
+	// Parse records
+	var records []constellationRecord
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var r constellationRecord
+		if err := json.Unmarshal([]byte(line), &r); err != nil {
+			continue
+		}
+		records = append(records, r)
+	}
+	if len(records) == 0 {
+		return nil
+	}
+
+	// Build current tag counts (non-deprecated motes only)
 	tagCounts := map[string]int{}
 	for _, m := range motes {
-		if m.Type == "constellation" {
-			for _, tag := range m.Tags {
-				constellationTags[tag] = true
-			}
+		if m.Status == "deprecated" {
+			continue
 		}
 		for _, tag := range m.Tags {
 			tagCounts[tag]++
 		}
 	}
-	var candidates []string
-	for tag, count := range tagCounts {
-		if count >= 3 && !constellationTags[tag] {
-			candidates = append(candidates, tag)
+
+	growthPct := ps.config.PreScan.ThemeGrowthThresholdPct
+	if growthPct <= 0 {
+		growthPct = 30
+	}
+
+	var candidates []ConstellationEvolution
+	for _, r := range records {
+		oldCount := len(r.MemberMoteIDs)
+		if oldCount == 0 {
+			continue
+		}
+		newCount := tagCounts[r.Tag]
+		growth := float64(newCount-oldCount) / float64(oldCount) * 100
+		if growth >= float64(growthPct) {
+			candidates = append(candidates, ConstellationEvolution{
+				ConstellationID: r.ConstellationMoteID,
+				Tag:             r.Tag,
+				OldCount:        oldCount,
+				NewCount:        newCount,
+			})
 		}
 	}
 	return candidates

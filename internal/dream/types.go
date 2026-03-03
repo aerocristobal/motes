@@ -47,13 +47,21 @@ type StrataCrystallizationCandidate struct {
 	QueryCount int
 }
 
+// ConstellationEvolution tracks growth of a constellation's theme.
+type ConstellationEvolution struct {
+	ConstellationID string `json:"constellation_id"`
+	Tag             string `json:"tag"`
+	OldCount        int    `json:"old_count"`
+	NewCount        int    `json:"new_count"`
+}
+
 // ScanResult holds all dream pre-scan findings.
 type ScanResult struct {
 	LinkCandidates          []MotePair
 	ContradictionCandidates []MotePair
 	OverloadedTags          []TagOverload
 	StaleMotes              []string
-	ConstellationEvolution  []string
+	ConstellationEvolution  []ConstellationEvolution
 	CompressionCandidates   []string
 	UncrystallizedIssues    []string
 	StrataCrystallization   []StrataCrystallizationCandidate

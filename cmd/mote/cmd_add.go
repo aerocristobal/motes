@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -21,6 +22,7 @@ var (
 	addTags   []string
 	addWeight float64
 	addOrigin string
+	addBody   string
 )
 
 func init() {
@@ -29,6 +31,7 @@ func init() {
 	addCmd.Flags().StringArrayVar(&addTags, "tag", nil, "Tag (repeatable)")
 	addCmd.Flags().Float64Var(&addWeight, "weight", 0.5, "Initial weight (0.0-1.0)")
 	addCmd.Flags().StringVar(&addOrigin, "origin", "normal", "Origin (normal|failure|revert|hotfix|discovery)")
+	addCmd.Flags().StringVar(&addBody, "body", "", "Mote body (use - for stdin)")
 	_ = addCmd.MarkFlagRequired("type")
 	_ = addCmd.MarkFlagRequired("title")
 	rootCmd.AddCommand(addCmd)
@@ -44,22 +47,36 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("init memory dir: %w", err)
 	}
 
-	// Open editor for body
-	tmp, err := os.CreateTemp("", "mote-*.md")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-	tmp.Close()
-	defer os.Remove(tmpPath)
+	// Get body from --body flag, stdin, or editor
+	var bodyBytes []byte
+	stdinStat, _ := os.Stdin.Stat()
+	stdinIsPipe := stdinStat != nil && (stdinStat.Mode()&os.ModeCharDevice) == 0
+	if addBody == "-" || (addBody == "" && stdinIsPipe) {
+		// Read from stdin
+		bodyBytes, err = io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("read stdin: %w", err)
+		}
+	} else if addBody != "" {
+		bodyBytes = []byte(addBody)
+	} else {
+		// Open editor for body
+		tmp, err := os.CreateTemp("", "mote-*.md")
+		if err != nil {
+			return fmt.Errorf("create temp file: %w", err)
+		}
+		tmpPath := tmp.Name()
+		tmp.Close()
+		defer os.Remove(tmpPath)
 
-	if err := openEditor(tmpPath); err != nil {
-		return fmt.Errorf("editor: %w", err)
-	}
+		if err := openEditor(tmpPath); err != nil {
+			return fmt.Errorf("editor: %w", err)
+		}
 
-	bodyBytes, err := os.ReadFile(tmpPath)
-	if err != nil {
-		return fmt.Errorf("read body: %w", err)
+		bodyBytes, err = os.ReadFile(tmpPath)
+		if err != nil {
+			return fmt.Errorf("read body: %w", err)
+		}
 	}
 
 	mm := core.NewMoteManager(root)

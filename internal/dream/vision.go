@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"motes/internal/core"
 )
+
+// execCommand wraps exec.Command for testability.
+var execCommand = exec.Command
 
 // VisionWriter manages reading and writing vision JSONL files.
 type VisionWriter struct {
@@ -88,11 +92,18 @@ type VisionReviewer struct {
 	visions *VisionWriter
 	mm      *core.MoteManager
 	im      *core.IndexManager
+	root    string
+	cfg     *core.Config
 }
 
 // NewVisionReviewer creates a reviewer.
 func NewVisionReviewer(vw *VisionWriter, mm *core.MoteManager, im *core.IndexManager) *VisionReviewer {
 	return &VisionReviewer{visions: vw, mm: mm, im: im}
+}
+
+// NewVisionReviewerWithConfig creates a reviewer with config access for signal/constellation apply.
+func NewVisionReviewerWithConfig(vw *VisionWriter, mm *core.MoteManager, im *core.IndexManager, root string, cfg *core.Config) *VisionReviewer {
+	return &VisionReviewer{visions: vw, mm: mm, im: im, root: root, cfg: cfg}
 }
 
 // Review runs the interactive review loop.
@@ -120,6 +131,19 @@ func (vr *VisionReviewer) Review() (*ReviewResult, error) {
 			if err := vr.apply(v); err != nil {
 				fmt.Fprintf(os.Stderr, "warning: apply failed: %v\n", err)
 				deferred = append(deferred, v)
+			} else {
+				result.Accepted++
+			}
+		case "e":
+			edited, err := vr.editVision(v)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: edit failed: %v\n", err)
+				deferred = append(deferred, v)
+				result.Deferred++
+			} else if err := vr.apply(edited); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: apply edited vision failed: %v\n", err)
+				deferred = append(deferred, v)
+				result.Deferred++
 			} else {
 				result.Accepted++
 			}
@@ -159,6 +183,49 @@ func (vr *VisionReviewer) display(v Vision) {
 	fmt.Printf("  Reason:   %s\n", v.Rationale)
 }
 
+func (vr *VisionReviewer) editVision(v Vision) (Vision, error) {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return v, fmt.Errorf("marshal vision: %w", err)
+	}
+
+	tmp, err := os.CreateTemp("", "vision-*.json")
+	if err != nil {
+		return v, fmt.Errorf("create temp: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return v, fmt.Errorf("write temp: %w", err)
+	}
+	tmp.Close()
+
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vi"
+	}
+	cmd := execCommand(editor, tmpPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return v, fmt.Errorf("editor: %w", err)
+	}
+
+	edited, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return v, fmt.Errorf("read edited: %w", err)
+	}
+
+	var result Vision
+	if err := json.Unmarshal(edited, &result); err != nil {
+		return v, fmt.Errorf("parse edited vision: %w", err)
+	}
+	return result, nil
+}
+
 func (vr *VisionReviewer) apply(v Vision) error {
 	switch v.Type {
 	case "link_suggestion":
@@ -170,15 +237,78 @@ func (vr *VisionReviewer) apply(v Vision) error {
 		if v.Action == "deprecate" && len(v.SourceMotes) > 0 {
 			return vr.mm.Deprecate(v.SourceMotes[0], "")
 		}
-	case "tag_refinement":
-		// Tag changes require manual review — just log for now
-		fmt.Printf("  -> Tag refinement noted. Manual action required.\n")
 	case "contradiction":
-		fmt.Printf("  -> Contradiction flagged. Manual resolution required.\n")
+		if len(v.SourceMotes) < 2 {
+			return fmt.Errorf("contradiction vision needs at least 2 source motes")
+		}
+		return vr.mm.Link(v.SourceMotes[0], "contradicts", v.SourceMotes[1], vr.im)
+	case "tag_refinement":
+		if len(v.SourceMotes) == 0 || len(v.Tags) == 0 {
+			return fmt.Errorf("tag_refinement vision needs source motes and tags")
+		}
+		m, err := vr.mm.Read(v.SourceMotes[0])
+		if err != nil {
+			return fmt.Errorf("read mote %s: %w", v.SourceMotes[0], err)
+		}
+		m.Tags = v.Tags
+		data, err := core.SerializeMote(m)
+		if err != nil {
+			return fmt.Errorf("serialize: %w", err)
+		}
+		return core.AtomicWrite(vr.mm.MoteFilePath(v.SourceMotes[0]), data, 0644)
 	case "compression":
-		fmt.Printf("  -> Compression suggested. Manual action required.\n")
+		if len(v.SourceMotes) == 0 || v.Rationale == "" {
+			return fmt.Errorf("compression vision needs source mote and rationale as compressed body")
+		}
+		m, err := vr.mm.Read(v.SourceMotes[0])
+		if err != nil {
+			return fmt.Errorf("read mote %s: %w", v.SourceMotes[0], err)
+		}
+		m.Body = v.Rationale
+		data, err := core.SerializeMote(m)
+		if err != nil {
+			return fmt.Errorf("serialize: %w", err)
+		}
+		return core.AtomicWrite(vr.mm.MoteFilePath(v.SourceMotes[0]), data, 0644)
+	case "constellation":
+		if len(v.Tags) == 0 || len(v.SourceMotes) == 0 {
+			return fmt.Errorf("constellation vision needs tags and source motes")
+		}
+		tag := v.Tags[0]
+		title := fmt.Sprintf("Constellation: %s", tag)
+		body := fmt.Sprintf("Hub for the **%s** theme.\n\nMembers:\n", tag)
+		for _, id := range v.SourceMotes {
+			body += fmt.Sprintf("- [[%s]]\n", id)
+		}
+		hub, err := vr.mm.Create("constellation", title, core.CreateOpts{
+			Tags:   []string{tag},
+			Weight: 0.6,
+			Body:   body,
+		})
+		if err != nil {
+			return fmt.Errorf("create constellation: %w", err)
+		}
+		for _, memberID := range v.SourceMotes {
+			_ = vr.mm.Link(hub.ID, "relates_to", memberID, vr.im)
+		}
+		fmt.Printf("  -> Created constellation %s for tag %q\n", hub.ID, tag)
 	case "signal":
-		fmt.Printf("  -> Signal pattern noted for config update.\n")
+		if vr.cfg == nil || vr.root == "" {
+			return fmt.Errorf("signal apply requires config access (use NewVisionReviewerWithConfig)")
+		}
+		signal := core.SignalConfig{
+			Name:        v.Action,
+			Type:        "co_access",
+			Description: v.Rationale,
+			TriggerTags: v.Tags,
+			BoostTags:   v.Tags,
+			BoostAmount: 0.3,
+		}
+		vr.cfg.Priming.Signals = append(vr.cfg.Priming.Signals, signal)
+		if err := core.SaveConfig(vr.root, vr.cfg); err != nil {
+			return fmt.Errorf("save config: %w", err)
+		}
+		fmt.Printf("  -> Added co_access signal %q to config\n", signal.Name)
 	}
 	return nil
 }

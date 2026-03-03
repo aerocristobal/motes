@@ -28,6 +28,10 @@ type doctorIssue struct {
 
 func runDoctor(cmd *cobra.Command, args []string) error {
 	root := mustFindRoot()
+	cfg, err := core.LoadConfig(root)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
 	mm := core.NewMoteManager(root)
 	im := core.NewIndexManager(root)
 	idx, err := im.Load()
@@ -84,7 +88,11 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			}
 		}
 
-		// Stale motes: active with last_accessed > 180 days or nil
+		// Stale motes: active with last_accessed > threshold days or nil
+		stalenessThreshold := cfg.Dream.PreScan.StalenessThresholdDays
+		if stalenessThreshold <= 0 {
+			stalenessThreshold = 180
+		}
 		if m.Status == "active" {
 			if m.LastAccessed == nil {
 				issues = append(issues, doctorIssue{
@@ -92,7 +100,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 					MoteID:   m.ID,
 					Detail:   "never accessed",
 				})
-			} else if time.Since(*m.LastAccessed).Hours()/24 > 180 {
+			} else if time.Since(*m.LastAccessed).Hours()/24 > float64(stalenessThreshold) {
 				days := int(time.Since(*m.LastAccessed).Hours() / 24)
 				issues = append(issues, doctorIssue{
 					Category: "stale",
@@ -129,8 +137,12 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	// Overloaded tags
+	tagOverloadThreshold := cfg.Dream.PreScan.TagOverloadThreshold
+	if tagOverloadThreshold <= 0 {
+		tagOverloadThreshold = 15
+	}
 	for tag, count := range idx.TagStats {
-		if count > 15 {
+		if count > tagOverloadThreshold {
 			issues = append(issues, doctorIssue{
 				Category: "overloaded_tag",
 				MoteID:   "tag:" + tag,

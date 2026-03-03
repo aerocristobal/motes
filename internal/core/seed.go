@@ -55,8 +55,11 @@ func (ss *SeedSelector) SelectSeeds(topic string, ambient *AmbientContext) []*Mo
 	// Ambient signals
 	if ambient != nil {
 		for _, signal := range ss.signals {
-			if signal.Type == "built_in" {
+			switch signal.Type {
+			case "built_in":
 				ss.applyBuiltinSignal(signal.Name, ambient, candidates)
+			case "co_access":
+				ss.applyCoAccessSignal(signal, candidates)
 			}
 		}
 	}
@@ -95,6 +98,54 @@ func (ss *SeedSelector) applyBuiltinSignal(name string, ambient *AmbientContext,
 		if ambient.PromptText != "" {
 			keywords := extractKeywords(ambient.PromptText)
 			ss.matchKeywordsToTags(keywords, candidates, 0.8)
+		}
+	}
+}
+
+func (ss *SeedSelector) applyCoAccessSignal(signal SignalConfig, candidates map[string]float64) {
+	if len(signal.TriggerTags) == 0 || len(signal.BoostTags) == 0 {
+		return
+	}
+	boost := signal.BoostAmount
+	if boost == 0 {
+		boost = 0.3
+	}
+
+	// Check if any candidate mote has a trigger tag
+	triggered := false
+	for _, m := range ss.motes {
+		if candidates[m.ID] <= 0 {
+			continue
+		}
+		for _, tag := range m.Tags {
+			for _, trigger := range signal.TriggerTags {
+				if strings.EqualFold(tag, trigger) {
+					triggered = true
+					break
+				}
+			}
+			if triggered {
+				break
+			}
+		}
+		if triggered {
+			break
+		}
+	}
+
+	if !triggered {
+		return
+	}
+
+	// Boost motes that have any boost tag
+	for _, m := range ss.motes {
+		for _, tag := range m.Tags {
+			for _, bt := range signal.BoostTags {
+				if strings.EqualFold(tag, bt) {
+					candidates[m.ID] += boost
+					break
+				}
+			}
 		}
 	}
 }

@@ -237,6 +237,15 @@ func DefaultConfig() *Config {
 	}
 }
 
+// SaveConfig writes config to .memory/config.yaml using atomic write.
+func SaveConfig(root string, cfg *Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	return AtomicWrite(filepath.Join(root, "config.yaml"), data, 0644)
+}
+
 // LoadConfig reads config from .memory/config.yaml, falling back to defaults.
 func LoadConfig(root string) (*Config, error) {
 	data, err := os.ReadFile(filepath.Join(root, "config.yaml"))
