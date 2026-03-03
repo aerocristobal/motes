@@ -47,6 +47,11 @@ func (mm *MoteManager) moteFilePath(moteID string) string {
 	return filepath.Join(mm.nodesDir(), moteID+".md")
 }
 
+// MoteFilePath returns the file path for a mote by ID.
+func (mm *MoteManager) MoteFilePath(moteID string) string {
+	return mm.moteFilePath(moteID)
+}
+
 func scopeFromRoot(root string) string {
 	return filepath.Base(filepath.Dir(root))
 }
@@ -356,6 +361,64 @@ func (mm *MoteManager) FlushAccessBatch() error {
 	}
 
 	return os.Remove(batchPath)
+}
+
+// FlushAccessBatchStats flushes the batch and returns stats (access count, mote count).
+func (mm *MoteManager) FlushAccessBatchStats() (accessCount, moteCount int, err error) {
+	batchPath := filepath.Join(mm.root, ".access_batch.jsonl")
+	data, err := os.ReadFile(batchPath)
+	if os.IsNotExist(err) {
+		return 0, 0, nil
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+
+	type counts struct {
+		lastAccessed time.Time
+		count        int
+	}
+	grouped := map[string]*counts{}
+
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var entry AccessBatchEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		t, parseErr := time.Parse(time.RFC3339, entry.AccessedAt)
+		if parseErr != nil {
+			continue
+		}
+		accessCount++
+		if g, ok := grouped[entry.MoteID]; ok {
+			g.count++
+			if t.After(g.lastAccessed) {
+				g.lastAccessed = t
+			}
+		} else {
+			grouped[entry.MoteID] = &counts{lastAccessed: t, count: 1}
+		}
+	}
+
+	for moteID, g := range grouped {
+		m, readErr := mm.Read(moteID)
+		if readErr != nil {
+			continue
+		}
+		m.LastAccessed = &g.lastAccessed
+		m.AccessCount += g.count
+		out, serErr := SerializeMote(m)
+		if serErr != nil {
+			continue
+		}
+		_ = AtomicWrite(mm.moteFilePath(moteID), out, 0644)
+	}
+
+	moteCount = len(grouped)
+	return accessCount, moteCount, os.Remove(batchPath)
 }
 
 // Link creates a link from sourceID to targetID with the given type.

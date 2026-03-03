@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -38,6 +40,10 @@ func runPrime(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("read motes: %w", err)
 	}
+
+	// Merge global motes
+	globalMotes := readGlobalMotes()
+	motes = append(motes, globalMotes...)
 
 	// Get active tasks sorted by weight
 	var activeTasks []*core.Mote
@@ -127,7 +133,7 @@ func runPrime(cmd *cobra.Command, args []string) error {
 		fmt.Println("## Relevant decisions")
 		fmt.Println()
 		for _, sm := range decisions {
-			fmt.Printf("  [%.3f] %s — %s\n", sm.Score, sm.Mote.ID, sm.Mote.Title)
+			fmt.Printf("  %s[%.3f] %s — %s\n", motePrefix(sm.Mote), sm.Score, sm.Mote.ID, sm.Mote.Title)
 		}
 		fmt.Println()
 	}
@@ -136,7 +142,7 @@ func runPrime(cmd *cobra.Command, args []string) error {
 		fmt.Println("## Key lessons")
 		fmt.Println()
 		for _, sm := range lessons {
-			fmt.Printf("  [%.3f] %s — %s\n", sm.Score, sm.Mote.ID, sm.Mote.Title)
+			fmt.Printf("  %s[%.3f] %s — %s\n", motePrefix(sm.Mote), sm.Score, sm.Mote.ID, sm.Mote.Title)
 		}
 		fmt.Println()
 	}
@@ -145,7 +151,7 @@ func runPrime(cmd *cobra.Command, args []string) error {
 		fmt.Println("## Prior explorations")
 		fmt.Println()
 		for _, sm := range explores {
-			fmt.Printf("  [%.3f] %s — %s\n", sm.Score, sm.Mote.ID, sm.Mote.Title)
+			fmt.Printf("  %s[%.3f] %s — %s\n", motePrefix(sm.Mote), sm.Score, sm.Mote.ID, sm.Mote.Title)
 		}
 		fmt.Println()
 	}
@@ -169,4 +175,39 @@ func filterByType(results []core.ScoredMote, moteType string) []core.ScoredMote 
 		}
 	}
 	return filtered
+}
+
+func readGlobalMotes() []*core.Mote {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	globalDir := filepath.Join(home, ".claude", "memory", "nodes")
+	entries, err := os.ReadDir(globalDir)
+	if err != nil {
+		return nil
+	}
+	var motes []*core.Mote
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		m, err := core.ParseMote(filepath.Join(globalDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		motes = append(motes, m)
+	}
+	return motes
+}
+
+func isGlobalMote(m *core.Mote) bool {
+	return strings.HasPrefix(m.ID, "global-")
+}
+
+func motePrefix(m *core.Mote) string {
+	if isGlobalMote(m) {
+		return "[global] "
+	}
+	return ""
 }

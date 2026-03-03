@@ -1,6 +1,8 @@
 package strata
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -21,11 +23,12 @@ type StrataManager struct {
 
 // CorpusManifest holds metadata about a strata corpus.
 type CorpusManifest struct {
-	Name        string   `json:"name"`
-	SourcePaths []string `json:"source_paths"`
-	ChunkCount  int      `json:"chunk_count"`
-	CreatedAt   string   `json:"created_at"`
-	LastUpdated string   `json:"last_updated"`
+	Name         string            `json:"name"`
+	SourcePaths  []string          `json:"source_paths"`
+	SourceHashes map[string]string `json:"source_hashes,omitempty"`
+	ChunkCount   int               `json:"chunk_count"`
+	CreatedAt    string            `json:"created_at"`
+	LastUpdated  string            `json:"last_updated"`
 }
 
 // CorpusInfo is manifest + associated anchor mote ID.
@@ -135,14 +138,23 @@ func (sm *StrataManager) AddCorpus(name string, paths []string, createAnchor boo
 		return err
 	}
 
+	// Compute source hashes
+	sourceHashes := make(map[string]string, len(sourcePaths))
+	for _, p := range sourcePaths {
+		if h, err := fileHash(p); err == nil {
+			sourceHashes[p] = h
+		}
+	}
+
 	// Write manifest
 	now := time.Now().UTC().Format(time.RFC3339)
 	manifest := CorpusManifest{
-		Name:        name,
-		SourcePaths: sourcePaths,
-		ChunkCount:  len(allChunks),
-		CreatedAt:   now,
-		LastUpdated: now,
+		Name:         name,
+		SourcePaths:  sourcePaths,
+		SourceHashes: sourceHashes,
+		ChunkCount:   len(allChunks),
+		CreatedAt:    now,
+		LastUpdated:  now,
 	}
 
 	// Check for existing manifest to preserve CreatedAt
@@ -266,6 +278,80 @@ func (sm *StrataManager) ListCorpora() ([]CorpusInfo, error) {
 		corpora = append(corpora, CorpusInfo{Manifest: *manifest})
 	}
 	return corpora, nil
+}
+
+// UpdateCorpus re-ingests changed files for an existing corpus.
+// Unchanged files (by SHA256 hash) are skipped.
+func (sm *StrataManager) UpdateCorpus(name string) (changed int, err error) {
+	manifest, err := sm.loadManifest(name)
+	if err != nil {
+		return 0, fmt.Errorf("load manifest for %s: %w", name, err)
+	}
+
+	var allChunks []Chunk
+	var newPaths []string
+	newHashes := make(map[string]string)
+
+	for _, p := range manifest.SourcePaths {
+		info, statErr := os.Stat(p)
+		if statErr != nil {
+			continue // deleted file — skip
+		}
+		if info.IsDir() {
+			continue
+		}
+		h, _ := fileHash(p)
+		newHashes[p] = h
+
+		// Skip unchanged
+		if manifest.SourceHashes != nil && manifest.SourceHashes[p] == h {
+			// Reload existing chunks for this file
+			existingChunks, _ := sm.loadChunks(name)
+			base := filepath.Base(p)
+			for _, c := range existingChunks {
+				if filepath.Base(c.SourcePath) == base {
+					allChunks = append(allChunks, c)
+				}
+			}
+			newPaths = append(newPaths, p)
+			continue
+		}
+
+		chunks, readErr := sm.chunkFile(p, name)
+		if readErr != nil {
+			continue
+		}
+		allChunks = append(allChunks, chunks...)
+		newPaths = append(newPaths, p)
+		changed++
+	}
+
+	if len(allChunks) == 0 {
+		return 0, fmt.Errorf("no content after update")
+	}
+
+	if err := sm.writeChunks(name, allChunks); err != nil {
+		return 0, err
+	}
+	bm25Idx := BuildBM25Index(allChunks)
+	if err := sm.writeBM25(name, bm25Idx); err != nil {
+		return 0, err
+	}
+
+	manifest.SourcePaths = newPaths
+	manifest.SourceHashes = newHashes
+	manifest.ChunkCount = len(allChunks)
+	manifest.LastUpdated = time.Now().UTC().Format(time.RFC3339)
+	return changed, sm.writeManifest(name, *manifest)
+}
+
+func fileHash(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:]), nil
 }
 
 // RemoveCorpus deletes a corpus and its files.
