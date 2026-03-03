@@ -25,7 +25,7 @@ func findMemoryRoot() (string, error) {
 		}
 		dir = parent
 	}
-	return "", fmt.Errorf("no .memory/ directory found (run 'mote add' to initialize)")
+	return "", fmt.Errorf("no .memory/ directory found (run 'mote init' to initialize)")
 }
 
 // mustFindRoot returns the .memory/ path or exits with an error message.
