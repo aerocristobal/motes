@@ -34,6 +34,22 @@ func (idx *EdgeIndex) Neighbors(moteID string, edgeTypes map[string]bool) []Edge
 	return result
 }
 
+// Incoming returns incoming edges to moteID, optionally filtered by type.
+func (idx *EdgeIndex) Incoming(moteID string, edgeTypes map[string]bool) []Edge {
+	var result []Edge
+	for _, e := range idx.incoming[moteID] {
+		if edgeTypes == nil || edgeTypes[e.EdgeType] {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+// HasEdges returns true if the moteID has any outgoing or incoming edges.
+func (idx *EdgeIndex) HasEdges(moteID string) bool {
+	return len(idx.outgoing[moteID]) > 0 || len(idx.incoming[moteID]) > 0
+}
+
 type IndexManager struct {
 	path  string
 	index *EdgeIndex

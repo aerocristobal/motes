@@ -17,7 +17,10 @@ var contextCmd = &cobra.Command{
 	RunE:  runContext,
 }
 
+var contextPlanning bool
+
 func init() {
+	contextCmd.Flags().BoolVar(&contextPlanning, "planning", false, "Show dependency chain for a mote ID")
 	rootCmd.AddCommand(contextCmd)
 }
 
@@ -28,6 +31,10 @@ func runContext(cmd *cobra.Command, args []string) error {
 	cfg, err := core.LoadConfig(root)
 	if err != nil {
 		return err
+	}
+
+	if contextPlanning {
+		return runPlanningContext(root, args[0])
 	}
 
 	mm := core.NewMoteManager(root)
@@ -142,6 +149,112 @@ func augmentFromStrata(root string, cfg *core.Config, topic string, results []co
 		// Update anchor query count
 		updateAnchorQueryCount(root, corpus)
 	}
+}
+
+func runPlanningContext(root, moteID string) error {
+	mm := core.NewMoteManager(root)
+
+	target, err := mm.Read(moteID)
+	if err != nil {
+		return fmt.Errorf("read mote %s: %w", moteID, err)
+	}
+
+	// BFS backward through depends_on to find all prerequisites
+	// BFS forward through blocks to find all dependents
+	visited := map[string]*core.Mote{moteID: target}
+	levels := map[string]int{moteID: 0}
+
+	// Walk backwards (depends_on chain)
+	queue := []string{moteID}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		m := visited[current]
+		for _, depID := range m.DependsOn {
+			if _, ok := visited[depID]; ok {
+				continue
+			}
+			dep, err := mm.Read(depID)
+			if err != nil {
+				continue
+			}
+			visited[depID] = dep
+			levels[depID] = levels[current] - 1
+			queue = append(queue, depID)
+		}
+	}
+
+	// Walk forwards (blocks chain)
+	queue = []string{moteID}
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		m := visited[current]
+		for _, blockID := range m.Blocks {
+			if _, ok := visited[blockID]; ok {
+				continue
+			}
+			dep, err := mm.Read(blockID)
+			if err != nil {
+				continue
+			}
+			visited[blockID] = dep
+			levels[blockID] = levels[current] + 1
+			queue = append(queue, blockID)
+		}
+	}
+
+	// Normalize levels so minimum is 0
+	minLevel := 0
+	for _, l := range levels {
+		if l < minLevel {
+			minLevel = l
+		}
+	}
+	for id := range levels {
+		levels[id] -= minLevel
+	}
+
+	// Group by level
+	maxLevel := 0
+	for _, l := range levels {
+		if l > maxLevel {
+			maxLevel = l
+		}
+	}
+
+	fmt.Printf("Execution chain for %s %q:\n\n", target.ID, target.Title)
+	totalMotes := 0
+	maxParallel := 0
+	for level := 0; level <= maxLevel; level++ {
+		var atLevel []*core.Mote
+		for id, l := range levels {
+			if l == level {
+				atLevel = append(atLevel, visited[id])
+			}
+		}
+		if len(atLevel) > maxParallel {
+			maxParallel = len(atLevel)
+		}
+		for i, m := range atLevel {
+			marker := ""
+			if m.ID == moteID {
+				marker = " <- target"
+			} else if len(atLevel) > 1 && i > 0 {
+				marker = " <- parallel"
+			}
+			fmt.Printf("  Level %d: %s %q [%s]%s\n",
+				level, m.ID, format.Truncate(m.Title, 40), m.Status, marker)
+		}
+		totalMotes += len(atLevel)
+	}
+	fmt.Printf("\n  Chain: %d motes", totalMotes)
+	if maxParallel > 1 {
+		fmt.Printf(", max %d parallel at a level", maxParallel)
+	}
+	fmt.Println()
+
+	return nil
 }
 
 func printContradictions(results []core.ScoredMote, idx *core.EdgeIndex) {
