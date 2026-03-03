@@ -1,0 +1,112 @@
+package dream
+
+import (
+	"testing"
+)
+
+func TestExtractJSON_Simple(t *testing.T) {
+	input := `Here is the result: {"visions": [], "lucid_log_updates": {}}`
+	got := extractJSON(input)
+	if got != `{"visions": [], "lucid_log_updates": {}}` {
+		t.Errorf("unexpected: %s", got)
+	}
+}
+
+func TestExtractJSON_NestedBraces(t *testing.T) {
+	input := `Some text {"a": {"b": "c"}} more text`
+	got := extractJSON(input)
+	if got != `{"a": {"b": "c"}}` {
+		t.Errorf("unexpected: %s", got)
+	}
+}
+
+func TestExtractJSON_StringWithBraces(t *testing.T) {
+	input := `{"key": "value with {braces}"}`
+	got := extractJSON(input)
+	if got != `{"key": "value with {braces}"}` {
+		t.Errorf("unexpected: %s", got)
+	}
+}
+
+func TestExtractJSON_NoJSON(t *testing.T) {
+	input := "No JSON here at all"
+	got := extractJSON(input)
+	if got != "" {
+		t.Errorf("expected empty, got: %s", got)
+	}
+}
+
+func TestExtractJSON_EscapedQuotes(t *testing.T) {
+	input := `{"key": "value with \"escaped\" quotes"}`
+	got := extractJSON(input)
+	if got != `{"key": "value with \"escaped\" quotes"}` {
+		t.Errorf("unexpected: %s", got)
+	}
+}
+
+func TestParseBatchResponse_Valid(t *testing.T) {
+	input := `Here are my findings:
+{"visions": [{"type": "link_suggestion", "action": "add_link", "source_motes": ["m1"], "target_motes": ["m2"], "link_type": "relates_to", "rationale": "shared concept", "severity": "medium"}], "lucid_log_updates": {"observed_patterns": [{"pattern_id": "p1", "description": "test", "mote_ids": ["m1"], "strength": 1}]}}`
+
+	parser := NewResponseParser()
+	visions, updates, err := parser.ParseBatchResponse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(visions) != 1 {
+		t.Errorf("expected 1 vision, got %d", len(visions))
+	}
+	if visions[0].Type != "link_suggestion" {
+		t.Errorf("expected link_suggestion, got %s", visions[0].Type)
+	}
+	if len(updates.ObservedPatterns) != 1 {
+		t.Errorf("expected 1 pattern, got %d", len(updates.ObservedPatterns))
+	}
+}
+
+func TestParseBatchResponse_NoJSON(t *testing.T) {
+	parser := NewResponseParser()
+	_, _, err := parser.ParseBatchResponse("No JSON here")
+	if err == nil {
+		t.Error("expected error for no JSON")
+	}
+}
+
+func TestParseBatchResponse_FiltersInvalid(t *testing.T) {
+	input := `{"visions": [{"type": "", "rationale": "incomplete"}, {"type": "staleness", "rationale": "old content", "source_motes": ["m1"], "severity": "low"}], "lucid_log_updates": {}}`
+
+	parser := NewResponseParser()
+	visions, _, err := parser.ParseBatchResponse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(visions) != 1 {
+		t.Errorf("expected 1 valid vision, got %d", len(visions))
+	}
+}
+
+func TestParseReconciliationResponse_Valid(t *testing.T) {
+	input := `{"visions": [{"type": "contradiction", "action": "flag", "source_motes": ["a", "b"], "rationale": "conflicting decisions", "severity": "high"}]}`
+
+	parser := NewResponseParser()
+	visions, err := parser.ParseReconciliationResponse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(visions) != 1 {
+		t.Errorf("expected 1 vision, got %d", len(visions))
+	}
+}
+
+func TestFilterValidVisions_DefaultSeverity(t *testing.T) {
+	visions := []Vision{
+		{Type: "staleness", Rationale: "old", SourceMotes: []string{"m1"}},
+	}
+	valid := filterValidVisions(visions)
+	if len(valid) != 1 {
+		t.Fatal("expected 1 valid vision")
+	}
+	if valid[0].Severity != "medium" {
+		t.Errorf("expected default severity 'medium', got %s", valid[0].Severity)
+	}
+}

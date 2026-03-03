@@ -1,0 +1,1 @@
+{"visions": [{"type": "link_suggestion", "action": "add_link", "source_motes": ["test-c001"], "target_motes": ["test-c002"], "link_type": "relates_to", "rationale": "Confirmed: both discuss authentication patterns and should be linked", "severity": "medium"}]}
