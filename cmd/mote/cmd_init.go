@@ -137,15 +137,41 @@ func printStatus(created bool, name string) {
 
 const motesSection = `## Motes
 
-This project uses motes for context and memory. Knowledge is stored in ` + "`.memory/`" + `.
+This project uses motes for all planning, memory, and task tracking. Knowledge is stored in ` + "`.memory/`" + `.
+
+**Do NOT use** markdown files, TodoWrite, TaskCreate, or external issue trackers for tracking work.
 
 ### Session Start
 
 Run ` + "`mote prime`" + ` at the start of every session for scored, relevant context.
 
+### Task Tracking
+
+Find available work:
+
+    mote ls --ready           # Tasks with no unfinished blockers
+    mote pulse                # Active tasks sorted by weight
+
+Create and manage tasks:
+
+    mote add --type=task --title="Summary" --tag=topic --body "What and why"
+    mote update <id> --status=completed
+
+### Planning
+
+Break work into task motes with dependency links:
+
+    mote add --type=task --title="Epic: Feature X" --tag=epic --body "Goal"
+    mote add --type=task --title="Implement Y" --tag=story --body "Details"
+    mote link <story-id> depends_on <epic-id>
+
+View execution chains:
+
+    mote context --planning <id>
+
 ### During Work
 
-Create motes for knowledge worth preserving:
+Capture knowledge worth preserving:
 
     mote add --type=decision --title="Summary" --tag=topic --body "Rationale"
     mote add --type=lesson --title="Summary" --tag=topic --body "Details"
@@ -158,9 +184,7 @@ Link related motes:
 
 ### Session End
 
-Run ` + "`mote session-end`" + ` for access flush and suggestions.
-
-### Maintenance
+Run ` + "`mote session-end`" + ` for access flush and maintenance suggestions.
 
 Run ` + "`mote dream`" + ` periodically for automated maintenance. Review with ` + "`mote dream --review`" + `.
 `
