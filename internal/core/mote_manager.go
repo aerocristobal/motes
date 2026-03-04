@@ -20,6 +20,7 @@ type CreateOpts struct {
 	Origin        string
 	Body          string
 	StrataCorpus  string
+	SourceIssue   string
 }
 
 type ListFilters struct {
@@ -88,6 +89,7 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 		AccessCount:  0,
 		Body:         opts.Body,
 		StrataCorpus: opts.StrataCorpus,
+		SourceIssue:  opts.SourceIssue,
 	}
 
 	data, err := SerializeMote(m)
