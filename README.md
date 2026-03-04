@@ -13,6 +13,10 @@ cp mote ~/.local/bin/   # or: make install
 
 Requires Go 1.25+.
 
+## Getting Started
+
+New project? Run `mote init`. Coming from beads or MEMORY.md? Run `mote onboard` — it auto-detects and migrates your existing data. See [docs/onboarding.md](docs/onboarding.md) for the full guide.
+
 ## Quick Start
 
 ```bash
@@ -180,9 +184,12 @@ mote crystallize <id>       # Convert completed work to permanent knowledge
 mote promote <id>           # Copy mote to global ~/.claude/memory/
 ```
 
-### Migration
+### Onboarding & Migration
 
 ```bash
+mote onboard                        # Auto-detect and migrate beads/MEMORY.md
+mote onboard --global               # Set up global cross-project memory
+mote onboard --dry-run              # Preview without writing
 mote migrate MEMORY.md              # Convert flat markdown to motes
 mote migrate MEMORY.md --dry-run    # Preview without writing
 ```

@@ -36,7 +36,8 @@ A user who never runs `mote dream` needs nothing beyond the mote binary itself. 
 │                                                                │
 │  cobra dispatch: add, show, ls, pulse, link, unlink, context, │
 │  prime, crystallize, constellation, strata, dream, doctor,     │
-│  stats, index, promote, session-end                            │
+│  stats, index, promote, session-end, init, onboard, migrate,  │
+│  update, tags                                                   │
 └───────┬──────────────────────┬──────────────────────┬─────────┘
         │                      │                      │
 ┌───────▼────────┐    ┌────────▼────────┐    ┌────────▼────────┐
@@ -1236,6 +1237,7 @@ go build -ldflags="-s -w" -o mote ./cmd/mote  # ~5-8 MB
 mote/
 ├── cmd/mote/
 │   ├── main.go                  # cobra root + dispatch
+│   ├── helpers.go               # shared CLI helpers
 │   ├── cmd_add.go
 │   ├── cmd_show.go
 │   ├── cmd_ls.go
@@ -1247,11 +1249,16 @@ mote/
 │   ├── cmd_constellation.go
 │   ├── cmd_doctor.go
 │   ├── cmd_stats.go
+│   ├── cmd_tags.go              # tag audit and management
 │   ├── cmd_index.go
 │   ├── cmd_promote.go
 │   ├── cmd_session_end.go
+│   ├── cmd_update.go            # update mote fields
 │   ├── cmd_strata.go            # strata subcommands
-│   └── cmd_dream.go             # dream + dream --review
+│   ├── cmd_dream.go             # dream + dream --review
+│   ├── cmd_init.go              # initialize .memory/
+│   ├── cmd_onboard.go           # detect and migrate from beads/MEMORY.md
+│   └── cmd_migrate.go           # convert MEMORY.md to motes
 ├── internal/
 │   ├── core/
 │   │   ├── mote.go              # Mote struct, parse, serialize
@@ -1261,26 +1268,26 @@ mote/
 │   │   ├── traversal.go         # GraphTraverser (BFS)
 │   │   ├── seed.go              # SeedSelector + ambient signals
 │   │   ├── config.go            # Config types + loader
-│   │   └── id.go                # ID generation
+│   │   ├── id.go                # ID generation
+│   │   ├── atomic.go            # Atomic file write (temp + rename)
+│   │   └── link_types.go        # Link type definitions
 │   ├── strata/
 │   │   ├── manager.go           # StrataManager
 │   │   ├── chunker.go           # Chunking strategies
 │   │   ├── bm25.go              # BM25 index + search
-│   │   ├── tokenizer.go         # Tokenize + stop words
-│   │   └── querylog.go          # Query log writes
+│   │   └── tokenizer.go         # Tokenize + stop words
 │   ├── dream/
 │   │   ├── orchestrator.go      # Pipeline coordinator
 │   │   ├── prescanner.go        # Deterministic pre-scan
-│   │   ├── batcher.go           # Hybrid batch construction
+│   │   ├── batch.go             # Hybrid batch construction
 │   │   ├── prompt.go            # text/template prompts
 │   │   ├── invoker.go           # Claude CLI subprocess
 │   │   ├── parser.go            # Response parsing
 │   │   ├── lucidlog.go          # Lucid log accumulation
 │   │   ├── vision.go            # Vision types + writer
-│   │   └── reviewer.go          # Interactive review
+│   │   └── types.go             # Dream cycle type definitions
 │   └── format/
-│       ├── output.go            # Terminal formatting
-│       └── ambient.go           # Ambient context collection
+│       └── output.go            # Terminal formatting
 ├── testdata/dream/              # Recorded Claude response fixtures
 ├── go.mod
 ├── go.sum
@@ -1291,11 +1298,6 @@ mote/
 
 ---
 
-## Migration from Current Implementation
+## Migration
 
-The Go binary reads the same `.memory/` directory and file formats as the existing bash/Python implementation. Migration is side-by-side:
-
-1. Build the Go binary with core commands.
-2. Run both implementations, validate output parity on the same `.memory/`.
-3. Replace `~/.local/bin/mote` with the Go binary.
-4. Add strata and dream commands (new capabilities, no file format changes).
+Migration from other systems (beads, MEMORY.md) is handled by `mote onboard` (auto-detects sources) and `mote migrate` (explicit MEMORY.md conversion). See `docs/onboarding.md` for details.

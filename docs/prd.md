@@ -867,16 +867,16 @@ Then:
 **Acceptance Criteria:**
 
 ```gherkin
-Given /home/chris/.claude/projects/-home-chris-projects-ccproxy/memory/MEMORY.md exists
-When I run the migration plan for ccproxy:
+Given ~/.claude/projects/<project>/memory/MEMORY.md exists
+When I run the migration plan for myproject:
 
   Sections to migrate:
-  - "Issue workflow instructions" → NOT a mote; extract to workflow skill
+  - "Workflow instructions" → NOT a mote; extract to workflow skill
   - "Project state snapshot" → mote type=context, tags=[project-state, services], weight=0.4
-  - "OAuth/x-api-key patches" → mote type=lesson, tags=[oauth, anthropic, litellm, patch-required], weight=0.9
-  - "Config notes (Docker/Ollama)" → mote type=context, tags=[config, docker, ollama], weight=0.6
-  - "Local model aliases" → mote type=context, tags=[ollama, models], weight=0.6
-  - "Ollama CUDA/CachyOS fix" → mote type=lesson, tags=[ollama, cuda, cachyos, nvidia, systemd], weight=0.9
+  - "API integration notes" → mote type=lesson, tags=[api, integration, auth], weight=0.9
+  - "Config notes" → mote type=context, tags=[config, deployment], weight=0.6
+  - "Service aliases" → mote type=context, tags=[services, config], weight=0.6
+  - "Environment setup fix" → mote type=lesson, tags=[environment, setup, debugging], weight=0.9
 
 Then after migration:
   - 5-6 mote files exist in .memory/nodes/
@@ -1496,7 +1496,7 @@ And the log is written to .memory/dream/log.jsonl
 And exit code 0 on success, non-zero on failure
 
 Example cron entry:
-  0 3 * * * cd /home/chris/projects/ccproxy && mote dream 2>&1 >> /tmp/mote-dream.log
+  0 3 * * * cd /path/to/project && mote dream 2>&1 >> /tmp/mote-dream.log
 
 Example systemd timer:
   [Timer]
@@ -2105,11 +2105,6 @@ dream:
 
 # --- strata Integration ---
 strata:
-  embedding:
-    provider: ollama              # ollama | sentence-transformers | openai-compatible
-    model: nomic-embed-text       # model name for the selected provider
-    endpoint: null                # required only for openai-compatible provider
-
   chunking:
     strategy: heading-aware       # heading-aware | function-level | sliding-window
     max_chunk_tokens: 512         # max tokens per chunk
@@ -2149,8 +2144,8 @@ strata:
     ├── query_log.jsonl           # append-only log of all strata queries (drives crystallization)
     └── <corpus-name>/            # one directory per corpus
         ├── manifest.json         # corpus metadata: sources, chunk count, timestamps
-        ├── chunks/               # chunked source documents
-        └── embeddings/           # vector embeddings for similarity search
+        ├── chunks.jsonl          # chunked document content
+        └── bm25.json             # BM25 search index
 ```
 
 ---
@@ -2159,34 +2154,34 @@ strata:
 
 | Phase | Stories | Deliverable |
 |---|---|---|
-| **0: Format + First Mote** | 1.1, 1.2 | Storage root decided; first mote created manually; format validated with new frontmatter fields |
-| **1: MVP CLI** | 1.1-1.4, 2.1, 3.1-3.2, 7.1 | `mote add/show/link/unlink/ls/index rebuild` working; access tracking live |
-| **2: Migration** | 9.1 | ccproxy MEMORY.md fully migrated; origin fields set; MEMORY.md.archived |
-| **3: Context Loading** | 4.1-4.4 | `mote context` and `mote prime` with full scoring formula; ambient priming signals |
-| **4: Issue Bridge** | 6.1-6.2 | `mote crystallize` working; automatic salience classification on crystallization |
-| **5: Nebula Health** | 7.2, 4.5 | `mote doctor` with contradiction and tag audit checks; `mote tags audit` |
-| **6: Constellation Discovery** | 5.1-5.3, 8.1-8.2 | `mote constellation synthesize`; Obsidian graph view working |
-| **7: Global Layer** | 10.1 | `mote promote`; cross-project memory active |
-| **8: Retrieval Adaptation** | 11.1-11.3, 4.6 | Access pattern tracking; salience automation; contradiction surfacing; `mote stats` dashboard |
-| **9: Dream Cycle MVP** | 12.1, 12.2, 12.3, 12.6, 12.7 | `mote dream` pipeline with lucid log, hybrid batching, vision review; manual + cron invocation |
-| **10: Dream Reconciliation** | 12.4, 12.5 | Reconciliation pass (Opus); interrupt mechanism; cross-batch coherence |
-| **11: Session Bookends** | 12.8 | `mote session-end` warm path; access flush, crystallization prompts, lightweight link suggestions |
-| **12: Strata Core** | 13.1, 13.2, 13.3, 13.6, 13.9 | `mote strata add/query/ls/update/rm/stats`; anchor motes; embedding provider config |
-| **13: Strata-Nebula Integration** | 13.4, 13.5 | Context-triggered strata augmentation (hot path); session strata queries with logging (warm path) |
-| **14: Strata Crystallization** | 13.7, 13.8 | Dream cycle strata-to-mote crystallization; corpus health review |
+| Phase | Stories | Deliverable | Status |
+|---|---|---|---|
+| **0: Format + First Mote** | 1.1, 1.2 | Storage root decided; first mote created manually; format validated with new frontmatter fields | Done |
+| **1: MVP CLI** | 1.1-1.4, 2.1, 3.1-3.2, 7.1 | `mote add/show/link/unlink/ls/index rebuild` working; access tracking live | Done |
+| **2: Migration** | 9.1 | Project MEMORY.md fully migrated; origin fields set; MEMORY.md.archived | Done |
+| **3: Context Loading** | 4.1-4.4 | `mote context` and `mote prime` with full scoring formula; ambient priming signals | Done |
+| **4: Issue Bridge** | 6.1-6.2 | `mote crystallize` working; automatic salience classification on crystallization | Done |
+| **5: Nebula Health** | 7.2, 4.5 | `mote doctor` with contradiction and tag audit checks; `mote tags audit` | Done |
+| **6: Constellation Discovery** | 5.1-5.3, 8.1-8.2 | `mote constellation synthesize`; Obsidian graph view working | Done |
+| **7: Global Layer** | 10.1 | `mote promote`; cross-project memory active | Done |
+| **8: Retrieval Adaptation** | 11.1-11.3, 4.6 | Access pattern tracking; salience automation; contradiction surfacing; `mote stats` dashboard | Done |
+| **9: Dream Cycle MVP** | 12.1, 12.2, 12.3, 12.6, 12.7 | `mote dream` pipeline with lucid log, hybrid batching, vision review; manual + cron invocation | Done |
+| **10: Dream Reconciliation** | 12.4, 12.5 | Reconciliation pass (Opus); interrupt mechanism; cross-batch coherence | Done |
+| **11: Session Bookends** | 12.8 | `mote session-end` warm path; access flush, crystallization prompts, lightweight link suggestions | Done |
+| **12: Strata Core** | 13.1, 13.2, 13.3, 13.6, 13.9 | `mote strata add/query/ls/update/rm/stats`; anchor motes; BM25 search | Done |
+| **13: Strata-Nebula Integration** | 13.4, 13.5 | Context-triggered strata augmentation (hot path); session strata queries with logging (warm path) | Done |
+| **14: Strata Crystallization** | 13.7, 13.8 | Dream cycle strata-to-mote crystallization; corpus health review | Done |
 
 ---
 
 ## Critical Files
 
-- `/home/chris/.claude/projects/-home-chris-projects-ccproxy/memory/MEMORY.md` — migration source (Epic 9)
-- `~/.local/bin/mote` — CLI script (Phase 1); also handles issue tracking previously done by external tools
-- `/home/chris/.claude/CLAUDE.md` — update to replace MEMORY.md loading with `mote prime` (Phase 2)
-- `/home/chris/.claude/rules/plan-anchoring.md` — `mote prime` output should mirror anchoring pattern
-- `~/.local/bin/mote` — new CLI script to create (Phase 1)
-- `.memory/nodes/` — project-local mote storage (create in Phase 0)
-- `.memory/config.yaml` — scoring and dream configuration (create in Phase 0)
-- `.memory/dream/` — dream cycle artifacts directory (create in Phase 9)
-- `.memory/strata/` — strata corpora and query log (create in Phase 12)
-- `.memory/strata/query_log.jsonl` — strata query log driving crystallization candidates (create in Phase 13)
-- `~/.claude/memory/nodes/` — global mote storage (create in Phase 7)
+- `~/.local/bin/mote` — CLI binary
+- `<project>/.memory/nodes/` — project-local mote storage
+- `<project>/.memory/config.yaml` — scoring, dream, and strata configuration
+- `<project>/.memory/index.jsonl` — edge index (cache, rebuilt from motes)
+- `<project>/.memory/dream/` — dream cycle artifacts (visions, lucid log, run history)
+- `<project>/.memory/strata/` — strata corpora and query log
+- `~/.claude/memory/nodes/` — global mote storage (via `mote promote`)
+- `<project>/CLAUDE.md` — project instructions, updated by `mote init`/`mote onboard`
+- `~/.claude/CLAUDE.md` — global instructions, references `mote prime` at session start

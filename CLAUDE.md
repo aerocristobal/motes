@@ -48,8 +48,9 @@ Motes is an AI-native context and memory system. Knowledge is stored as atomic u
 
 ## Key Documents
 
-- `motes_prd_v4.md` — Full PRD with 13 epics, 46 user stories, and acceptance criteria in Gherkin
-- `nebula_architecture_1.md` — Technical architecture with Go type definitions, algorithms, and layer design
+- `docs/prd.md` — Full PRD with 13 epics, 46 user stories, and acceptance criteria in Gherkin
+- `docs/architecture.md` — Technical architecture with Go type definitions, algorithms, and layer design
+- `docs/onboarding.md` — Getting started guide and migration from beads/MEMORY.md
 
 ## Architecture (4 Layers)
 
