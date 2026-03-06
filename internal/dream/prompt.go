@@ -21,6 +21,14 @@ func NewPromptBuilder(reader func(string) (*core.Mote, error)) *PromptBuilder {
 	funcMap := template.FuncMap{
 		"joinTags":   func(tags []string) string { return strings.Join(tags, ", ") },
 		"formatTime": formatTime,
+		"hasTask": func(tasks []string, target string) bool {
+			for _, t := range tasks {
+				if t == target {
+					return true
+				}
+			}
+			return false
+		},
 	}
 	pb := &PromptBuilder{reader: reader}
 	pb.batchTmpl = template.Must(template.New("batch").Funcs(funcMap).Parse(batchPromptTmpl))
@@ -97,6 +105,13 @@ Last accessed: {{formatTime .LastAccessed}} | Access count: {{.AccessCount}}
 
 ## Tasks
 {{range .Tasks}}- {{.}}
+{{end}}
+{{if hasTask .Tasks "content_link_review"}}
+## Content Similarity Context
+Some motes in this batch were paired by BM25 content similarity — they share distinctive vocabulary
+but have no explicit links or shared tags. For each "content_link_review" task, evaluate whether the
+conceptual overlap warrants a permanent "relates_to" link. Only promote pairs with genuine thematic
+connection, not incidental vocabulary overlap.
 {{end}}
 
 IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in markdown code fences.

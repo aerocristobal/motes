@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"motes/internal/core"
+	"motes/internal/strata"
 )
 
 // PreScanner deterministically identifies dream cycle candidates.
@@ -16,6 +17,7 @@ type PreScanner struct {
 	indexManager  *core.IndexManager
 	root         string
 	config       core.DreamConfig
+	moteBM25     *strata.BM25Index
 }
 
 // NewPreScanner creates a pre-scanner with the given managers.
@@ -28,6 +30,11 @@ func NewPreScanner(root string, mm *core.MoteManager, im *core.IndexManager, cfg
 	}
 }
 
+// SetMoteBM25 sets the mote BM25 index for content similarity scanning.
+func (ps *PreScanner) SetMoteBM25(idx *strata.BM25Index) {
+	ps.moteBM25 = idx
+}
+
 // Scan reads all motes and the index, returning candidates across 9 categories.
 func (ps *PreScanner) Scan() (*ScanResult, error) {
 	motes, err := ps.moteManager.ReadAllParallel()
@@ -38,8 +45,10 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	linkCandidates := ps.findLinkCandidates(motes, idx)
 	return &ScanResult{
-		LinkCandidates:          ps.findLinkCandidates(motes, idx),
+		LinkCandidates:          linkCandidates,
+		ContentLinkCandidates:   ps.findContentLinkCandidates(motes, idx, linkCandidates),
 		ContradictionCandidates: ps.findContradictionCandidates(motes),
 		OverloadedTags:          ps.findOverloadedTags(idx.TagStats),
 		StaleMotes:              ps.findStaleMotes(motes),
@@ -347,6 +356,96 @@ func (ps *PreScanner) findSignalPatterns(motes []*core.Mote) []SignalCandidate {
 			candidates = append(candidates, SignalCandidate{
 				MoteID:  m.ID,
 				Pattern: "high_access_rate",
+			})
+		}
+	}
+	return candidates
+}
+
+// findContentLinkCandidates finds mote pairs with high BM25 content similarity
+// that don't already have explicit links or tag-overlap candidates.
+func (ps *PreScanner) findContentLinkCandidates(motes []*core.Mote, idx *core.EdgeIndex, tagCandidates []MotePair) []MotePair {
+	csCfg := ps.config.PreScan.ContentSimilarity
+	if !csCfg.Enabled {
+		return nil
+	}
+
+	bm25Idx := ps.moteBM25
+	if bm25Idx == nil || bm25Idx.DocCount == 0 {
+		// Build ephemeral index if none provided
+		chunks := make([]strata.Chunk, 0, len(motes))
+		for _, m := range motes {
+			if m.Status == "deprecated" {
+				continue
+			}
+			chunks = append(chunks, strata.Chunk{ID: m.ID, Text: m.Title + " " + m.Body})
+		}
+		bm25Idx = strata.BuildBM25Index(chunks)
+	}
+
+	topK := csCfg.TopK
+	if topK <= 0 {
+		topK = 3
+	}
+	minScore := csCfg.MinScore
+	if minScore <= 0 {
+		minScore = 1.0
+	}
+	maxTerms := csCfg.MaxTerms
+	if maxTerms <= 0 {
+		maxTerms = 8
+	}
+
+	// Build sets for deduplication: existing links and tag-overlap candidates
+	type pairKey struct{ a, b string }
+	existingPairs := make(map[pairKey]bool)
+	for _, p := range tagCandidates {
+		a, b := p.A, p.B
+		if a > b {
+			a, b = b, a
+		}
+		existingPairs[pairKey{a, b}] = true
+	}
+
+	// Build linked set from edge index
+	linkedSet := make(map[pairKey]bool)
+	for _, m := range motes {
+		if m.Status == "deprecated" {
+			continue
+		}
+		edges := idx.Neighbors(m.ID, nil)
+		for _, e := range edges {
+			a, b := m.ID, e.Target
+			if a > b {
+				a, b = b, a
+			}
+			linkedSet[pairKey{a, b}] = true
+		}
+	}
+
+	seen := make(map[pairKey]bool)
+	var candidates []MotePair
+
+	for _, m := range motes {
+		if m.Status == "deprecated" {
+			continue
+		}
+		similar := bm25Idx.FindSimilar(m.ID, topK, minScore, maxTerms)
+		for _, sr := range similar {
+			a, b := m.ID, sr.DocID
+			if a > b {
+				a, b = b, a
+			}
+			pk := pairKey{a, b}
+			if seen[pk] || existingPairs[pk] || linkedSet[pk] {
+				continue
+			}
+			seen[pk] = true
+			candidates = append(candidates, MotePair{
+				A:          pk.a,
+				B:          pk.b,
+				Similarity: sr.Score,
+				Source:      "content_similarity",
 			})
 		}
 	}

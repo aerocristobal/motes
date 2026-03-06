@@ -52,6 +52,7 @@ func (bc *BatchConstructor) Build(candidates *ScanResult) []Batch {
 	}
 
 	addPairs(candidates.LinkCandidates, "link_inference")
+	addPairs(candidates.ContentLinkCandidates, "content_link_review")
 	addPairs(candidates.ContradictionCandidates, "contradiction_detection")
 	addMotes(candidates.StaleMotes, "staleness_evaluation")
 	addMotes(candidates.CompressionCandidates, "compression")

@@ -202,6 +202,137 @@ func TestPreScanner_ConstellationEvolution(t *testing.T) {
 	}
 }
 
+func TestPreScanner_ContentLinkCandidates(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+
+	// Create motes with overlapping content but different tags (no shared tags)
+	mm.Create("decision", "OAuth token refresh flow", core.CreateOpts{
+		Tags: []string{"auth"},
+		Body: "OAuth token refresh authentication flow for API clients with automatic retry",
+	})
+	mm.Create("lesson", "Token validation patterns", core.CreateOpts{
+		Tags: []string{"validation"},
+		Body: "OAuth token validation and authentication refresh patterns for secure API access",
+	})
+	// Unrelated mote
+	mm.Create("context", "Docker networking", core.CreateOpts{
+		Tags: []string{"infra"},
+		Body: "Docker container networking and port mapping for microservices deployment",
+	})
+
+	motes, _ := mm.ReadAllParallel()
+	im.Rebuild(motes)
+
+	cfg := core.DefaultConfig().Dream
+	// Ensure content similarity is enabled with low threshold
+	cfg.PreScan.ContentSimilarity.Enabled = true
+	cfg.PreScan.ContentSimilarity.TopK = 3
+	cfg.PreScan.ContentSimilarity.MinScore = 0.1
+	cfg.PreScan.ContentSimilarity.MaxTerms = 8
+
+	ps := NewPreScanner(root, mm, im, cfg)
+	result, err := ps.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should find content-similar pair between OAuth motes
+	if len(result.ContentLinkCandidates) == 0 {
+		t.Error("expected content link candidates between OAuth-related motes")
+	}
+
+	// Verify source is set correctly
+	for _, p := range result.ContentLinkCandidates {
+		if p.Source != "content_similarity" {
+			t.Errorf("expected source 'content_similarity', got %q", p.Source)
+		}
+		if p.Similarity <= 0 {
+			t.Error("expected positive similarity score")
+		}
+	}
+}
+
+func TestPreScanner_ContentLinkCandidates_ExcludesLinked(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+
+	// Create two motes with overlapping content AND a shared tag link
+	m1 := createTestMote(t, mm, "decision", "OAuth flow", []string{"auth", "oauth", "security"})
+	m2 := createTestMote(t, mm, "lesson", "OAuth patterns", []string{"auth", "oauth", "security"})
+	// Give them overlapping body content
+	mm.Update(m1.ID, map[string]interface{}{"body": "OAuth token refresh authentication"})
+	mm.Update(m2.ID, map[string]interface{}{"body": "OAuth authentication token validation"})
+
+	motes, _ := mm.ReadAllParallel()
+	im.Rebuild(motes)
+
+	cfg := core.DefaultConfig().Dream
+	cfg.PreScan.ContentSimilarity.Enabled = true
+	cfg.PreScan.ContentSimilarity.MinScore = 0.1
+
+	ps := NewPreScanner(root, mm, im, cfg)
+	result, err := ps.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// These should appear as tag-overlap link candidates, not content candidates
+	if len(result.LinkCandidates) == 0 {
+		t.Error("expected tag-overlap link candidates")
+	}
+
+	// Content link candidates should NOT duplicate the tag-overlap pair
+	for _, p := range result.ContentLinkCandidates {
+		a, b := p.A, p.B
+		if a > b {
+			a, b = b, a
+		}
+		for _, lc := range result.LinkCandidates {
+			la, lb := lc.A, lc.B
+			if la > lb {
+				la, lb = lb, la
+			}
+			if a == la && b == lb {
+				t.Errorf("content candidate %s-%s duplicates tag-overlap candidate", a, b)
+			}
+		}
+	}
+}
+
+func TestPreScanner_ContentLinkCandidates_Disabled(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+
+	mm.Create("decision", "OAuth flow", core.CreateOpts{Body: "OAuth token refresh"})
+	mm.Create("lesson", "OAuth patterns", core.CreateOpts{Body: "OAuth authentication tokens"})
+
+	motes, _ := mm.ReadAllParallel()
+	im.Rebuild(motes)
+
+	cfg := core.DefaultConfig().Dream
+	cfg.PreScan.ContentSimilarity.Enabled = false
+
+	ps := NewPreScanner(root, mm, im, cfg)
+	result, err := ps.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.ContentLinkCandidates) != 0 {
+		t.Errorf("expected 0 content candidates when disabled, got %d", len(result.ContentLinkCandidates))
+	}
+}
+
+func TestPreScanner_HasWork_ContentLinkCandidates(t *testing.T) {
+	sr := &ScanResult{}
+	if sr.HasWork() {
+		t.Error("empty ScanResult should return false")
+	}
+
+	sr.ContentLinkCandidates = []MotePair{{A: "a", B: "b", Source: "content_similarity"}}
+	if !sr.HasWork() {
+		t.Error("ScanResult with content link candidates should return true")
+	}
+}
+
 func TestPreScanner_HasWork(t *testing.T) {
 	sr := &ScanResult{}
 	if sr.HasWork() {

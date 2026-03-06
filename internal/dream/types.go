@@ -29,6 +29,8 @@ type MotePair struct {
 	A          string
 	B          string
 	SharedTags []string
+	Similarity float64 // BM25 score (0 if tag-based)
+	Source     string  // "tag_overlap" | "content_similarity"
 }
 
 // TagOverload flags a tag with too many associated motes.
@@ -61,6 +63,7 @@ type ConstellationEvolution struct {
 // ScanResult holds all dream pre-scan findings.
 type ScanResult struct {
 	LinkCandidates          []MotePair
+	ContentLinkCandidates   []MotePair
 	ContradictionCandidates []MotePair
 	OverloadedTags          []TagOverload
 	StaleMotes              []string
@@ -74,6 +77,7 @@ type ScanResult struct {
 // HasWork returns true if any scan category found candidates.
 func (sr *ScanResult) HasWork() bool {
 	return len(sr.LinkCandidates) > 0 ||
+		len(sr.ContentLinkCandidates) > 0 ||
 		len(sr.ContradictionCandidates) > 0 ||
 		len(sr.OverloadedTags) > 0 ||
 		len(sr.StaleMotes) > 0 ||

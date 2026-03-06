@@ -126,3 +126,91 @@ func TestBM25Index_Roundtrip(t *testing.T) {
 		t.Error("search should work after roundtrip")
 	}
 }
+
+func TestFindSimilar(t *testing.T) {
+	chunks := []Chunk{
+		{ID: "m1", Text: "OAuth token refresh authentication flow for API clients"},
+		{ID: "m2", Text: "OAuth authentication headers and token validation"},
+		{ID: "m3", Text: "Docker container networking and port mapping setup"},
+		{ID: "m4", Text: "Kubernetes pod scheduling and resource allocation"},
+		{ID: "m5", Text: "OAuth client credentials grant type implementation"},
+	}
+	idx := BuildBM25Index(chunks)
+
+	// m1 should be most similar to m2 and m5 (OAuth content)
+	results := idx.FindSimilar("m1", 3, 0.1, 8)
+	if len(results) == 0 {
+		t.Fatal("expected similar results for m1")
+	}
+
+	// Self should not appear
+	for _, r := range results {
+		if r.DocID == "m1" {
+			t.Error("self should be excluded from results")
+		}
+	}
+
+	// Top result should be OAuth-related (m2 or m5)
+	top := results[0].DocID
+	if top != "m2" && top != "m5" {
+		t.Errorf("expected m2 or m5 as most similar to m1, got %s", top)
+	}
+
+	// Docker/k8s docs should not rank highly for an OAuth doc
+	for _, r := range results {
+		if r.DocID == "m3" || r.DocID == "m4" {
+			// If they appear, they should score much lower than top
+			if r.Score > results[0].Score*0.5 {
+				t.Errorf("unrelated doc %s scored too high: %.3f vs top %.3f", r.DocID, r.Score, results[0].Score)
+			}
+		}
+	}
+}
+
+func TestFindSimilar_ExcludesSelf(t *testing.T) {
+	chunks := []Chunk{
+		{ID: "a", Text: "unique terms only in document a"},
+		{ID: "b", Text: "completely different vocabulary here"},
+	}
+	idx := BuildBM25Index(chunks)
+	results := idx.FindSimilar("a", 5, 0, 8)
+	for _, r := range results {
+		if r.DocID == "a" {
+			t.Error("self should not appear in FindSimilar results")
+		}
+	}
+}
+
+func TestFindSimilar_UnknownDoc(t *testing.T) {
+	chunks := []Chunk{
+		{ID: "a", Text: "some text here"},
+	}
+	idx := BuildBM25Index(chunks)
+	results := idx.FindSimilar("nonexistent", 3, 0, 8)
+	if len(results) != 0 {
+		t.Errorf("expected 0 results for unknown doc, got %d", len(results))
+	}
+}
+
+func TestFindSimilar_MinScore(t *testing.T) {
+	chunks := []Chunk{
+		{ID: "a", Text: "OAuth token refresh"},
+		{ID: "b", Text: "OAuth authentication"},
+		{ID: "c", Text: "Docker containers"},
+	}
+	idx := BuildBM25Index(chunks)
+
+	// With very high minScore, should filter out weak matches
+	results := idx.FindSimilar("a", 5, 100.0, 8)
+	if len(results) != 0 {
+		t.Errorf("expected 0 results with high minScore, got %d", len(results))
+	}
+}
+
+func TestFindSimilar_EmptyIndex(t *testing.T) {
+	idx := BuildBM25Index(nil)
+	results := idx.FindSimilar("a", 3, 0, 8)
+	if len(results) != 0 {
+		t.Errorf("expected 0 results from empty index, got %d", len(results))
+	}
+}

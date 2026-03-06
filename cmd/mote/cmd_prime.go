@@ -19,11 +19,12 @@ var primeJSON bool
 
 // PrimeOutput is the JSON output structure for mote prime --json.
 type PrimeOutput struct {
-	ActiveTasks []MoteEntry   `json:"active_tasks"`
-	Decisions   []MoteEntry   `json:"decisions"`
-	Lessons     []MoteEntry   `json:"lessons"`
-	Explores    []MoteEntry   `json:"explores"`
-	Strata      []StrataEntry `json:"strata,omitempty"`
+	ActiveTasks    []MoteEntry   `json:"active_tasks"`
+	Decisions      []MoteEntry   `json:"decisions"`
+	Lessons        []MoteEntry   `json:"lessons"`
+	Explores       []MoteEntry   `json:"explores"`
+	ContentEchoes  []MoteEntry   `json:"content_echoes,omitempty"`
+	Strata         []StrataEntry `json:"strata,omitempty"`
 }
 
 // MoteEntry represents a single mote in JSON output.
@@ -194,6 +195,55 @@ func runPrime(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Content similarity expansion
+	csCfg := cfg.Dream.PreScan.ContentSimilarity
+	if csCfg.Enabled {
+		bm25Idx, _ := loadMoteBM25(root)
+		if bm25Idx != nil && bm25Idx.DocCount > 0 {
+			topK := csCfg.TopK
+			if topK <= 0 {
+				topK = 3
+			}
+			minScore := csCfg.MinScore
+			if minScore <= 0 {
+				minScore = 1.0
+			}
+			maxTerms := csCfg.MaxTerms
+			if maxTerms <= 0 {
+				maxTerms = 8
+			}
+			boost := csCfg.PrimingBoost
+			if boost <= 0 {
+				boost = 0.15
+			}
+
+			// Build mote lookup for results
+			moteByID := make(map[string]*core.Mote, len(motes))
+			for _, m := range motes {
+				moteByID[m.ID] = m
+			}
+
+			// For each seed mote in results, find content-similar motes
+			var contentEchoes []core.ScoredMote
+			for _, sm := range allResults {
+				similar := bm25Idx.FindSimilar(sm.Mote.ID, topK, minScore, maxTerms)
+				for _, sr := range similar {
+					if seen[sr.DocID] {
+						continue
+					}
+					if m, ok := moteByID[sr.DocID]; ok && m.Status == "active" {
+						seen[sr.DocID] = true
+						contentEchoes = append(contentEchoes, core.ScoredMote{
+							Mote:  m,
+							Score: boost,
+						})
+					}
+				}
+			}
+			allResults = append(allResults, contentEchoes...)
+		}
+	}
+
 	// Group results by type
 	decisions := filterByType(allResults, "decision")
 	lessons := filterByType(allResults, "lesson")
@@ -201,11 +251,20 @@ func runPrime(cmd *cobra.Command, args []string) error {
 
 	// JSON output mode
 	if primeJSON {
+		var jsonEchoes []core.ScoredMote
+		if csCfg.Enabled && csCfg.PrimingBoost > 0 {
+			for _, sm := range allResults {
+				if sm.Score == csCfg.PrimingBoost {
+					jsonEchoes = append(jsonEchoes, sm)
+				}
+			}
+		}
 		out := PrimeOutput{
-			ActiveTasks: scoredMotesToEntries(activeTasks, nil),
-			Decisions:   scoredMotesToEntriesFromScored(decisions),
-			Lessons:     scoredMotesToEntriesFromScored(lessons),
-			Explores:    scoredMotesToEntriesFromScored(explores),
+			ActiveTasks:   scoredMotesToEntries(activeTasks, nil),
+			Decisions:     scoredMotesToEntriesFromScored(decisions),
+			Lessons:       scoredMotesToEntriesFromScored(lessons),
+			Explores:      scoredMotesToEntriesFromScored(explores),
+			ContentEchoes: scoredMotesToEntriesFromScored(jsonEchoes),
 		}
 		for _, sm := range allResults {
 			if sm.Mote.Type == "anchor" && sm.Mote.StrataCorpus != "" {
@@ -257,6 +316,24 @@ func runPrime(cmd *cobra.Command, args []string) error {
 			fmt.Printf("  %s[%.3f] %s — %s\n", motePrefix(sm.Mote), sm.Score, sm.Mote.ID, sm.Mote.Title)
 		}
 		fmt.Println()
+	}
+
+	// Content echoes — motes surfaced by content similarity, not explicit links
+	if csCfg.Enabled {
+		var echoes []core.ScoredMote
+		for _, sm := range allResults {
+			if sm.Score == csCfg.PrimingBoost && sm.Score > 0 {
+				echoes = append(echoes, sm)
+			}
+		}
+		if len(echoes) > 0 {
+			fmt.Println("## Content echoes")
+			fmt.Println()
+			for _, sm := range echoes {
+				fmt.Printf("  %s[%.3f] %s — %s\n", motePrefix(sm.Mote), sm.Score, sm.Mote.ID, sm.Mote.Title)
+			}
+			fmt.Println()
+		}
 	}
 
 	// Contradiction warnings

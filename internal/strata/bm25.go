@@ -111,6 +111,116 @@ func (idx *BM25Index) Search(query string, topK int) []ChunkResult {
 	return topKResults(scores, idx.Docs, topK)
 }
 
+// SimilarResult represents a document similar to a query document.
+type SimilarResult struct {
+	DocID string
+	Score float64
+}
+
+// FindSimilar finds documents most similar to the given docID using its top distinctive terms.
+// It extracts the top maxTerms terms by TF×IDF from the source document and queries the index.
+// Returns up to topK results above minScore, excluding the source document.
+func (idx *BM25Index) FindSimilar(docID string, topK int, minScore float64, maxTerms int) []SimilarResult {
+	if idx.DocCount == 0 {
+		return nil
+	}
+
+	// Find the source document
+	var srcDoc *BM25Doc
+	var srcIdx int
+	for i := range idx.Docs {
+		if idx.Docs[i].ChunkID == docID {
+			srcDoc = &idx.Docs[i]
+			srcIdx = i
+			break
+		}
+	}
+	if srcDoc == nil {
+		return nil
+	}
+
+	// Extract top terms by TF × IDF
+	queryTerms := idx.distinctiveTerms(srcDoc, maxTerms)
+	if len(queryTerms) == 0 {
+		return nil
+	}
+
+	// Score all other docs using these terms as a BM25 query
+	scores := make([]float64, len(idx.Docs))
+	for _, term := range queryTerms {
+		idf, exists := idx.IDF[term]
+		if !exists {
+			continue
+		}
+		for i, doc := range idx.Docs {
+			if i == srcIdx {
+				continue
+			}
+			tf := doc.TermFreq[term]
+			if tf == 0 {
+				continue
+			}
+			numerator := tf * (bm25K1 + 1)
+			denominator := tf + bm25K1*(1-bm25B+bm25B*float64(doc.DocLen)/idx.AvgDocLen)
+			scores[i] += idf * (numerator / denominator)
+		}
+	}
+
+	// Collect results above minScore
+	type scored struct {
+		idx   int
+		score float64
+	}
+	var items []scored
+	for i, s := range scores {
+		if i != srcIdx && s >= minScore {
+			items = append(items, scored{idx: i, score: s})
+		}
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].score > items[j].score
+	})
+	if len(items) > topK {
+		items = items[:topK]
+	}
+
+	results := make([]SimilarResult, len(items))
+	for i, item := range items {
+		results[i] = SimilarResult{
+			DocID: idx.Docs[item.idx].ChunkID,
+			Score: item.score,
+		}
+	}
+	return results
+}
+
+// distinctiveTerms returns the top N terms from a document ranked by TF × IDF.
+func (idx *BM25Index) distinctiveTerms(doc *BM25Doc, n int) []string {
+	type termScore struct {
+		term  string
+		score float64
+	}
+	var items []termScore
+	for term, tf := range doc.TermFreq {
+		idf, ok := idx.IDF[term]
+		if !ok {
+			continue
+		}
+		items = append(items, termScore{term: term, score: tf * idf})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].score > items[j].score
+	})
+	if len(items) > n {
+		items = items[:n]
+	}
+	terms := make([]string, len(items))
+	for i, item := range items {
+		terms[i] = item.term
+	}
+	return terms
+}
+
 func topKResults(scores []float64, docs []BM25Doc, topK int) []ChunkResult {
 	type scored struct {
 		idx   int

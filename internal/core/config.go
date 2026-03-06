@@ -94,11 +94,21 @@ type ReconConfig struct {
 }
 
 type PreScanConfig struct {
-	LinkCandidateMinSharedTags int `yaml:"link_candidate_min_shared_tags"`
-	StalenessThresholdDays     int `yaml:"staleness_threshold_days"`
-	TagOverloadThreshold       int `yaml:"tag_overload_threshold"`
-	ThemeGrowthThresholdPct    int `yaml:"theme_growth_threshold_pct"`
-	CompressionMinWords        int `yaml:"compression_min_words"`
+	LinkCandidateMinSharedTags int                      `yaml:"link_candidate_min_shared_tags"`
+	StalenessThresholdDays     int                      `yaml:"staleness_threshold_days"`
+	TagOverloadThreshold       int                      `yaml:"tag_overload_threshold"`
+	ThemeGrowthThresholdPct    int                      `yaml:"theme_growth_threshold_pct"`
+	CompressionMinWords        int                      `yaml:"compression_min_words"`
+	ContentSimilarity          ContentSimilarityConfig  `yaml:"content_similarity"`
+}
+
+// ContentSimilarityConfig controls content-based semantic linking.
+type ContentSimilarityConfig struct {
+	Enabled      bool    `yaml:"enabled"`
+	TopK         int     `yaml:"top_k"`
+	MinScore     float64 `yaml:"min_score"`
+	MaxTerms     int     `yaml:"max_terms"`
+	PrimingBoost float64 `yaml:"priming_boost"`
 }
 
 type JournalConfig struct {
@@ -209,6 +219,13 @@ func DefaultConfig() *Config {
 				TagOverloadThreshold:       15,
 				ThemeGrowthThresholdPct:    30,
 				CompressionMinWords:        300,
+				ContentSimilarity: ContentSimilarityConfig{
+					Enabled:      true,
+					TopK:         3,
+					MinScore:     1.0,
+					MaxTerms:     8,
+					PrimingBoost: 0.15,
+				},
 			},
 			Journal: JournalConfig{MaxTokens: 2000},
 			Interrupts: InterruptConfig{HighSeverityMotePct: 20},
