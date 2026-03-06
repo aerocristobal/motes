@@ -47,16 +47,31 @@ func (rp *ResponseParser) ParseReconciliationResponse(raw string) ([]Vision, err
 }
 
 // extractJSON finds the first balanced top-level JSON object in the text.
+// Handles markdown code fences (```json ... ```) that Claude may wrap responses in.
 func extractJSON(raw string) string {
-	start := strings.Index(raw, "{")
+	// Strip markdown code fences if present
+	cleaned := raw
+	if idx := strings.Index(cleaned, "```json"); idx != -1 {
+		cleaned = cleaned[idx+len("```json"):]
+		if end := strings.LastIndex(cleaned, "```"); end != -1 {
+			cleaned = cleaned[:end]
+		}
+	} else if idx := strings.Index(cleaned, "```"); idx != -1 {
+		cleaned = cleaned[idx+len("```"):]
+		if end := strings.LastIndex(cleaned, "```"); end != -1 {
+			cleaned = cleaned[:end]
+		}
+	}
+
+	start := strings.Index(cleaned, "{")
 	if start == -1 {
 		return ""
 	}
 	depth := 0
 	inString := false
 	escaped := false
-	for i := start; i < len(raw); i++ {
-		ch := raw[i]
+	for i := start; i < len(cleaned); i++ {
+		ch := cleaned[i]
 		if escaped {
 			escaped = false
 			continue
@@ -77,7 +92,7 @@ func extractJSON(raw string) string {
 		} else if ch == '}' {
 			depth--
 			if depth == 0 {
-				return raw[start : i+1]
+				return cleaned[start : i+1]
 			}
 		}
 	}

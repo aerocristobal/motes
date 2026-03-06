@@ -3,12 +3,29 @@ package dream
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"motes/internal/core"
 )
+
+// filterEnv returns os.Environ() with the named variables removed.
+func filterEnv(names ...string) []string {
+	skip := make(map[string]bool, len(names))
+	for _, n := range names {
+		skip[n] = true
+	}
+	var env []string
+	for _, e := range os.Environ() {
+		k, _, _ := strings.Cut(e, "=")
+		if !skip[k] {
+			env = append(env, e)
+		}
+	}
+	return env
+}
 
 // ClaudeInvoker shells out to the claude CLI for LLM operations.
 type ClaudeInvoker struct {
@@ -48,14 +65,22 @@ func (ci *ClaudeInvoker) Invoke(prompt string, model string) (string, error) {
 		"--model", modelName,
 		"--output-format", "text",
 		"--print",
-		"--max-turns", "1",
 	)
+	// Clear CLAUDECODE env var to allow nested invocation from within a Claude session.
+	cmd.Env = filterEnv("CLAUDECODE")
 	cmd.Stdin = strings.NewReader(prompt)
+
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
 
 	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("claude timed out after %v", ci.timeout)
+		}
+		errMsg := stderr.String()
+		if errMsg != "" {
+			return "", fmt.Errorf("claude invocation failed: %w: %s", err, errMsg)
 		}
 		return "", fmt.Errorf("claude invocation failed: %w", err)
 	}

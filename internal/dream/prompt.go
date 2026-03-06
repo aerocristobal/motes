@@ -99,9 +99,14 @@ Last accessed: {{formatTime .LastAccessed}} | Access count: {{.AccessCount}}
 {{range .Tasks}}- {{.}}
 {{end}}
 
-Respond with JSON: {"visions": [...], "lucid_log_updates": {"observed_patterns": [...], "tensions": [...], "visions_summary": [...], "interrupts": [...], "strata_health": [...]}}
+IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in markdown code fences.
 
-Each vision should have: type (link_suggestion|contradiction|tag_refinement|staleness|compression|signal), action, source_motes, target_motes (optional), link_type (optional), rationale, severity (low|medium|high), tags (optional).
+Required format:
+{"visions": [{"type": "link_suggestion", "action": "add_link", "source_motes": ["id1"], "target_motes": ["id2"], "link_type": "relates_to", "rationale": "why", "severity": "medium"}], "lucid_log_updates": {"observed_patterns": [{"pattern_id": "p1", "description": "what", "mote_ids": ["id1"], "strength": 1}], "tensions": [{"tension_id": "t1", "description": "what", "mote_ids": ["id1"]}], "visions_summary": [{"type": "link_suggestion", "mote_ids": ["id1"], "batch": 1}], "interrupts": [], "strata_health": []}}
+
+Vision types: link_suggestion, contradiction, tag_refinement, staleness, compression, signal.
+Vision actions: add_link, remove, split_tag, deprecate, compress, add_signal.
+If no findings for a category, use an empty array [].
 `
 
 var reconPromptTmpl = `You are performing reconciliation across dream cycle batches.
@@ -111,7 +116,11 @@ var reconPromptTmpl = `You are performing reconciliation across dream cycle batc
 
 Review the accumulated patterns, tensions, and vision summaries. Produce a final consolidated list of visions that resolves conflicts, removes duplicates, and prioritizes high-value changes.
 
-Respond with JSON: {"visions": [...]}
+IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in markdown code fences.
 
-Each vision should have: type, action, source_motes, target_motes (optional), link_type (optional), rationale, severity (low|medium|high), tags (optional).
+Required format:
+{"visions": [{"type": "link_suggestion", "action": "add_link", "source_motes": ["id1"], "target_motes": ["id2"], "link_type": "relates_to", "rationale": "why", "severity": "medium"}]}
+
+Vision types: link_suggestion, contradiction, tag_refinement, staleness, compression, signal.
+If no visions, respond with: {"visions": []}
 `

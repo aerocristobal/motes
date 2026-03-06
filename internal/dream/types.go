@@ -1,6 +1,9 @@
 package dream
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Vision represents a single insight or recommendation from a dream cycle batch.
 type Vision struct {
@@ -113,6 +116,24 @@ type Pattern struct {
 	Strength    int    `json:"strength"`
 }
 
+// UnmarshalJSON handles both string and object forms of Pattern.
+// Claude sometimes returns patterns as plain strings instead of objects.
+func (p *Pattern) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		p.Description = s
+		p.Strength = 1
+		return nil
+	}
+	type PatternAlias Pattern
+	var alias PatternAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*p = Pattern(alias)
+	return nil
+}
+
 // Merge combines an incoming pattern observation into this one.
 func (p *Pattern) Merge(other Pattern) {
 	p.Strength += other.Strength
@@ -129,16 +150,48 @@ func (p *Pattern) Merge(other Pattern) {
 
 // Tension represents conflicting assertions found across batches.
 type Tension struct {
-	TensionID   string `json:"tension_id"`
-	Description string `json:"description"`
+	TensionID   string   `json:"tension_id"`
+	Description string   `json:"description"`
 	MoteIDs     []string `json:"mote_ids"`
+}
+
+// UnmarshalJSON handles both string and object forms of Tension.
+func (t *Tension) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		t.Description = s
+		return nil
+	}
+	type TensionAlias Tension
+	var alias TensionAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*t = Tension(alias)
+	return nil
 }
 
 // VisionSummary is a compressed reference to a vision in the lucid log.
 type VisionSummary struct {
-	Type    string `json:"type"`
+	Type    string   `json:"type"`
 	MoteIDs []string `json:"mote_ids"`
-	Batch   int    `json:"batch"`
+	Batch   int      `json:"batch"`
+}
+
+// UnmarshalJSON handles both string and object forms of VisionSummary.
+func (vs *VisionSummary) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		vs.Type = s
+		return nil
+	}
+	type VisionSummaryAlias VisionSummary
+	var alias VisionSummaryAlias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	*vs = VisionSummary(alias)
+	return nil
 }
 
 // Interrupt flags something requiring immediate attention.
