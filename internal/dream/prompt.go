@@ -102,7 +102,9 @@ Last accessed: {{formatTime .LastAccessed}} | Access count: {{.AccessCount}}
 IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in markdown code fences.
 
 Required format:
-{"visions": [{"type": "link_suggestion", "action": "add_link", "source_motes": ["id1"], "target_motes": ["id2"], "link_type": "relates_to", "rationale": "why", "severity": "medium"}], "lucid_log_updates": {"observed_patterns": [{"pattern_id": "p1", "description": "what", "mote_ids": ["id1"], "strength": 1}], "tensions": [{"tension_id": "t1", "description": "what", "mote_ids": ["id1"]}], "visions_summary": [{"type": "link_suggestion", "mote_ids": ["id1"], "batch": 1}], "interrupts": [], "strata_health": []}}
+{"visions": [{"type": "link_suggestion", "action": "add_link", "source_motes": ["id1"], "target_motes": ["id2"], "link_type": "relates_to", "rationale": "why", "severity": "medium"}], "lucid_log_updates": {"observed_patterns": [{"pattern_id": "p1", "description": "what", "mote_ids": ["id1"], "strength": 0.8}], "tensions": [{"tension_id": "t1", "description": "what", "mote_ids": ["id1"]}], "visions_summary": [{"type": "link_suggestion", "mote_ids": ["id1"], "batch": 1}], "interrupts": [], "strata_health": []}}
+
+Your ENTIRE response must be this JSON object. No text before or after.
 
 Vision types: link_suggestion, contradiction, tag_refinement, staleness, compression, signal.
 Vision actions: add_link, remove, split_tag, deprecate, compress, add_signal.

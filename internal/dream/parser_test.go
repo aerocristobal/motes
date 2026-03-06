@@ -98,6 +98,54 @@ func TestParseReconciliationResponse_Valid(t *testing.T) {
 	}
 }
 
+func TestParseBatchResponse_FloatStrength(t *testing.T) {
+	input := `{"visions": [], "lucid_log_updates": {"observed_patterns": [{"pattern_id": "p1", "description": "test", "mote_ids": ["m1"], "strength": 0.8}]}}`
+	parser := NewResponseParser()
+	_, updates, err := parser.ParseBatchResponse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updates.ObservedPatterns) != 1 {
+		t.Fatalf("expected 1 pattern, got %d", len(updates.ObservedPatterns))
+	}
+	if updates.ObservedPatterns[0].Strength != 0.8 {
+		t.Errorf("expected strength 0.8, got %g", updates.ObservedPatterns[0].Strength)
+	}
+}
+
+func TestParseBatchResponse_StringPattern(t *testing.T) {
+	input := `{"visions": [], "lucid_log_updates": {"observed_patterns": "motes share a common theme"}}`
+	parser := NewResponseParser()
+	_, updates, err := parser.ParseBatchResponse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updates.ObservedPatterns) != 1 {
+		t.Fatalf("expected 1 pattern, got %d", len(updates.ObservedPatterns))
+	}
+	if updates.ObservedPatterns[0].Description != "motes share a common theme" {
+		t.Errorf("unexpected description: %s", updates.ObservedPatterns[0].Description)
+	}
+}
+
+func TestParseBatchResponse_MixedPatterns(t *testing.T) {
+	input := `{"visions": [], "lucid_log_updates": {"observed_patterns": [{"pattern_id": "p1", "description": "first", "mote_ids": ["m1"], "strength": 1.5}, "bare string pattern"]}}`
+	parser := NewResponseParser()
+	_, updates, err := parser.ParseBatchResponse(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updates.ObservedPatterns) != 2 {
+		t.Fatalf("expected 2 patterns, got %d", len(updates.ObservedPatterns))
+	}
+	if updates.ObservedPatterns[0].Strength != 1.5 {
+		t.Errorf("expected strength 1.5, got %g", updates.ObservedPatterns[0].Strength)
+	}
+	if updates.ObservedPatterns[1].Description != "bare string pattern" {
+		t.Errorf("unexpected description: %s", updates.ObservedPatterns[1].Description)
+	}
+}
+
 func TestFilterValidVisions_DefaultSeverity(t *testing.T) {
 	visions := []Vision{
 		{Type: "staleness", Rationale: "old", SourceMotes: []string{"m1"}},

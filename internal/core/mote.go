@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+	"motes/internal/security"
 )
 
 // Mote is the atomic unit of knowledge in the nebula.
@@ -72,12 +73,22 @@ func splitFrontmatter(content string) *frontmatterParts {
 	}
 
 	// Find the closing ---
-	rest := content[3:]
+	if len(content) < 4 {
+		return nil
+	}
+	rest, err := security.SafeSubstring(content, 3, len(content))
+	if err != nil {
+		return nil
+	}
 	// Skip the newline after opening ---
 	if len(rest) > 0 && rest[0] == '\n' {
-		rest = rest[1:]
+		if newRest, err := security.SafeSubstring(rest, 1, len(rest)); err == nil {
+			rest = newRest
+		}
 	} else if len(rest) > 1 && rest[0] == '\r' && rest[1] == '\n' {
-		rest = rest[2:]
+		if newRest, err := security.SafeSubstring(rest, 2, len(rest)); err == nil {
+			rest = newRest
+		}
 	}
 
 	idx := strings.Index(rest, "\n---")
@@ -85,14 +96,27 @@ func splitFrontmatter(content string) *frontmatterParts {
 		return nil
 	}
 
-	fm := rest[:idx]
-	after := rest[idx+4:] // skip \n---
+	fm, err := security.SafeSubstring(rest, 0, idx)
+	if err != nil {
+		return nil
+	}
+	if idx+4 > len(rest) {
+		return nil
+	}
+	after, err := security.SafeSubstring(rest, idx+4, len(rest))
+	if err != nil {
+		return nil
+	}
 
 	// Strip leading newline from body
 	if len(after) > 0 && after[0] == '\n' {
-		after = after[1:]
+		if newAfter, err := security.SafeSubstring(after, 1, len(after)); err == nil {
+			after = newAfter
+		}
 	} else if len(after) > 1 && after[0] == '\r' && after[1] == '\n' {
-		after = after[2:]
+		if newAfter, err := security.SafeSubstring(after, 2, len(after)); err == nil {
+			after = newAfter
+		}
 	}
 
 	return &frontmatterParts{

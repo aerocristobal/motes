@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/internal/security"
 )
 
 var linkCmd = &cobra.Command{
@@ -27,14 +28,27 @@ func init() {
 }
 
 func runLink(cmd *cobra.Command, args []string) error {
+	sourceID, linkType, targetID := args[0], args[1], args[2]
+
+	// Validate input parameters
+	if err := security.ValidateMoteID(sourceID); err != nil {
+		return fmt.Errorf("invalid source ID: %w", err)
+	}
+	if err := security.ValidateMoteID(targetID); err != nil {
+		return fmt.Errorf("invalid target ID: %w", err)
+	}
+
+	// Validate link type is known
+	if _, ok := core.ValidLinkTypes[linkType]; !ok {
+		return fmt.Errorf("unknown link type: %q", linkType)
+	}
+
 	root := mustFindRoot()
 	mm := core.NewMoteManager(root)
 	im := core.NewIndexManager(root)
 	if _, err := im.Load(); err != nil {
 		return fmt.Errorf("load index: %w", err)
 	}
-
-	sourceID, linkType, targetID := args[0], args[1], args[2]
 
 	if err := mm.Link(sourceID, linkType, targetID, im); err != nil {
 		return err
@@ -55,14 +69,27 @@ func runLink(cmd *cobra.Command, args []string) error {
 }
 
 func runUnlink(cmd *cobra.Command, args []string) error {
+	sourceID, linkType, targetID := args[0], args[1], args[2]
+
+	// Validate input parameters
+	if err := security.ValidateMoteID(sourceID); err != nil {
+		return fmt.Errorf("invalid source ID: %w", err)
+	}
+	if err := security.ValidateMoteID(targetID); err != nil {
+		return fmt.Errorf("invalid target ID: %w", err)
+	}
+
+	// Validate link type is known
+	if _, ok := core.ValidLinkTypes[linkType]; !ok {
+		return fmt.Errorf("unknown link type: %q", linkType)
+	}
+
 	root := mustFindRoot()
 	mm := core.NewMoteManager(root)
 	im := core.NewIndexManager(root)
 	if _, err := im.Load(); err != nil {
 		return fmt.Errorf("load index: %w", err)
 	}
-
-	sourceID, linkType, targetID := args[0], args[1], args[2]
 
 	if err := mm.Unlink(sourceID, linkType, targetID, im); err != nil {
 		return err

@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/internal/security"
 )
 
 var updateCmd = &cobra.Command{
@@ -35,12 +36,49 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("at least one flag required: --status, --title, --weight, --add-tag")
 	}
 
+	moteID := args[0]
+
+	// Validate mote ID
+	if err := security.ValidateMoteID(moteID); err != nil {
+		return fmt.Errorf("invalid mote ID: %w", err)
+	}
+
+	// Validate input parameters
+	if cmd.Flags().Changed("status") {
+		validStatuses := []string{"active", "completed", "archived", "deprecated"}
+		if err := security.ValidateEnum(updateStatus, validStatuses, "status"); err != nil {
+			return fmt.Errorf("invalid status: %w", err)
+		}
+	}
+
+	if cmd.Flags().Changed("title") {
+		if updateTitle == "" {
+			return fmt.Errorf("title cannot be empty")
+		}
+		if len(updateTitle) > 200 {
+			return fmt.Errorf("title too long (max 200 characters)")
+		}
+	}
+
+	if cmd.Flags().Changed("weight") {
+		if err := security.ValidateWeight(updateWeight); err != nil {
+			return fmt.Errorf("invalid weight: %w", err)
+		}
+	}
+
+	if cmd.Flags().Changed("add-tag") {
+		for _, tag := range updateAddTag {
+			if err := security.ValidateTag(tag); err != nil {
+				return fmt.Errorf("invalid tag %q: %w", tag, err)
+			}
+		}
+	}
+
 	root, err := findMemoryRoot()
 	if err != nil {
 		return err
 	}
 
-	moteID := args[0]
 	mm := core.NewMoteManager(root)
 
 	fields := map[string]interface{}{}

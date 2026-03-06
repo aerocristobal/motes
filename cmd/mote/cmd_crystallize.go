@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"motes/internal/core"
 	"motes/internal/format"
+	"motes/internal/security"
 )
 
 var crystallizeCmd = &cobra.Command{
@@ -99,6 +100,12 @@ func runCrystallize(cmd *cobra.Command, args []string) error {
 	if editor == "" {
 		editor = "vi"
 	}
+
+	// Validate the editor command for security
+	if err := security.ValidateCommand(editor); err != nil {
+		return fmt.Errorf("invalid EDITOR command: %w", err)
+	}
+
 	editorCmd := exec.Command(editor, tmpPath)
 	editorCmd.Stdin = os.Stdin
 	editorCmd.Stdout = os.Stdout
@@ -128,7 +135,10 @@ func runCrystallize(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("serialize final: %w", err)
 	}
-	motePath := mm.MoteFilePath(edited.ID)
+	motePath, err := mm.MoteFilePath(edited.ID)
+	if err != nil {
+		return fmt.Errorf("get file path: %w", err)
+	}
 	if err := core.AtomicWrite(motePath, finalData, 0644); err != nil {
 		return fmt.Errorf("write mote: %w", err)
 	}

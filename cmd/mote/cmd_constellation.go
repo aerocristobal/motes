@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -32,6 +33,9 @@ var constellationSynthesizeCmd = &cobra.Command{
 }
 
 var synthesizeMinCount int
+
+// Global mutex to protect constellation record writes across processes
+var constellationWriteMux sync.Mutex
 
 func init() {
 	constellationSynthesizeCmd.Flags().IntVar(&synthesizeMinCount, "min-count", 3, "Minimum mote count for a tag to become a constellation")
@@ -209,14 +213,26 @@ func runConstellationSynthesize(cmd *cobra.Command, args []string) error {
 
 	// Append to constellations.jsonl
 	if len(records) > 0 {
+		constellationWriteMux.Lock()
+		defer constellationWriteMux.Unlock()
+
 		cPath := filepath.Join(root, "constellations.jsonl")
 		f, err := os.OpenFile(cPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err == nil {
 			defer f.Close()
 			for _, r := range records {
-				line, _ := json.Marshal(r)
-				f.Write(line)
-				f.Write([]byte{'\n'})
+				line, err := json.Marshal(r)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "warning: marshal constellation record: %v\n", err)
+					continue
+				}
+				if _, err := f.Write(line); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: write constellation record: %v\n", err)
+					continue
+				}
+				if _, err := f.Write([]byte{'\n'}); err != nil {
+					fmt.Fprintf(os.Stderr, "warning: write constellation newline: %v\n", err)
+				}
 			}
 		}
 

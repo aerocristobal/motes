@@ -113,7 +113,7 @@ type Pattern struct {
 	PatternID   string `json:"pattern_id"`
 	Description string `json:"description"`
 	MoteIDs     []string `json:"mote_ids"`
-	Strength    int    `json:"strength"`
+	Strength    float64 `json:"strength"`
 }
 
 // UnmarshalJSON handles both string and object forms of Pattern.
@@ -122,7 +122,7 @@ func (p *Pattern) UnmarshalJSON(data []byte) error {
 	var s string
 	if err := json.Unmarshal(data, &s); err == nil {
 		p.Description = s
-		p.Strength = 1
+		p.Strength = 1.0
 		return nil
 	}
 	type PatternAlias Pattern
@@ -221,4 +221,45 @@ type LucidLogUpdates struct {
 	VisionsSummary   []VisionSummary `json:"visions_summary,omitempty"`
 	Interrupts       []Interrupt     `json:"interrupts,omitempty"`
 	StrataHealth     []StrataFlag    `json:"strata_health,omitempty"`
+}
+
+// UnmarshalJSON handles observed_patterns being a bare string, single object, or array.
+func (lu *LucidLogUpdates) UnmarshalJSON(data []byte) error {
+	type Alias struct {
+		ObservedPatterns json.RawMessage `json:"observed_patterns,omitempty"`
+		Tensions         []Tension       `json:"tensions,omitempty"`
+		VisionsSummary   []VisionSummary `json:"visions_summary,omitempty"`
+		Interrupts       []Interrupt     `json:"interrupts,omitempty"`
+		StrataHealth     []StrataFlag    `json:"strata_health,omitempty"`
+	}
+	var alias Alias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	lu.Tensions = alias.Tensions
+	lu.VisionsSummary = alias.VisionsSummary
+	lu.Interrupts = alias.Interrupts
+	lu.StrataHealth = alias.StrataHealth
+
+	if len(alias.ObservedPatterns) > 0 {
+		switch alias.ObservedPatterns[0] {
+		case '[':
+			if err := json.Unmarshal(alias.ObservedPatterns, &lu.ObservedPatterns); err != nil {
+				return err
+			}
+		case '"':
+			var s string
+			if err := json.Unmarshal(alias.ObservedPatterns, &s); err != nil {
+				return err
+			}
+			lu.ObservedPatterns = []Pattern{{Description: s, Strength: 1.0}}
+		case '{':
+			var p Pattern
+			if err := json.Unmarshal(alias.ObservedPatterns, &p); err != nil {
+				return err
+			}
+			lu.ObservedPatterns = []Pattern{p}
+		}
+	}
+	return nil
 }

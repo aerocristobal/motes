@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"motes/internal/core"
+	"motes/internal/security"
 )
 
 // StrataManager coordinates corpus operations: ingest, query, list, remove.
@@ -64,8 +65,11 @@ func (sm *StrataManager) strataDir() string {
 	return filepath.Join(sm.root, "strata")
 }
 
-func (sm *StrataManager) corpusDir(name string) string {
-	return filepath.Join(sm.strataDir(), name)
+func (sm *StrataManager) corpusDir(name string) (string, error) {
+	if err := security.ValidateCorpusName(name); err != nil {
+		return "", fmt.Errorf("invalid corpus name: %w", err)
+	}
+	return filepath.Join(sm.strataDir(), name), nil
 }
 
 // supportedExt returns true for file types we can ingest.
@@ -79,7 +83,10 @@ var supportedExts = map[string]bool{
 
 // AddCorpus ingests files from paths into a named corpus.
 func (sm *StrataManager) AddCorpus(name string, paths []string, createAnchor bool, mm *core.MoteManager) error {
-	corpusDir := sm.corpusDir(name)
+	corpusDir, err := sm.corpusDir(name)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(corpusDir, 0755); err != nil {
 		return fmt.Errorf("create corpus dir: %w", err)
 	}
@@ -356,7 +363,10 @@ func fileHash(path string) (string, error) {
 
 // RemoveCorpus deletes a corpus and its files.
 func (sm *StrataManager) RemoveCorpus(name string) error {
-	dir := sm.corpusDir(name)
+	dir, err := sm.corpusDir(name)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return fmt.Errorf("corpus %q not found", name)
 	}
@@ -366,10 +376,17 @@ func (sm *StrataManager) RemoveCorpus(name string) error {
 // File I/O helpers
 
 func (sm *StrataManager) writeChunks(corpus string, chunks []Chunk) error {
-	path := filepath.Join(sm.corpusDir(corpus), "chunks.jsonl")
+	corpusDir, err := sm.corpusDir(corpus)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(corpusDir, "chunks.jsonl")
 	var buf strings.Builder
 	for _, c := range chunks {
-		line, _ := json.Marshal(c)
+		line, err := json.Marshal(c)
+		if err != nil {
+			return fmt.Errorf("marshal chunk: %w", err)
+		}
 		buf.Write(line)
 		buf.WriteByte('\n')
 	}
@@ -377,7 +394,11 @@ func (sm *StrataManager) writeChunks(corpus string, chunks []Chunk) error {
 }
 
 func (sm *StrataManager) loadChunks(corpus string) ([]Chunk, error) {
-	path := filepath.Join(sm.corpusDir(corpus), "chunks.jsonl")
+	corpusDir, err := sm.corpusDir(corpus)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(corpusDir, "chunks.jsonl")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -397,13 +418,24 @@ func (sm *StrataManager) loadChunks(corpus string) ([]Chunk, error) {
 }
 
 func (sm *StrataManager) writeBM25(corpus string, idx *BM25Index) error {
-	path := filepath.Join(sm.corpusDir(corpus), "bm25.json")
-	data, _ := json.Marshal(idx)
+	corpusDir, err := sm.corpusDir(corpus)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(corpusDir, "bm25.json")
+	data, err := json.Marshal(idx)
+	if err != nil {
+		return fmt.Errorf("marshal BM25 index: %w", err)
+	}
 	return core.AtomicWrite(path, data, 0644)
 }
 
 func (sm *StrataManager) loadBM25(corpus string) (*BM25Index, error) {
-	path := filepath.Join(sm.corpusDir(corpus), "bm25.json")
+	corpusDir, err := sm.corpusDir(corpus)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(corpusDir, "bm25.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -416,13 +448,24 @@ func (sm *StrataManager) loadBM25(corpus string) (*BM25Index, error) {
 }
 
 func (sm *StrataManager) writeManifest(corpus string, m CorpusManifest) error {
-	path := filepath.Join(sm.corpusDir(corpus), "manifest.json")
-	data, _ := json.MarshalIndent(m, "", "  ")
+	corpusDir, err := sm.corpusDir(corpus)
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(corpusDir, "manifest.json")
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal manifest: %w", err)
+	}
 	return core.AtomicWrite(path, data, 0644)
 }
 
 func (sm *StrataManager) loadManifest(corpus string) (*CorpusManifest, error) {
-	path := filepath.Join(sm.corpusDir(corpus), "manifest.json")
+	corpusDir, err := sm.corpusDir(corpus)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(corpusDir, "manifest.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -446,12 +489,15 @@ func (sm *StrataManager) logQuery(topic, corpus string, results []ChunkResult) {
 		entry.TopChunkID = results[0].Chunk.ID
 		entry.TopScore = results[0].Score
 	}
-	line, _ := json.Marshal(entry)
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return // Skip logging if marshal fails
+	}
 	line = append(line, '\n')
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
-	f.Write(line)
+	_, _ = f.Write(line) // Query logging is non-critical
 }

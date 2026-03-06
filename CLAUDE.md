@@ -1,16 +1,57 @@
 # CLAUDE.md
 
-This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
+## Motes
 
-## Quick Reference
+This project uses motes for all planning, memory, and task tracking. Knowledge is stored in `.memory/`.
 
-```bash
-bd ready              # Find available work
-bd show <id>          # View issue details
-bd update <id> --status in_progress  # Claim work
-bd close <id>         # Complete work
-bd sync               # Sync with git
-```
+**Do NOT use** markdown files, TodoWrite, TaskCreate, or external issue trackers for tracking work.
+
+### Session Start
+
+Run `mote prime` at the start of every session for scored, relevant context.
+
+### Task Tracking
+
+Find available work:
+
+    mote ls --ready           # Tasks with no unfinished blockers
+    mote pulse                # Active tasks sorted by weight
+
+Create and manage tasks:
+
+    mote add --type=task --title="Summary" --tag=topic --body "What and why"
+    mote update <id> --status=completed
+
+### Planning
+
+Break work into task motes with dependency links:
+
+    mote add --type=task --title="Epic: Feature X" --tag=epic --body "Goal"
+    mote add --type=task --title="Implement Y" --tag=story --body "Details"
+    mote link <story-id> depends_on <epic-id>
+
+View execution chains:
+
+    mote context --planning <id>
+
+### During Work
+
+Capture knowledge worth preserving:
+
+    mote add --type=decision --title="Summary" --tag=topic --body "Rationale"
+    mote add --type=lesson --title="Summary" --tag=topic --body "Details"
+    mote add --type=explore --title="Summary" --tag=topic --body "Findings"
+
+Link related motes:
+
+    mote link <id1> relates_to <id2>
+    mote link <id1> builds_on <id2>
+
+### Session End
+
+Run `mote session-end` for access flush and maintenance suggestions.
+
+Run `mote dream` periodically for automated maintenance. Review with `mote dream --review`.
 
 ## Landing the Plane (Session Completion)
 
@@ -24,7 +65,6 @@ bd sync               # Sync with git
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
-   bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```

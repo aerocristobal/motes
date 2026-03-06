@@ -65,6 +65,7 @@ func (ci *ClaudeInvoker) Invoke(prompt string, model string) (string, error) {
 		"--model", modelName,
 		"--output-format", "text",
 		"--print",
+		"--system-prompt", "You are a JSON-only API. Respond with a single valid JSON object. No prose, no markdown.",
 	)
 	// Clear CLAUDECODE env var to allow nested invocation from within a Claude session.
 	cmd.Env = filterEnv("CLAUDECODE")

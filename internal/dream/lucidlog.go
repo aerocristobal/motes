@@ -76,7 +76,11 @@ func (ll *LucidLog) RecordBatchFailure(batchIndex int, errMsg string) {
 
 // Serialize returns the log as a JSON string for prompt inclusion.
 func (ll *LucidLog) Serialize() string {
-	data, _ := json.Marshal(ll)
+	data, err := json.Marshal(ll)
+	if err != nil {
+		// If marshal fails, return empty JSON object
+		return "{}"
+	}
 	return string(data)
 }
 
@@ -114,7 +118,11 @@ func (ll *LucidLog) pruneIfOverLimit() {
 }
 
 func (ll *LucidLog) estimateTokens() int {
-	data, _ := json.Marshal(ll)
+	data, err := json.Marshal(ll)
+	if err != nil {
+		// If marshal fails, assume 0 tokens to avoid infinite pruning
+		return 0
+	}
 	// Rough estimate: ~4 chars per token
 	return len(data) / 4
 }

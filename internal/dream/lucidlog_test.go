@@ -23,7 +23,7 @@ func TestLucidLog_Update_NewPattern(t *testing.T) {
 	ll := NewLucidLog(2000)
 	updates := LucidLogUpdates{
 		ObservedPatterns: []Pattern{
-			{PatternID: "p1", Description: "test", MoteIDs: []string{"m1"}, Strength: 1},
+			{PatternID: "p1", Description: "test", MoteIDs: []string{"m1"}, Strength: 1.0},
 		},
 	}
 	ll.Update(updates)
@@ -39,12 +39,12 @@ func TestLucidLog_Update_NewPattern(t *testing.T) {
 func TestLucidLog_Update_MergePattern(t *testing.T) {
 	ll := NewLucidLog(2000)
 	ll.ObservedPatterns = []Pattern{
-		{PatternID: "p1", Description: "first", MoteIDs: []string{"m1"}, Strength: 1},
+		{PatternID: "p1", Description: "first", MoteIDs: []string{"m1"}, Strength: 1.0},
 	}
 
 	updates := LucidLogUpdates{
 		ObservedPatterns: []Pattern{
-			{PatternID: "p1", Description: "updated", MoteIDs: []string{"m2"}, Strength: 2},
+			{PatternID: "p1", Description: "updated", MoteIDs: []string{"m2"}, Strength: 2.0},
 		},
 	}
 	ll.Update(updates)
@@ -52,8 +52,8 @@ func TestLucidLog_Update_MergePattern(t *testing.T) {
 	if len(ll.ObservedPatterns) != 1 {
 		t.Errorf("expected 1 merged pattern, got %d", len(ll.ObservedPatterns))
 	}
-	if ll.ObservedPatterns[0].Strength != 3 {
-		t.Errorf("expected merged strength 3, got %d", ll.ObservedPatterns[0].Strength)
+	if ll.ObservedPatterns[0].Strength != 3.0 {
+		t.Errorf("expected merged strength 3, got %g", ll.ObservedPatterns[0].Strength)
 	}
 	if len(ll.ObservedPatterns[0].MoteIDs) != 2 {
 		t.Errorf("expected 2 mote IDs, got %d", len(ll.ObservedPatterns[0].MoteIDs))
@@ -87,7 +87,7 @@ func TestLucidLog_SaveLoad(t *testing.T) {
 
 	ll := NewLucidLog(2000)
 	ll.ObservedPatterns = []Pattern{
-		{PatternID: "p1", Description: "saved", MoteIDs: []string{"m1"}, Strength: 5},
+		{PatternID: "p1", Description: "saved", MoteIDs: []string{"m1"}, Strength: 5.0},
 	}
 	if err := ll.Save(path); err != nil {
 		t.Fatal(err)
@@ -101,8 +101,8 @@ func TestLucidLog_SaveLoad(t *testing.T) {
 	if len(loaded.ObservedPatterns) != 1 {
 		t.Errorf("expected 1 pattern after load, got %d", len(loaded.ObservedPatterns))
 	}
-	if loaded.ObservedPatterns[0].Strength != 5 {
-		t.Errorf("expected strength 5, got %d", loaded.ObservedPatterns[0].Strength)
+	if loaded.ObservedPatterns[0].Strength != 5.0 {
+		t.Errorf("expected strength 5, got %g", loaded.ObservedPatterns[0].Strength)
 	}
 }
 
@@ -117,12 +117,12 @@ func TestLucidLog_LoadMissing(t *testing.T) {
 }
 
 func TestPatternMerge(t *testing.T) {
-	p := Pattern{PatternID: "p1", MoteIDs: []string{"a", "b"}, Strength: 2}
-	other := Pattern{PatternID: "p1", MoteIDs: []string{"b", "c"}, Strength: 3}
+	p := Pattern{PatternID: "p1", MoteIDs: []string{"a", "b"}, Strength: 2.0}
+	other := Pattern{PatternID: "p1", MoteIDs: []string{"b", "c"}, Strength: 3.0}
 	p.Merge(other)
 
-	if p.Strength != 5 {
-		t.Errorf("expected strength 5, got %d", p.Strength)
+	if p.Strength != 5.0 {
+		t.Errorf("expected strength 5, got %g", p.Strength)
 	}
 	if len(p.MoteIDs) != 3 {
 		t.Errorf("expected 3 mote IDs (deduplicated), got %d", len(p.MoteIDs))
