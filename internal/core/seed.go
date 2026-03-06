@@ -1,11 +1,48 @@
 package core
 
 import (
+	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
 )
+
+// SessionState holds persistent state for the current session.
+type SessionState struct {
+	CurrentTask string   `json:"current_task,omitempty"`
+	Topics      []string `json:"topics,omitempty"`
+	StartTime   string   `json:"start_time"`
+}
+
+// ReadSessionState reads .memory/.session if it exists.
+func ReadSessionState(root string) *SessionState {
+	data, err := os.ReadFile(filepath.Join(root, ".session"))
+	if err != nil {
+		return nil
+	}
+	var s SessionState
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil
+	}
+	return &s
+}
+
+// WriteSessionState writes the session state file.
+func WriteSessionState(root string, s *SessionState) error {
+	data, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	return AtomicWrite(filepath.Join(root, ".session"), data, 0644)
+}
+
+// ClearSessionState removes the session file.
+func ClearSessionState(root string) {
+	os.Remove(filepath.Join(root, ".session"))
+}
 
 // SeedSelector finds initial seed motes from topic keywords and ambient signals.
 type SeedSelector struct {
@@ -19,6 +56,7 @@ type AmbientContext struct {
 	GitBranch   string
 	RecentFiles []string
 	PromptText  string
+	ContextHint string
 }
 
 // NewSeedSelector creates a SeedSelector.
@@ -48,6 +86,17 @@ func (ss *SeedSelector) SelectSeeds(topic string, ambient *AmbientContext) []*Mo
 				if strings.Contains(titleLower, kw) {
 					candidates[m.ID] += 0.5
 				}
+			}
+		}
+	}
+
+	// Body-text keyword matching (lower boost than tags/title)
+	if len(keywords) > 0 {
+		for _, m := range ss.motes {
+			bodyKeywords := extractKeywords(m.Body)
+			overlap := keywordOverlap(keywords, bodyKeywords)
+			if overlap > 0 {
+				candidates[m.ID] += float64(overlap) * 0.3
 			}
 		}
 	}
@@ -98,6 +147,11 @@ func (ss *SeedSelector) applyBuiltinSignal(name string, ambient *AmbientContext,
 		if ambient.PromptText != "" {
 			keywords := extractKeywords(ambient.PromptText)
 			ss.matchKeywordsToTags(keywords, candidates, 0.8)
+		}
+	case "context_hint":
+		if ambient.ContextHint != "" {
+			keywords := extractKeywords(ambient.ContextHint)
+			ss.matchKeywordsToTags(keywords, candidates, 0.7)
 		}
 	}
 }
@@ -205,6 +259,20 @@ func tagOverlap(keywords, tags []string) int {
 	return count
 }
 
+func keywordOverlap(query, target []string) int {
+	targetSet := make(map[string]bool, len(target))
+	for _, t := range target {
+		targetSet[t] = true
+	}
+	count := 0
+	for _, q := range query {
+		if targetSet[q] {
+			count++
+		}
+	}
+	return count
+}
+
 var stopWords = map[string]bool{
 	"a": true, "an": true, "the": true, "is": true, "of": true,
 	"to": true, "in": true, "for": true, "and": true, "or": true,
@@ -255,6 +323,23 @@ func CollectAmbientContext() *AmbientContext {
 	out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
 	if err == nil {
 		ctx.GitBranch = strings.TrimSpace(string(out))
+	}
+
+	// Recent files from git diff
+	diffOut, diffErr := exec.Command("git", "diff", "--name-only", "HEAD").Output()
+	if diffErr == nil {
+		for _, f := range strings.Split(strings.TrimSpace(string(diffOut)), "\n") {
+			if f != "" {
+				ctx.RecentFiles = append(ctx.RecentFiles, f)
+			}
+		}
+	}
+
+	// Context hint file
+	cwd, _ := os.Getwd()
+	hintPath := filepath.Join(cwd, ".memory", ".context-hint")
+	if data, err := os.ReadFile(hintPath); err == nil {
+		ctx.ContextHint = strings.TrimSpace(string(data))
 	}
 
 	return ctx

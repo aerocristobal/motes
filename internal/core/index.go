@@ -196,16 +196,55 @@ func (im *IndexManager) RemoveEdge(source, target, edgeType string) error {
 	return im.writeIndex()
 }
 
+// MoteBM25Manager manages a persistent BM25 index over mote content.
+type MoteBM25Manager struct {
+	path string
+}
+
+// NewMoteBM25Manager creates a manager for the mote BM25 index.
+func NewMoteBM25Manager(root string) *MoteBM25Manager {
+	return &MoteBM25Manager{path: filepath.Join(root, "mote_bm25.json")}
+}
+
+// Path returns the filesystem path to the BM25 index file.
+func (mbm *MoteBM25Manager) Path() string {
+	return mbm.path
+}
+
+// LoadRaw reads the persistent BM25 index bytes from disk.
+// Returns nil, nil if the file does not exist.
+func (mbm *MoteBM25Manager) LoadRaw() ([]byte, error) {
+	data, err := os.ReadFile(mbm.path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+// SaveRaw writes BM25 index bytes to disk atomically.
+func (mbm *MoteBM25Manager) SaveRaw(data []byte) error {
+	return AtomicWrite(mbm.path, data, 0644)
+}
+
 func (im *IndexManager) writeIndex() error {
 	var buf strings.Builder
 	for _, e := range im.index.Edges {
-		line, _ := json.Marshal(e)
+		line, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("marshal edge: %w", err)
+		}
 		buf.Write(line)
 		buf.WriteByte('\n')
 	}
-	footer, _ := json.Marshal(struct {
+	footer, err := json.Marshal(struct {
 		TagStats map[string]int `json:"tag_stats"`
 	}{TagStats: im.index.TagStats})
+	if err != nil {
+		return fmt.Errorf("marshal tag stats: %w", err)
+	}
 	buf.Write(footer)
 	buf.WriteByte('\n')
 	return AtomicWrite(im.path, []byte(buf.String()), 0644)

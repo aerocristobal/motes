@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -13,21 +14,39 @@ import (
 var contextCmd = &cobra.Command{
 	Use:   "context <topic...>",
 	Short: "Load context for a topic via scoring and graph traversal",
-	Args:  cobra.MinimumNArgs(1),
+	Args:  cobra.ArbitraryArgs,
 	RunE:  runContext,
 }
 
 var contextPlanning bool
+var contextJSON bool
+
+// ContextOutput is the JSON output structure for mote context --json.
+type ContextOutput struct {
+	Topic   string      `json:"topic"`
+	Results []MoteEntry `json:"results"`
+}
 
 func init() {
 	contextCmd.Flags().BoolVar(&contextPlanning, "planning", false, "Show dependency chain for a mote ID")
+	contextCmd.Flags().BoolVar(&contextJSON, "json", false, "Output in JSON format")
 	rootCmd.AddCommand(contextCmd)
 }
 
 func runContext(cmd *cobra.Command, args []string) error {
-	topic := strings.Join(args, " ")
-
 	root := mustFindRoot()
+
+	if len(args) == 0 {
+		session := core.ReadSessionState(root)
+		if session != nil && len(session.Topics) > 0 {
+			args = session.Topics
+		}
+		if len(args) == 0 {
+			return fmt.Errorf("no topic given and no session topics set (use 'mote prime <topic>' first)")
+		}
+	}
+
+	topic := strings.Join(args, " ")
 	cfg, err := core.LoadConfig(root)
 	if err != nil {
 		return err
@@ -72,6 +91,24 @@ func runContext(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// JSON output mode
+	if contextJSON {
+		out := ContextOutput{
+			Topic:   topic,
+			Results: scoredMotesToEntriesFromScored(results),
+		}
+		data, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal json: %w", err)
+		}
+		fmt.Println(string(data))
+		// Batch access updates
+		for _, sm := range results {
+			_ = mm.AppendAccessBatch(sm.Mote.ID)
+		}
+		return nil
+	}
+
 	// Print results
 	fmt.Printf("%-8s  %-24s  %-14s  %s\n", "SCORE", "ID", "TYPE", "TITLE")
 	fmt.Println(strings.Repeat("-", 76))
@@ -90,6 +127,9 @@ func runContext(cmd *cobra.Command, args []string) error {
 	if cfg.Strata.ContextAugment.Enabled {
 		augmentFromStrata(root, cfg, topic, results)
 	}
+
+	// Proactive strata suggestions
+	printProactiveStrata(motes, topic)
 
 	// Batch access updates
 	for _, sm := range results {

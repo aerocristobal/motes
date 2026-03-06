@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"motes/internal/core"
 )
@@ -18,6 +19,7 @@ var execCommand = exec.Command
 // VisionWriter manages reading and writing vision JSONL files.
 type VisionWriter struct {
 	dreamDir string
+	writeMux sync.Mutex // Protects vision file writes
 }
 
 // NewVisionWriter creates a vision writer for the given dream directory.
@@ -27,6 +29,9 @@ func NewVisionWriter(dreamDir string) *VisionWriter {
 
 // WriteDrafts appends visions to the draft file.
 func (vw *VisionWriter) WriteDrafts(visions []Vision) error {
+	vw.writeMux.Lock()
+	defer vw.writeMux.Unlock()
+
 	path := filepath.Join(vw.dreamDir, "visions_draft.jsonl")
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
@@ -34,9 +39,14 @@ func (vw *VisionWriter) WriteDrafts(visions []Vision) error {
 	}
 	defer f.Close()
 	for _, v := range visions {
-		line, _ := json.Marshal(v)
-		f.Write(line)
-		f.Write([]byte{'\n'})
+		line, err := json.Marshal(v)
+		if err != nil {
+			continue // Skip if marshal fails
+		}
+		if _, err := f.Write(line); err != nil {
+			continue // Skip if write fails
+		}
+		_, _ = f.Write([]byte{'\n'}) // Newline write is non-critical
 	}
 	return nil
 }
@@ -51,7 +61,10 @@ func (vw *VisionWriter) WriteFinal(visions []Vision) error {
 	path := filepath.Join(vw.dreamDir, "visions.jsonl")
 	var buf strings.Builder
 	for _, v := range visions {
-		line, _ := json.Marshal(v)
+		line, err := json.Marshal(v)
+		if err != nil {
+			continue // Skip if marshal fails
+		}
 		buf.Write(line)
 		buf.WriteByte('\n')
 	}
@@ -255,7 +268,11 @@ func (vr *VisionReviewer) apply(v Vision) error {
 		if err != nil {
 			return fmt.Errorf("serialize: %w", err)
 		}
-		return core.AtomicWrite(vr.mm.MoteFilePath(v.SourceMotes[0]), data, 0644)
+		path, err := vr.mm.MoteFilePath(v.SourceMotes[0])
+		if err != nil {
+			return fmt.Errorf("get file path: %w", err)
+		}
+		return core.AtomicWrite(path, data, 0644)
 	case "compression":
 		if len(v.SourceMotes) == 0 || v.Rationale == "" {
 			return fmt.Errorf("compression vision needs source mote and rationale as compressed body")
@@ -269,7 +286,11 @@ func (vr *VisionReviewer) apply(v Vision) error {
 		if err != nil {
 			return fmt.Errorf("serialize: %w", err)
 		}
-		return core.AtomicWrite(vr.mm.MoteFilePath(v.SourceMotes[0]), data, 0644)
+		path, err := vr.mm.MoteFilePath(v.SourceMotes[0])
+		if err != nil {
+			return fmt.Errorf("get file path: %w", err)
+		}
+		return core.AtomicWrite(path, data, 0644)
 	case "constellation":
 		if len(v.Tags) == 0 || len(v.SourceMotes) == 0 {
 			return fmt.Errorf("constellation vision needs tags and source motes")

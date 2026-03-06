@@ -8,10 +8,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"motes/internal/security"
 )
 
 type MoteManager struct {
-	root string
+	root           string
+	accessBatchMux sync.Mutex // Protects access batch operations
 }
 
 type CreateOpts struct {
@@ -49,12 +52,15 @@ func (mm *MoteManager) nodesDir() string {
 	return filepath.Join(mm.root, "nodes")
 }
 
-func (mm *MoteManager) moteFilePath(moteID string) string {
-	return filepath.Join(mm.nodesDir(), moteID+".md")
+func (mm *MoteManager) moteFilePath(moteID string) (string, error) {
+	if err := security.ValidateMoteID(moteID); err != nil {
+		return "", fmt.Errorf("invalid mote ID: %w", err)
+	}
+	return filepath.Join(mm.nodesDir(), moteID+".md"), nil
 }
 
 // MoteFilePath returns the file path for a mote by ID.
-func (mm *MoteManager) MoteFilePath(moteID string) string {
+func (mm *MoteManager) MoteFilePath(moteID string) (string, error) {
 	return mm.moteFilePath(moteID)
 }
 
@@ -96,7 +102,10 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 	if err != nil {
 		return nil, fmt.Errorf("serialize: %w", err)
 	}
-	path := mm.moteFilePath(id)
+	path, err := mm.moteFilePath(id)
+	if err != nil {
+		return nil, fmt.Errorf("get file path: %w", err)
+	}
 	if err := AtomicWrite(path, data, 0644); err != nil {
 		return nil, fmt.Errorf("write mote: %w", err)
 	}
@@ -106,7 +115,11 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 
 // Read loads a mote by ID.
 func (mm *MoteManager) Read(moteID string) (*Mote, error) {
-	return ParseMote(mm.moteFilePath(moteID))
+	path, err := mm.moteFilePath(moteID)
+	if err != nil {
+		return nil, fmt.Errorf("get file path: %w", err)
+	}
+	return ParseMote(path)
 }
 
 // Update applies field changes to a mote and persists them.
@@ -140,7 +153,11 @@ func (mm *MoteManager) Update(moteID string, fields map[string]interface{}) erro
 	if err != nil {
 		return err
 	}
-	return AtomicWrite(mm.moteFilePath(moteID), data, 0644)
+	path, err := mm.moteFilePath(moteID)
+	if err != nil {
+		return fmt.Errorf("get file path: %w", err)
+	}
+	return AtomicWrite(path, data, 0644)
 }
 
 // List returns motes matching the given filters.
@@ -174,6 +191,12 @@ func (mm *MoteManager) List(filters ListFilters) ([]*Mote, error) {
 	}
 
 	if filters.Ready {
+		// Build mote map for BFS lookups
+		moteMap := make(map[string]*Mote, len(motes))
+		for _, m := range motes {
+			moteMap[m.ID] = m
+		}
+
 		var ready []*Mote
 		for _, m := range result {
 			if m.Type != "task" || m.Status != "active" {
@@ -183,19 +206,7 @@ func (mm *MoteManager) List(filters ListFilters) ([]*Mote, error) {
 				ready = append(ready, m)
 				continue
 			}
-			allDone := true
-			for _, depID := range m.DependsOn {
-				dep, err := mm.Read(depID)
-				if err != nil {
-					allDone = false
-					break
-				}
-				if dep.Status == "active" {
-					allDone = false
-					break
-				}
-			}
-			if allDone {
+			if transitiveReady(m, moteMap) {
 				ready = append(ready, m)
 			}
 		}
@@ -203,6 +214,33 @@ func (mm *MoteManager) List(filters ListFilters) ([]*Mote, error) {
 	}
 
 	return result, nil
+}
+
+// transitiveReady returns true if all transitive dependencies are non-active.
+func transitiveReady(m *Mote, moteMap map[string]*Mote) bool {
+	visited := map[string]bool{m.ID: true}
+	queue := make([]string, len(m.DependsOn))
+	copy(queue, m.DependsOn)
+
+	for len(queue) > 0 {
+		depID := queue[0]
+		queue = queue[1:]
+		if visited[depID] {
+			continue
+		}
+		visited[depID] = true
+
+		dep, ok := moteMap[depID]
+		if !ok {
+			return false // can't verify, assume not ready
+		}
+		if dep.Status == "active" {
+			return false
+		}
+		// Continue BFS through this dep's dependencies
+		queue = append(queue, dep.DependsOn...)
+	}
+	return true
 }
 
 func hasTag(m *Mote, tag string) bool {
@@ -296,11 +334,17 @@ func (mm *MoteManager) ReadAllParallel() ([]*Mote, error) {
 
 // AppendAccessBatch appends an access record to .access_batch.jsonl.
 func (mm *MoteManager) AppendAccessBatch(moteID string) error {
+	mm.accessBatchMux.Lock()
+	defer mm.accessBatchMux.Unlock()
+
 	entry := AccessBatchEntry{
 		MoteID:     moteID,
 		AccessedAt: time.Now().UTC().Format(time.RFC3339),
 	}
-	line, _ := json.Marshal(entry)
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("marshal access entry: %w", err)
+	}
 	line = append(line, '\n')
 
 	batchPath := filepath.Join(mm.root, ".access_batch.jsonl")
@@ -315,6 +359,9 @@ func (mm *MoteManager) AppendAccessBatch(moteID string) error {
 
 // FlushAccessBatch reads the access batch, updates mote files, and removes the batch.
 func (mm *MoteManager) FlushAccessBatch() error {
+	mm.accessBatchMux.Lock()
+	defer mm.accessBatchMux.Unlock()
+
 	batchPath := filepath.Join(mm.root, ".access_batch.jsonl")
 	data, err := os.ReadFile(batchPath)
 	if os.IsNotExist(err) {
@@ -364,7 +411,9 @@ func (mm *MoteManager) FlushAccessBatch() error {
 		if err != nil {
 			continue
 		}
-		_ = AtomicWrite(mm.moteFilePath(moteID), out, 0644)
+		if path, pathErr := mm.moteFilePath(moteID); pathErr == nil {
+			_ = AtomicWrite(path, out, 0644)
+		}
 	}
 
 	return os.Remove(batchPath)
@@ -372,6 +421,9 @@ func (mm *MoteManager) FlushAccessBatch() error {
 
 // FlushAccessBatchStats flushes the batch and returns stats (access count, mote count).
 func (mm *MoteManager) FlushAccessBatchStats() (accessCount, moteCount int, err error) {
+	mm.accessBatchMux.Lock()
+	defer mm.accessBatchMux.Unlock()
+
 	batchPath := filepath.Join(mm.root, ".access_batch.jsonl")
 	data, err := os.ReadFile(batchPath)
 	if os.IsNotExist(err) {
@@ -421,7 +473,9 @@ func (mm *MoteManager) FlushAccessBatchStats() (accessCount, moteCount int, err 
 		if serErr != nil {
 			continue
 		}
-		_ = AtomicWrite(mm.moteFilePath(moteID), out, 0644)
+		if path, pathErr := mm.moteFilePath(moteID); pathErr == nil {
+			_ = AtomicWrite(path, out, 0644)
+		}
 	}
 
 	moteCount = len(grouped)
@@ -478,7 +532,11 @@ func (mm *MoteManager) Link(sourceID, linkType, targetID string, im *IndexManage
 	if err != nil {
 		return fmt.Errorf("serialize source: %w", err)
 	}
-	if err := AtomicWrite(mm.moteFilePath(sourceID), sourceData, 0644); err != nil {
+	sourcePath, err := mm.moteFilePath(sourceID)
+	if err != nil {
+		return fmt.Errorf("get source file path: %w", err)
+	}
+	if err := AtomicWrite(sourcePath, sourceData, 0644); err != nil {
 		return fmt.Errorf("write source: %w", err)
 	}
 
@@ -488,7 +546,11 @@ func (mm *MoteManager) Link(sourceID, linkType, targetID string, im *IndexManage
 		if err != nil {
 			return fmt.Errorf("serialize target: %w", err)
 		}
-		if err := AtomicWrite(mm.moteFilePath(targetID), targetData, 0644); err != nil {
+		targetPath, err := mm.moteFilePath(targetID)
+		if err != nil {
+			return fmt.Errorf("get target file path: %w", err)
+		}
+		if err := AtomicWrite(targetPath, targetData, 0644); err != nil {
 			return fmt.Errorf("write target: %w", err)
 		}
 	}
@@ -531,7 +593,11 @@ func (mm *MoteManager) Unlink(sourceID, linkType, targetID string, im *IndexMana
 	if err != nil {
 		return fmt.Errorf("serialize source: %w", err)
 	}
-	if err := AtomicWrite(mm.moteFilePath(sourceID), sourceData, 0644); err != nil {
+	sourcePath, err := mm.moteFilePath(sourceID)
+	if err != nil {
+		return fmt.Errorf("get source file path: %w", err)
+	}
+	if err := AtomicWrite(sourcePath, sourceData, 0644); err != nil {
 		return fmt.Errorf("write source: %w", err)
 	}
 
@@ -552,7 +618,11 @@ func (mm *MoteManager) Unlink(sourceID, linkType, targetID string, im *IndexMana
 		if err != nil {
 			return fmt.Errorf("serialize target: %w", err)
 		}
-		if err := AtomicWrite(mm.moteFilePath(targetID), targetData, 0644); err != nil {
+		targetPath, err := mm.moteFilePath(targetID)
+		if err != nil {
+			return fmt.Errorf("get target file path: %w", err)
+		}
+		if err := AtomicWrite(targetPath, targetData, 0644); err != nil {
 			return fmt.Errorf("write target: %w", err)
 		}
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/internal/security"
 )
 
 var addCmd = &cobra.Command{
@@ -38,6 +39,34 @@ func init() {
 }
 
 func runAdd(cmd *cobra.Command, args []string) error {
+	// Validate input parameters
+	validTypes := []string{"task", "decision", "lesson", "context", "question", "constellation", "anchor", "explore"}
+	if err := security.ValidateEnum(addType, validTypes, "type"); err != nil {
+		return fmt.Errorf("invalid type: %w", err)
+	}
+
+	if addTitle == "" {
+		return fmt.Errorf("title cannot be empty")
+	}
+	if len(addTitle) > 200 {
+		return fmt.Errorf("title too long (max 200 characters)")
+	}
+
+	for _, tag := range addTags {
+		if err := security.ValidateTag(tag); err != nil {
+			return fmt.Errorf("invalid tag %q: %w", tag, err)
+		}
+	}
+
+	if err := security.ValidateWeight(addWeight); err != nil {
+		return fmt.Errorf("invalid weight: %w", err)
+	}
+
+	validOrigins := []string{"normal", "failure", "revert", "hotfix", "discovery"}
+	if err := security.ValidateEnum(addOrigin, validOrigins, "origin"); err != nil {
+		return fmt.Errorf("invalid origin: %w", err)
+	}
+
 	root, err := findMemoryRoot()
 	if err != nil {
 		cwd, _ := os.Getwd()
@@ -79,6 +108,11 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Validate body size
+	if err := security.ValidateBodySize(string(bodyBytes)); err != nil {
+		return fmt.Errorf("invalid body: %w", err)
+	}
+
 	mm := core.NewMoteManager(root)
 	m, err := mm.Create(addType, addTitle, core.CreateOpts{
 		Tags:   addTags,
@@ -88,6 +122,12 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("create mote: %w", err)
+	}
+
+	// Update BM25 index
+	allMotes, _ := mm.ReadAllParallel()
+	if allMotes != nil {
+		_ = rebuildMoteBM25(root, allMotes)
 	}
 
 	fmt.Println("Created mote", m.ID)

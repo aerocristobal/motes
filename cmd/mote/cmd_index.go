@@ -37,6 +37,12 @@ func runIndexRebuild(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("rebuild: %w", err)
 	}
 
+	// Rebuild mote BM25 index
+	if err := rebuildMoteBM25(root, motes); err != nil {
+		return fmt.Errorf("rebuild BM25 index: %w", err)
+	}
+	fmt.Printf("Rebuilt mote BM25 index (%d documents)\n", len(motes))
+
 	idx, _ := im.Load()
 	fmt.Printf("Index rebuilt: %d motes, %d edges, %d unique tags\n",
 		len(motes), len(idx.Edges), len(idx.TagStats))

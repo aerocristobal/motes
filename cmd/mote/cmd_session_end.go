@@ -13,6 +13,9 @@ import (
 	"motes/internal/strata"
 )
 
+var sessionEndDryRun bool
+var sessionEndNoSummary bool
+
 var sessionEndCmd = &cobra.Command{
 	Use:   "session-end",
 	Short: "Flush access batch and print session summary",
@@ -21,6 +24,8 @@ var sessionEndCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(sessionEndCmd)
+	sessionEndCmd.Flags().BoolVar(&sessionEndDryRun, "dry-run", false, "Print link suggestions without creating them")
+	sessionEndCmd.Flags().BoolVar(&sessionEndNoSummary, "no-summary", false, "Skip auto-creating session context mote")
 }
 
 func runSessionEnd(cmd *cobra.Command, args []string) error {
@@ -58,6 +63,34 @@ func runSessionEnd(cmd *cobra.Command, args []string) error {
 	if accessCount > 0 {
 		fmt.Printf("Flushed %d access updates to %d motes.\n", accessCount, moteCount)
 		hadOutput = true
+	}
+
+	// Auto-crystallize session summary
+	if !sessionEndNoSummary && len(sessionMoteIDs) >= 3 {
+		// Build session summary body
+		var bodyLines []string
+		bodyLines = append(bodyLines, "Accessed motes:")
+		for _, id := range sessionMoteIDs {
+			bodyLines = append(bodyLines, fmt.Sprintf("- %s", id))
+		}
+
+		title := fmt.Sprintf("Session: %s", time.Now().UTC().Format("2006-01-02"))
+		m, createErr := mm.Create("context", title, core.CreateOpts{
+			Weight: 0.3,
+			Tags:   []string{"session"},
+			Body:   strings.Join(bodyLines, "\n"),
+		})
+		if createErr == nil {
+			// Link session mote to accessed motes via informed_by
+			simm := core.NewIndexManager(root)
+			if _, loadErr := simm.Load(); loadErr == nil {
+				for _, id := range sessionMoteIDs {
+					_ = mm.Link(m.ID, "informed_by", id, simm)
+				}
+			}
+			fmt.Printf("Created session summary: %s\n", m.ID)
+			hadOutput = true
+		}
 	}
 
 	// Crystallization suggestions: uncrystallized completed motes
@@ -146,14 +179,26 @@ func runSessionEnd(cmd *cobra.Command, args []string) error {
 			}
 
 			if len(suggestions) > 0 {
-				fmt.Println("\nCo-access link suggestions:")
 				limit := 3
 				if len(suggestions) < limit {
 					limit = len(suggestions)
 				}
-				for _, s := range suggestions[:limit] {
-					fmt.Printf("  mote link %s relates_to %s  (shared: %s)\n",
-						s.a, s.b, strings.Join(s.sharedTags, ", "))
+				if sessionEndDryRun {
+					fmt.Println("\nCo-access link suggestions:")
+					for _, s := range suggestions[:limit] {
+						fmt.Printf("  mote link %s relates_to %s  (shared: %s)\n",
+							s.a, s.b, strings.Join(s.sharedTags, ", "))
+					}
+				} else {
+					fmt.Println("\nAuto-linked co-accessed motes:")
+					for _, s := range suggestions[:limit] {
+						if err := mm.Link(s.a, "relates_to", s.b, im); err != nil {
+							fmt.Fprintf(os.Stderr, "  warning: failed to link %s <-> %s: %v\n", s.a, s.b, err)
+							continue
+						}
+						fmt.Printf("  %s <-> %s  (shared: %s)\n",
+							s.a, s.b, strings.Join(s.sharedTags, ", "))
+					}
 				}
 				hadOutput = true
 			}
@@ -199,6 +244,8 @@ func runSessionEnd(cmd *cobra.Command, args []string) error {
 	if !hadOutput {
 		// Silent if nothing to do
 	}
+
+	core.ClearSessionState(root)
 
 	return nil
 }

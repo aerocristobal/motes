@@ -133,6 +133,84 @@ func TestSelectSeeds_CoAccessSignal(t *testing.T) {
 	}
 }
 
+func TestSelectSeeds_BodyTextMatching(t *testing.T) {
+	motes := []*Mote{
+		{ID: "m1", Title: "Unrelated", Tags: []string{"other"}, Body: "This discusses scoring algorithms and retrieval."},
+		{ID: "m2", Title: "Also unrelated", Tags: []string{"misc"}, Body: "Nothing relevant here."},
+	}
+
+	ss := NewSeedSelector(motes, nil, nil)
+	seeds := ss.SelectSeeds("scoring retrieval", nil)
+
+	if len(seeds) == 0 {
+		t.Fatal("expected body-text matching to find mote m1, got no seeds")
+	}
+	if seeds[0].ID != "m1" {
+		t.Errorf("expected first seed to be m1, got %s", seeds[0].ID)
+	}
+}
+
+func TestSelectSeeds_TagMatchHigherThanBodyMatch(t *testing.T) {
+	motes := []*Mote{
+		{ID: "body-only", Title: "Foo", Tags: []string{"unrelated"}, Body: "This talks about scoring in detail."},
+		{ID: "tag-match", Title: "Bar", Tags: []string{"scoring"}, Body: "No relevant body content."},
+	}
+
+	ss := NewSeedSelector(motes, nil, nil)
+	seeds := ss.SelectSeeds("scoring", nil)
+
+	if len(seeds) < 2 {
+		t.Fatalf("expected 2 seeds, got %d", len(seeds))
+	}
+	// Tag match (1.0 + 0.3 body if body also matches) should outrank body-only (0.3)
+	if seeds[0].ID != "tag-match" {
+		t.Errorf("expected tag-match to rank first, got %s", seeds[0].ID)
+	}
+}
+
+func TestSelectSeeds_BodyMatchAdditive(t *testing.T) {
+	motes := []*Mote{
+		{ID: "both", Title: "Scoring engine", Tags: []string{"scoring"}, Body: "The scoring engine computes relevance."},
+		{ID: "tag-only", Title: "Scoring", Tags: []string{"scoring"}, Body: "No keywords here."},
+	}
+
+	ss := NewSeedSelector(motes, nil, nil)
+	seeds := ss.SelectSeeds("scoring", nil)
+
+	if len(seeds) < 2 {
+		t.Fatalf("expected 2 seeds, got %d", len(seeds))
+	}
+	// "both" has tag match (1.0) + body match (0.3 for "scoring") = 1.3
+	// "tag-only" has tag match (1.0) only = 1.0
+	if seeds[0].ID != "both" {
+		t.Errorf("expected 'both' (tag+body) to rank first, got %s", seeds[0].ID)
+	}
+	if seeds[1].ID != "tag-only" {
+		t.Errorf("expected 'tag-only' to rank second, got %s", seeds[1].ID)
+	}
+}
+
+func TestKeywordOverlap(t *testing.T) {
+	tests := []struct {
+		query  []string
+		target []string
+		want   int
+	}{
+		{[]string{"foo", "bar"}, []string{"bar", "baz"}, 1},
+		{[]string{"foo", "bar"}, []string{"foo", "bar"}, 2},
+		{[]string{"foo"}, []string{"baz"}, 0},
+		{nil, []string{"foo"}, 0},
+		{[]string{"foo"}, nil, 0},
+	}
+
+	for _, tt := range tests {
+		got := keywordOverlap(tt.query, tt.target)
+		if got != tt.want {
+			t.Errorf("keywordOverlap(%v, %v) = %d, want %d", tt.query, tt.target, got, tt.want)
+		}
+	}
+}
+
 func TestExtractKeywords(t *testing.T) {
 	tests := []struct {
 		input    string

@@ -1,10 +1,15 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	"motes/internal/core"
+	"motes/internal/security"
+	"motes/internal/strata"
 )
 
 // findMemoryRoot walks cwd upward looking for a .memory/ directory.
@@ -49,9 +54,50 @@ func openEditor(path string) error {
 	if editor == "" {
 		editor = "vi"
 	}
+
+	// Validate the editor command for security
+	if err := security.ValidateCommand(editor); err != nil {
+		return fmt.Errorf("invalid EDITOR command: %w", err)
+	}
+
 	cmd := exec.Command(editor, path)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// loadMoteBM25 loads the persistent BM25 index from disk.
+func loadMoteBM25(root string) (*strata.BM25Index, error) {
+	bm25m := core.NewMoteBM25Manager(root)
+	data, err := bm25m.LoadRaw()
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return nil, nil
+	}
+	var idx strata.BM25Index
+	if err := json.Unmarshal(data, &idx); err != nil {
+		return nil, err
+	}
+	return &idx, nil
+}
+
+// rebuildMoteBM25 builds a BM25 index from motes and saves it to disk.
+func rebuildMoteBM25(root string, motes []*core.Mote) error {
+	chunks := make([]strata.Chunk, len(motes))
+	for i, m := range motes {
+		chunks[i] = strata.Chunk{
+			ID:   m.ID,
+			Text: m.Title + " " + m.Body,
+		}
+	}
+	idx := strata.BuildBM25Index(chunks)
+	data, err := json.Marshal(idx)
+	if err != nil {
+		return err
+	}
+	bm25m := core.NewMoteBM25Manager(root)
+	return bm25m.SaveRaw(data)
 }

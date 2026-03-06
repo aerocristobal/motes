@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"motes/internal/core"
@@ -88,6 +89,13 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 			continue
 		}
 		batchVisions, logUpdates, err := do.parser.ParseBatchResponse(response)
+		if err != nil && strings.Contains(err.Error(), "no JSON found") {
+			fmt.Fprintf(os.Stderr, "  warning: batch %d no JSON, retrying...\n", i+1)
+			response, err = do.invoker.Invoke(prompt, "sonnet")
+			if err == nil {
+				batchVisions, logUpdates, err = do.parser.ParseBatchResponse(response)
+			}
+		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  warning: batch %d parse error: %v\n", i+1, err)
 			do.lucidLog.RecordBatchFailure(i, fmt.Sprintf("parse: %v", err))
@@ -134,6 +142,83 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 	return result, nil
 }
 
+// AutoApply applies low-risk visions automatically, returning remaining high-risk ones.
+func (do *DreamOrchestrator) AutoApply() (applied int, deferred int, err error) {
+	mm := core.NewMoteManager(do.root)
+	im := core.NewIndexManager(do.root)
+	if _, err := im.Load(); err != nil {
+		return 0, 0, fmt.Errorf("load index: %w", err)
+	}
+
+	visions := do.visions.ReadFinal()
+	if len(visions) == 0 {
+		return 0, 0, nil
+	}
+
+	var remaining []Vision
+	for _, v := range visions {
+		if isLowRisk(v) {
+			if applyErr := applyVision(v, mm, im); applyErr != nil {
+				fmt.Fprintf(os.Stderr, "  warning: auto-apply failed: %v\n", applyErr)
+				remaining = append(remaining, v)
+			} else {
+				applied++
+				do.logAutoApplied(v)
+			}
+		} else {
+			remaining = append(remaining, v)
+			deferred++
+		}
+	}
+
+	// Write remaining visions back
+	if len(remaining) > 0 {
+		if err := do.visions.WriteFinal(remaining); err != nil {
+			return applied, deferred, err
+		}
+	} else {
+		os.Remove(filepath.Join(do.root, "dream", "visions.jsonl"))
+	}
+
+	return applied, deferred, nil
+}
+
+func isLowRisk(v Vision) bool {
+	if v.Type != "link_suggestion" {
+		return false
+	}
+	return v.LinkType == "relates_to" || v.LinkType == "informed_by" || v.LinkType == "builds_on"
+}
+
+func applyVision(v Vision, mm *core.MoteManager, im *core.IndexManager) error {
+	if len(v.SourceMotes) == 0 || len(v.TargetMotes) == 0 || v.LinkType == "" {
+		return fmt.Errorf("link vision missing required fields")
+	}
+	return mm.Link(v.SourceMotes[0], v.LinkType, v.TargetMotes[0], im)
+}
+
+func (do *DreamOrchestrator) logAutoApplied(v Vision) {
+	logPath := filepath.Join(do.root, "dream", "auto_applied.jsonl")
+	entry := struct {
+		Timestamp string `json:"timestamp"`
+		Vision    Vision `json:"vision"`
+	}{
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Vision:    v,
+	}
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.Write(line)
+	f.Write([]byte{'\n'})
+}
+
 // printDryRun outputs the scan results and planned batches without executing.
 func (do *DreamOrchestrator) printDryRun(sr *ScanResult, batches []Batch) {
 	fmt.Println("Dream cycle dry run:")
@@ -164,7 +249,10 @@ func (do *DreamOrchestrator) writeRunLog(result *DreamResult, elapsed time.Durat
 		Visions:   result.Visions,
 		DurationS: elapsed.Seconds(),
 	}
-	line, _ := json.Marshal(entry)
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return // Skip logging if marshal fails
+	}
 	line = append(line, '\n')
 
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -172,5 +260,5 @@ func (do *DreamOrchestrator) writeRunLog(result *DreamResult, elapsed time.Durat
 		return
 	}
 	defer f.Close()
-	f.Write(line)
+	_, _ = f.Write(line) // Dream logging is non-critical
 }

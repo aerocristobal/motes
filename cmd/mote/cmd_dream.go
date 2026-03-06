@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
@@ -15,13 +16,15 @@ var dreamCmd = &cobra.Command{
 }
 
 var (
-	dreamDryRun bool
-	dreamReview bool
+	dreamDryRun    bool
+	dreamReview    bool
+	dreamAutoApply bool
 )
 
 func init() {
 	dreamCmd.Flags().BoolVar(&dreamDryRun, "dry-run", false, "Show plan without running Claude")
 	dreamCmd.Flags().BoolVar(&dreamReview, "review", false, "Review pending visions interactively")
+	dreamCmd.Flags().BoolVar(&dreamAutoApply, "auto-apply", false, "Auto-apply low-risk visions")
 	rootCmd.AddCommand(dreamCmd)
 }
 
@@ -50,7 +53,17 @@ func runDream(cmd *cobra.Command, args []string) error {
 		fmt.Printf("\nDry run complete. Would create %d batches.\n", result.Batches)
 	case "complete":
 		fmt.Printf("\nDream cycle complete: %d batches, %d visions.\n", result.Batches, result.Visions)
-		if result.Visions > 0 {
+		if dreamAutoApply && result.Visions > 0 {
+			applied, deferred, err := orch.AutoApply()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: auto-apply error: %v\n", err)
+			} else {
+				fmt.Printf("  Auto-applied: %d low-risk visions\n", applied)
+				if deferred > 0 {
+					fmt.Printf("  Deferred: %d high-risk visions (run: mote dream --review)\n", deferred)
+				}
+			}
+		} else if result.Visions > 0 {
 			fmt.Println("Run 'mote dream --review' to review pending visions.")
 		}
 	}
@@ -61,7 +74,7 @@ func runDreamReview(root string, cfg *core.Config) error {
 	mm := core.NewMoteManager(root)
 	im := core.NewIndexManager(root)
 	vw := dream.NewVisionWriter(root + "/dream")
-	reviewer := dream.NewVisionReviewer(vw, mm, im)
+	reviewer := dream.NewVisionReviewerWithConfig(vw, mm, im, root, cfg)
 
 	result, err := reviewer.Review()
 	if err != nil {
