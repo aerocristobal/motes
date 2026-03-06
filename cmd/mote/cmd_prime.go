@@ -223,10 +223,19 @@ func runPrime(cmd *cobra.Command, args []string) error {
 				moteByID[m.ID] = m
 			}
 
-			// For each seed mote in results, find content-similar motes
+			// For each seed mote (active tasks + traversal results), find content-similar motes
 			var contentEchoes []core.ScoredMote
+			seeds := make([]string, 0, len(activeTasks)+len(allResults))
+			for _, t := range activeTasks {
+				if !seen[t.ID] {
+					seeds = append(seeds, t.ID)
+				}
+			}
 			for _, sm := range allResults {
-				similar := bm25Idx.FindSimilar(sm.Mote.ID, topK, minScore, maxTerms)
+				seeds = append(seeds, sm.Mote.ID)
+			}
+			for _, seedID := range seeds {
+				similar := bm25Idx.FindSimilar(seedID, topK, minScore, maxTerms)
 				for _, sr := range similar {
 					if seen[sr.DocID] {
 						continue
