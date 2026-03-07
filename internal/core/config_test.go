@@ -119,6 +119,40 @@ func TestLoadConfig_PartialYAMLMerge(t *testing.T) {
 	}
 }
 
+func TestSaveConfig_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+
+	// Modify some values
+	cfg.Scoring.MaxResults = 42
+	cfg.Dream.ScheduleHintDays = 7
+
+	if err := SaveConfig(dir, cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	loaded, err := LoadConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	// Modified values persisted
+	if loaded.Scoring.MaxResults != 42 {
+		t.Errorf("MaxResults: got %d, want 42", loaded.Scoring.MaxResults)
+	}
+	if loaded.Dream.ScheduleHintDays != 7 {
+		t.Errorf("ScheduleHintDays: got %d, want 7", loaded.Dream.ScheduleHintDays)
+	}
+
+	// Unmodified values survived round-trip
+	if loaded.Scoring.MinThreshold != 0.25 {
+		t.Errorf("MinThreshold: got %f, want 0.25", loaded.Scoring.MinThreshold)
+	}
+	if loaded.Scoring.MaxHops != 2 {
+		t.Errorf("MaxHops: got %d, want 2", loaded.Scoring.MaxHops)
+	}
+}
+
 func TestLoadConfig_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte("{{invalid"), 0644); err != nil {

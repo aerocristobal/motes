@@ -200,6 +200,9 @@ func TestPreScanner_ConstellationEvolution(t *testing.T) {
 	if ce.OldCount != 2 {
 		t.Errorf("expected old count 2, got %d", ce.OldCount)
 	}
+	if ce.NewCount != 5 {
+		t.Errorf("expected new count 5, got %d", ce.NewCount)
+	}
 }
 
 func TestPreScanner_ContentLinkCandidates(t *testing.T) {
