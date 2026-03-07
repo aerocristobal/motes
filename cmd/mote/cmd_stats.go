@@ -128,10 +128,14 @@ func runStats(cmd *cobra.Command, args []string) error {
 	}
 
 	// Tag health
+	tagOverloadThreshold := cfg.Dream.PreScan.TagOverloadThreshold
+	if tagOverloadThreshold <= 0 {
+		tagOverloadThreshold = 15
+	}
 	overloaded := 0
 	singletons := 0
 	for _, count := range idx.TagStats {
-		if count > 15 {
+		if count > tagOverloadThreshold {
 			overloaded++
 		}
 		if count == 1 {
@@ -143,7 +147,7 @@ func runStats(cmd *cobra.Command, args []string) error {
 	fmt.Println(format.Header("Tag Health"))
 	fmt.Println()
 	fmt.Printf("  Total tags:      %d\n", len(idx.TagStats))
-	fmt.Printf("  Overloaded (>15): %d\n", overloaded)
+	fmt.Printf("  Overloaded (>%d): %d\n", tagOverloadThreshold, overloaded)
 	fmt.Printf("  Singletons (=1): %d\n", singletons)
 
 	// Active contradictions

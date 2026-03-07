@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"motes/internal/core"
+	"motes/internal/security"
 )
 
 // execCommand wraps exec.Command for testability.
@@ -218,6 +219,9 @@ func (vr *VisionReviewer) editVision(v Vision) (Vision, error) {
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "vi"
+	}
+	if err := security.ValidateCommand(editor); err != nil {
+		return v, fmt.Errorf("invalid EDITOR command: %w", err)
 	}
 	cmd := execCommand(editor, tmpPath)
 	cmd.Stdin = os.Stdin
