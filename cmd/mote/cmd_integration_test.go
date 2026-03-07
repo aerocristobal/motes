@@ -343,6 +343,59 @@ func TestCrystallize_Candidates(t *testing.T) {
 
 // --- Onboard ---
 
+func TestInit_InstallsHooksAndSkills(t *testing.T) {
+	_, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	// Use a temp home dir to avoid polluting the real one
+	fakeHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", fakeHome)
+	defer os.Setenv("HOME", origHome)
+
+	// Remove the CLAUDE.md that setupIntegrationTest may have left
+	cwd, _ := os.Getwd()
+	os.Remove(filepath.Join(cwd, "CLAUDE.md"))
+
+	err := runInitProject()
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	// Verify hooks
+	settingsPath := filepath.Join(fakeHome, ".claude", "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("settings.json not created: %v", err)
+	}
+	var settings map[string]interface{}
+	json.Unmarshal(data, &settings)
+	hooks := settings["hooks"].(map[string]interface{})
+	for _, event := range []string{"SessionStart", "PreCompact"} {
+		if !hookEventHasCommand(hooks, event, "mote prime") {
+			t.Errorf("expected %s hook after init", event)
+		}
+	}
+
+	// Verify skills
+	for _, name := range []string{"mote-capture", "mote-retrieve"} {
+		path := filepath.Join(fakeHome, ".claude", "skills", name, "SKILL.md")
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("expected skill %s after init", name)
+		}
+	}
+
+	// Verify CLAUDE.md has rich content
+	claudeData, _ := os.ReadFile(filepath.Join(cwd, "CLAUDE.md"))
+	content := string(claudeData)
+	if !strings.Contains(content, "Mid-Session Retrieval") {
+		t.Error("expected rich CLAUDE.md with Mid-Session Retrieval table")
+	}
+	if !strings.Contains(content, "Capturing Knowledge") {
+		t.Error("expected rich CLAUDE.md with Capturing Knowledge table")
+	}
+}
+
 func TestOnboard_DryRun(t *testing.T) {
 	_, cleanup := setupIntegrationTest(t)
 	defer cleanup()

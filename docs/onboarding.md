@@ -65,13 +65,19 @@ By default only open issues are imported. To include closed issues:
 mote onboard --include-closed
 ```
 
+### What gets auto-installed
+
+`mote init` and `mote onboard` automatically:
+
+- **Install Claude Code hooks** — `SessionStart` and `PreCompact` hooks for `mote prime` in `~/.claude/settings.json`
+- **Install mote skills** — `mote-capture` and `mote-retrieve` skills to `~/.claude/skills/`
+- **Migrate bd hooks** — Replaces `bd prime` → `mote prime` and `bd sync` → `mote session-end` in existing hooks
+
 ### Post-onboard cleanup
 
 After verifying the import:
 
-1. **Update CLAUDE.md** — Remove the bd `Quick Reference` section and replace `bd sync` with `mote session-end` in session workflows
-2. **Remove `.beads/`** — Once you're satisfied the import is complete
-3. **Remove bd hooks** — If you had beads git hooks configured
+1. **Remove `.beads/`** — Use `mote onboard --cleanup` to auto-remove, or delete manually once satisfied
 
 ## Going Global
 
