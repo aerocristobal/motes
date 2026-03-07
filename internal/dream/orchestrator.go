@@ -143,8 +143,8 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 	return result, nil
 }
 
-// AutoApply applies low-risk visions automatically, returning remaining high-risk ones.
-func (do *DreamOrchestrator) AutoApply() (applied int, deferred int, err error) {
+// AutoApply applies all pending visions, recording feedback with pre-apply scores.
+func (do *DreamOrchestrator) AutoApply(cfg *core.Config) (applied int, failed int, err error) {
 	mm := core.NewMoteManager(do.root)
 	im := core.NewIndexManager(do.root)
 	if _, err := im.Load(); err != nil {
@@ -156,68 +156,24 @@ func (do *DreamOrchestrator) AutoApply() (applied int, deferred int, err error) 
 		return 0, 0, nil
 	}
 
-	var remaining []Vision
 	for _, v := range visions {
-		if isLowRisk(v) {
-			if applyErr := applyVision(v, mm, im); applyErr != nil {
-				fmt.Fprintf(os.Stderr, "  warning: auto-apply failed: %v\n", applyErr)
-				remaining = append(remaining, v)
-			} else {
-				applied++
-				do.logAutoApplied(v)
-			}
+		// Snapshot pre-apply scores
+		affectedIDs := AffectedMoteIDs(v)
+		preScores := SnapshotScores(mm, cfg, affectedIDs)
+
+		if applyErr := ApplyVision(v, mm, im, do.root, cfg); applyErr != nil {
+			fmt.Fprintf(os.Stderr, "  warning: auto-apply failed: %v\n", applyErr)
+			failed++
 		} else {
-			remaining = append(remaining, v)
-			deferred++
+			applied++
+			RecordApplied(do.root, v, preScores)
 		}
 	}
 
-	// Write remaining visions back
-	if len(remaining) > 0 {
-		if err := do.visions.WriteFinal(remaining); err != nil {
-			return applied, deferred, err
-		}
-	} else {
-		os.Remove(filepath.Join(do.root, "dream", "visions.jsonl"))
-	}
+	// Remove visions file — all have been attempted
+	os.Remove(filepath.Join(do.root, "dream", "visions.jsonl"))
 
-	return applied, deferred, nil
-}
-
-func isLowRisk(v Vision) bool {
-	if v.Type != "link_suggestion" {
-		return false
-	}
-	return v.LinkType == "relates_to" || v.LinkType == "informed_by" || v.LinkType == "builds_on"
-}
-
-func applyVision(v Vision, mm *core.MoteManager, im *core.IndexManager) error {
-	if len(v.SourceMotes) == 0 || len(v.TargetMotes) == 0 || v.LinkType == "" {
-		return fmt.Errorf("link vision missing required fields")
-	}
-	return mm.Link(v.SourceMotes[0], v.LinkType, v.TargetMotes[0], im)
-}
-
-func (do *DreamOrchestrator) logAutoApplied(v Vision) {
-	logPath := filepath.Join(do.root, "dream", "auto_applied.jsonl")
-	entry := struct {
-		Timestamp string `json:"timestamp"`
-		Vision    Vision `json:"vision"`
-	}{
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Vision:    v,
-	}
-	line, err := json.Marshal(entry)
-	if err != nil {
-		return
-	}
-	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	f.Write(line)
-	f.Write([]byte{'\n'})
+	return applied, failed, nil
 }
 
 // printDryRun outputs the scan results and planned batches without executing.

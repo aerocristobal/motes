@@ -63,6 +63,7 @@ type SignalConfig struct {
 
 type DreamConfig struct {
 	ScheduleHintDays int              `yaml:"schedule_hint_days"`
+	ReviewMode       string           `yaml:"review_mode"` // "auto" | "manual"
 	Provider         DreamProvider    `yaml:"provider"`
 	Batching         BatchingConfig   `yaml:"batching"`
 	Reconciliation   ReconConfig      `yaml:"reconciliation"`
@@ -200,6 +201,7 @@ func DefaultConfig() *Config {
 		},
 		Dream: DreamConfig{
 			ScheduleHintDays: 2,
+			ReviewMode:       "auto",
 			Provider: DreamProvider{
 				Batch:          ProviderEntry{Backend: "claude-cli", Auth: "oauth", Model: "claude-sonnet-4-20250514"},
 				Reconciliation: ProviderEntry{Backend: "claude-cli", Auth: "oauth", Model: "claude-opus-4-20250514"},

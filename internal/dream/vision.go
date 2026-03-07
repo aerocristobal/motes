@@ -244,29 +244,34 @@ func (vr *VisionReviewer) editVision(v Vision) (Vision, error) {
 }
 
 func (vr *VisionReviewer) apply(v Vision) error {
+	return ApplyVision(v, vr.mm, vr.im, vr.root, vr.cfg)
+}
+
+// ApplyVision applies a single vision to the knowledge graph.
+func ApplyVision(v Vision, mm *core.MoteManager, im *core.IndexManager, root string, cfg *core.Config) error {
 	switch v.Type {
 	case "link_suggestion":
 		if len(v.SourceMotes) == 0 || len(v.TargetMotes) == 0 || v.LinkType == "" {
 			return fmt.Errorf("link vision missing required fields")
 		}
-		if err := vr.mm.Link(v.SourceMotes[0], v.LinkType, v.TargetMotes[0], vr.im); err != nil {
+		if err := mm.Link(v.SourceMotes[0], v.LinkType, v.TargetMotes[0], im); err != nil {
 			return err
 		}
-		return vr.insertBodyRef(v.SourceMotes[0], v.TargetMotes[0])
+		return insertBodyRef(mm, v.SourceMotes[0], v.TargetMotes[0])
 	case "staleness":
 		if v.Action == "deprecate" && len(v.SourceMotes) > 0 {
-			return vr.mm.Deprecate(v.SourceMotes[0], "")
+			return mm.Deprecate(v.SourceMotes[0], "")
 		}
 	case "contradiction":
 		if len(v.SourceMotes) < 2 {
 			return fmt.Errorf("contradiction vision needs at least 2 source motes")
 		}
-		return vr.mm.Link(v.SourceMotes[0], "contradicts", v.SourceMotes[1], vr.im)
+		return mm.Link(v.SourceMotes[0], "contradicts", v.SourceMotes[1], im)
 	case "tag_refinement":
 		if len(v.SourceMotes) == 0 || len(v.Tags) == 0 {
 			return fmt.Errorf("tag_refinement vision needs source motes and tags")
 		}
-		m, err := vr.mm.Read(v.SourceMotes[0])
+		m, err := mm.Read(v.SourceMotes[0])
 		if err != nil {
 			return fmt.Errorf("read mote %s: %w", v.SourceMotes[0], err)
 		}
@@ -275,7 +280,7 @@ func (vr *VisionReviewer) apply(v Vision) error {
 		if err != nil {
 			return fmt.Errorf("serialize: %w", err)
 		}
-		path, err := vr.mm.MoteFilePath(v.SourceMotes[0])
+		path, err := mm.MoteFilePath(v.SourceMotes[0])
 		if err != nil {
 			return fmt.Errorf("get file path: %w", err)
 		}
@@ -284,7 +289,7 @@ func (vr *VisionReviewer) apply(v Vision) error {
 		if len(v.SourceMotes) == 0 || v.Rationale == "" {
 			return fmt.Errorf("compression vision needs source mote and rationale as compressed body")
 		}
-		m, err := vr.mm.Read(v.SourceMotes[0])
+		m, err := mm.Read(v.SourceMotes[0])
 		if err != nil {
 			return fmt.Errorf("read mote %s: %w", v.SourceMotes[0], err)
 		}
@@ -293,7 +298,7 @@ func (vr *VisionReviewer) apply(v Vision) error {
 		if err != nil {
 			return fmt.Errorf("serialize: %w", err)
 		}
-		path, err := vr.mm.MoteFilePath(v.SourceMotes[0])
+		path, err := mm.MoteFilePath(v.SourceMotes[0])
 		if err != nil {
 			return fmt.Errorf("get file path: %w", err)
 		}
@@ -308,7 +313,7 @@ func (vr *VisionReviewer) apply(v Vision) error {
 		for _, id := range v.SourceMotes {
 			body += fmt.Sprintf("- [[%s]]\n", id)
 		}
-		hub, err := vr.mm.Create("constellation", title, core.CreateOpts{
+		hub, err := mm.Create("constellation", title, core.CreateOpts{
 			Tags:   []string{tag},
 			Weight: 0.6,
 			Body:   body,
@@ -317,11 +322,11 @@ func (vr *VisionReviewer) apply(v Vision) error {
 			return fmt.Errorf("create constellation: %w", err)
 		}
 		for _, memberID := range v.SourceMotes {
-			_ = vr.mm.Link(hub.ID, "relates_to", memberID, vr.im)
+			_ = mm.Link(hub.ID, "relates_to", memberID, im)
 		}
 		fmt.Printf("  -> Created constellation %s for tag %q\n", hub.ID, tag)
 	case "signal":
-		if vr.cfg == nil || vr.root == "" {
+		if cfg == nil || root == "" {
 			return fmt.Errorf("signal apply requires config access (use NewVisionReviewerWithConfig)")
 		}
 		signal := core.SignalConfig{
@@ -332,8 +337,8 @@ func (vr *VisionReviewer) apply(v Vision) error {
 			BoostTags:   v.Tags,
 			BoostAmount: 0.3,
 		}
-		vr.cfg.Priming.Signals = append(vr.cfg.Priming.Signals, signal)
-		if err := core.SaveConfig(vr.root, vr.cfg); err != nil {
+		cfg.Priming.Signals = append(cfg.Priming.Signals, signal)
+		if err := core.SaveConfig(root, cfg); err != nil {
 			return fmt.Errorf("save config: %w", err)
 		}
 		fmt.Printf("  -> Added co_access signal %q to config\n", signal.Name)
@@ -342,8 +347,8 @@ func (vr *VisionReviewer) apply(v Vision) error {
 }
 
 // insertBodyRef appends a wiki-link to the source mote body if not already present.
-func (vr *VisionReviewer) insertBodyRef(sourceID, targetID string) error {
-	m, err := vr.mm.Read(sourceID)
+func insertBodyRef(mm *core.MoteManager, sourceID, targetID string) error {
+	m, err := mm.Read(sourceID)
 	if err != nil {
 		return fmt.Errorf("read mote %s: %w", sourceID, err)
 	}
@@ -356,7 +361,7 @@ func (vr *VisionReviewer) insertBodyRef(sourceID, targetID string) error {
 	if err != nil {
 		return fmt.Errorf("serialize: %w", err)
 	}
-	path, err := vr.mm.MoteFilePath(sourceID)
+	path, err := mm.MoteFilePath(sourceID)
 	if err != nil {
 		return fmt.Errorf("get file path: %w", err)
 	}
