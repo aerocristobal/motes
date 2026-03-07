@@ -52,6 +52,10 @@ func (mm *MoteManager) nodesDir() string {
 	return filepath.Join(mm.root, "nodes")
 }
 
+func (mm *MoteManager) trashDir() string {
+	return filepath.Join(mm.root, "trash")
+}
+
 func (mm *MoteManager) moteFilePath(moteID string) (string, error) {
 	if err := security.ValidateMoteID(moteID); err != nil {
 		return "", fmt.Errorf("invalid mote ID: %w", err)
@@ -639,4 +643,184 @@ func (mm *MoteManager) Unlink(sourceID, linkType, targetID string, im *IndexMana
 	}
 
 	return nil
+}
+
+// Delete soft-deletes a mote by moving it to trash/ and cleaning up edges.
+func (mm *MoteManager) Delete(moteID string, im *IndexManager) error {
+	m, err := mm.Read(moteID)
+	if err != nil {
+		return fmt.Errorf("read mote %s: %w", moteID, err)
+	}
+
+	// Set deleted_at
+	now := time.Now().UTC()
+	m.DeletedAt = &now
+
+	data, err := SerializeMote(m)
+	if err != nil {
+		return fmt.Errorf("serialize mote: %w", err)
+	}
+
+	// Ensure trash/ exists
+	if err := os.MkdirAll(mm.trashDir(), 0755); err != nil {
+		return fmt.Errorf("create trash dir: %w", err)
+	}
+
+	// Write to trash/
+	trashPath := filepath.Join(mm.trashDir(), moteID+".md")
+	if err := AtomicWrite(trashPath, data, 0644); err != nil {
+		return fmt.Errorf("write to trash: %w", err)
+	}
+
+	// Remove from nodes/
+	nodePath, err := mm.moteFilePath(moteID)
+	if err != nil {
+		return fmt.Errorf("get node path: %w", err)
+	}
+	if err := os.Remove(nodePath); err != nil {
+		return fmt.Errorf("remove from nodes: %w", err)
+	}
+
+	// Remove all edges involving this mote from the index
+	mm.removeAllEdges(moteID, im)
+
+	// Remove references to this mote from other motes' link slices
+	mm.removeReferencesFromOtherMotes(moteID)
+
+	return nil
+}
+
+// removeAllEdges removes all index edges where moteID is source or target.
+func (mm *MoteManager) removeAllEdges(moteID string, im *IndexManager) {
+	idx, err := im.Load()
+	if err != nil || idx == nil {
+		return
+	}
+
+	// Collect edges to remove (both directions)
+	var toRemove []Edge
+	for _, e := range idx.Edges {
+		if e.Source == moteID || e.Target == moteID {
+			toRemove = append(toRemove, e)
+		}
+	}
+	for _, e := range toRemove {
+		_ = im.RemoveEdge(e.Source, e.Target, e.EdgeType)
+	}
+}
+
+// removeReferencesFromOtherMotes removes moteID from all link slices of other motes.
+func (mm *MoteManager) removeReferencesFromOtherMotes(moteID string) {
+	motes, err := mm.ReadAllParallel()
+	if err != nil {
+		return
+	}
+
+	linkTypes := []string{"depends_on", "blocks", "relates_to", "builds_on", "contradicts", "supersedes", "caused_by", "informed_by"}
+
+	for _, m := range motes {
+		modified := false
+		for _, lt := range linkTypes {
+			slice := GetLinkSlice(m, lt)
+			if sliceContains(slice, moteID) {
+				SetLinkSlice(m, lt, sliceRemove(slice, moteID))
+				modified = true
+			}
+		}
+		if modified {
+			if data, err := SerializeMote(m); err == nil {
+				if path, err := mm.moteFilePath(m.ID); err == nil {
+					_ = AtomicWrite(path, data, 0644)
+				}
+			}
+		}
+	}
+}
+
+// Restore moves a mote from trash/ back to nodes/.
+func (mm *MoteManager) Restore(moteID string) error {
+	if err := security.ValidateMoteID(moteID); err != nil {
+		return fmt.Errorf("invalid mote ID: %w", err)
+	}
+
+	trashPath := filepath.Join(mm.trashDir(), moteID+".md")
+	m, err := ParseMote(trashPath)
+	if err != nil {
+		return fmt.Errorf("read from trash: %w", err)
+	}
+
+	// Clear deleted_at
+	m.DeletedAt = nil
+
+	data, err := SerializeMote(m)
+	if err != nil {
+		return fmt.Errorf("serialize mote: %w", err)
+	}
+
+	nodePath, err := mm.moteFilePath(moteID)
+	if err != nil {
+		return fmt.Errorf("get node path: %w", err)
+	}
+	if err := AtomicWrite(nodePath, data, 0644); err != nil {
+		return fmt.Errorf("write to nodes: %w", err)
+	}
+
+	return os.Remove(trashPath)
+}
+
+// ListTrash returns all motes in the trash directory.
+func (mm *MoteManager) ListTrash() ([]*Mote, error) {
+	entries, err := os.ReadDir(mm.trashDir())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var motes []*Mote
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		m, err := ParseMote(filepath.Join(mm.trashDir(), entry.Name()))
+		if err != nil {
+			continue
+		}
+		motes = append(motes, m)
+	}
+	return motes, nil
+}
+
+// PurgeTrash permanently deletes trashed motes past the retention period.
+// If all is true, deletes everything regardless of age.
+// Returns the list of purged mote IDs.
+func (mm *MoteManager) PurgeTrash(retentionDays int, all bool) ([]string, error) {
+	motes, err := mm.ListTrash()
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now().UTC()
+	var purged []string
+
+	for _, m := range motes {
+		if !all {
+			if m.DeletedAt == nil {
+				continue
+			}
+			expiry := m.DeletedAt.Add(time.Duration(retentionDays) * 24 * time.Hour)
+			if now.Before(expiry) {
+				continue
+			}
+		}
+		trashPath := filepath.Join(mm.trashDir(), m.ID+".md")
+		if err := os.Remove(trashPath); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: could not purge %s: %v\n", m.ID, err)
+			continue
+		}
+		purged = append(purged, m.ID)
+	}
+
+	return purged, nil
 }

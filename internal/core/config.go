@@ -13,6 +13,11 @@ type Config struct {
 	Priming PrimingConfig `yaml:"priming"`
 	Dream   DreamConfig   `yaml:"dream"`
 	Strata  StrataConfig  `yaml:"strata"`
+	Trash   TrashConfig   `yaml:"trash"`
+}
+
+type TrashConfig struct {
+	RetentionDays int `yaml:"retention_days"`
 }
 
 type ScoringConfig struct {
@@ -231,6 +236,9 @@ func DefaultConfig() *Config {
 			},
 			Journal: JournalConfig{MaxTokens: 2000},
 			Interrupts: InterruptConfig{HighSeverityMotePct: 20},
+		},
+		Trash: TrashConfig{
+			RetentionDays: 30,
 		},
 		Strata: StrataConfig{
 			Chunking: ChunkingConfig{
