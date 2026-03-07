@@ -85,6 +85,16 @@ func runInitProject() error {
 	}
 	printStatus(created, "CLAUDE.md")
 
+	// Install hooks and skills
+	home, _ := os.UserHomeDir()
+	claudeDir := filepath.Join(home, ".claude")
+	if err := ensureClaudeHooks(claudeDir, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
+	}
+	if err := ensureMoteSkills(home, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
+	}
+
 	return nil
 }
 

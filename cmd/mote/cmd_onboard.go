@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/skills"
 )
 
 var onboardCmd = &cobra.Command{
@@ -30,12 +32,14 @@ var (
 	onboardGlobal        bool
 	onboardDryRun        bool
 	onboardIncludeClosed bool
+	onboardCleanup       bool
 )
 
 func init() {
 	onboardCmd.Flags().BoolVar(&onboardGlobal, "global", false, "Onboard the global layer (~/.claude/memory/)")
 	onboardCmd.Flags().BoolVar(&onboardDryRun, "dry-run", false, "Show what would happen without writing")
 	onboardCmd.Flags().BoolVar(&onboardIncludeClosed, "include-closed", false, "Also import closed beads issues (default: open only)")
+	onboardCmd.Flags().BoolVar(&onboardCleanup, "cleanup", false, "Remove .beads/ after successful import")
 	rootCmd.AddCommand(onboardCmd)
 }
 
@@ -125,6 +129,11 @@ func runOnboardProject() error {
 		}
 		if settingsHasBd {
 			migrateClaudeSettings(claudeDir, true)
+		}
+		ensureClaudeHooks(claudeDir, true)
+		ensureMoteSkills(home, true)
+		if onboardCleanup && dirExists(filepath.Join(cwd, ".beads")) {
+			fmt.Println("  Would remove .beads/")
 		}
 		return nil
 	}
@@ -239,13 +248,30 @@ func runOnboardProject() error {
 		fmt.Printf("Migrated %d hook(s) in ~/.claude/settings.json\n", migrated)
 	}
 
+	// --- Install hooks ---
+	if err := ensureClaudeHooks(claudeDir, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
+	}
+
+	// --- Install skills ---
+	if err := ensureMoteSkills(home, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
+	}
+
 	fmt.Printf("\nOnboarding complete: %d motes created.\n", totalCreated)
 
-	// --- Print cleanup instructions ---
-	if len(beadsIssues) > 0 {
+	// --- Cleanup ---
+	beadsDir := filepath.Join(cwd, ".beads")
+	if onboardCleanup && dirExists(beadsDir) {
+		if err := os.RemoveAll(beadsDir); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: remove .beads/: %v\n", err)
+		} else {
+			fmt.Println("Removed .beads/")
+		}
+	} else if len(beadsIssues) > 0 && !onboardCleanup {
 		fmt.Println(`
 --- Manual steps ---
-  - Remove .beads/ once you've verified the import`)
+  - Remove .beads/ once you've verified the import (or use --cleanup)`)
 	}
 
 	return nil
@@ -294,6 +320,11 @@ func runOnboardGlobal() error {
 		}
 		if settingsHasBd {
 			migrateClaudeSettings(claudeDir, true)
+		}
+		ensureClaudeHooks(claudeDir, true)
+		ensureMoteSkills(home, true)
+		if onboardCleanup && dirExists(filepath.Join(home, ".beads")) {
+			fmt.Println("  Would remove ~/.beads/")
 		}
 		return nil
 	}
@@ -359,12 +390,29 @@ func runOnboardGlobal() error {
 		fmt.Printf("Migrated %d hook(s) in ~/.claude/settings.json\n", migrated)
 	}
 
+	// --- Install hooks ---
+	if err := ensureClaudeHooks(claudeDir, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
+	}
+
+	// --- Install skills ---
+	if err := ensureMoteSkills(home, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
+	}
+
 	fmt.Printf("\nGlobal onboarding complete: %d motes created.\n", totalCreated)
 
-	if len(beadsIssues) > 0 {
+	globalBeadsDir := filepath.Join(home, ".beads")
+	if onboardCleanup && dirExists(globalBeadsDir) {
+		if err := os.RemoveAll(globalBeadsDir); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: remove ~/.beads/: %v\n", err)
+		} else {
+			fmt.Println("Removed ~/.beads/")
+		}
+	} else if len(beadsIssues) > 0 && !onboardCleanup {
 		fmt.Println(`
 --- Manual steps ---
-  - Remove ~/.beads/ once you've verified the import`)
+  - Remove ~/.beads/ once you've verified the import (or use --cleanup)`)
 	}
 
 	return nil
@@ -505,6 +553,154 @@ func settingsHasBdRefs(path string) bool {
 		return false
 	}
 	return strings.Contains(string(data), "\"bd ")
+}
+
+// ensureClaudeHooks installs SessionStart and PreCompact hooks for "mote prime" in settings.json.
+// It is idempotent — if hooks already exist, it does nothing.
+func ensureClaudeHooks(claudeDir string, dryRun bool) error {
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+
+	var settings map[string]interface{}
+
+	data, err := os.ReadFile(settingsPath)
+	if os.IsNotExist(err) {
+		settings = map[string]interface{}{}
+	} else if err != nil {
+		return fmt.Errorf("read settings.json: %w", err)
+	} else {
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return fmt.Errorf("parse settings.json: %w", err)
+		}
+	}
+
+	hooks, _ := settings["hooks"].(map[string]interface{})
+	if hooks == nil {
+		hooks = map[string]interface{}{}
+	}
+
+	var installed []string
+
+	for _, eventName := range []string{"SessionStart", "PreCompact"} {
+		if hookEventHasCommand(hooks, eventName, "mote prime") {
+			continue
+		}
+
+		entry := map[string]interface{}{
+			"matcher": "",
+			"hooks": []interface{}{
+				map[string]interface{}{
+					"type":    "command",
+					"command": "mote prime",
+				},
+			},
+		}
+
+		existing, _ := hooks[eventName].([]interface{})
+		hooks[eventName] = append(existing, entry)
+		installed = append(installed, eventName)
+	}
+
+	if len(installed) == 0 {
+		return nil
+	}
+
+	if dryRun {
+		fmt.Printf("  Would install hooks: %s\n", strings.Join(installed, ", "))
+		return nil
+	}
+
+	settings["hooks"] = hooks
+
+	newData, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings: %w", err)
+	}
+	newData = append(newData, '\n')
+
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		return fmt.Errorf("create claude dir: %w", err)
+	}
+	if err := core.AtomicWrite(settingsPath, newData, 0644); err != nil {
+		return fmt.Errorf("write settings.json: %w", err)
+	}
+
+	for _, name := range installed {
+		fmt.Printf("  installed %s hook: mote prime\n", name)
+	}
+	return nil
+}
+
+// hookEventHasCommand checks if a hook event already contains a hook with the given command.
+func hookEventHasCommand(hooks map[string]interface{}, eventName, command string) bool {
+	entries, ok := hooks[eventName].([]interface{})
+	if !ok {
+		return false
+	}
+	for _, entry := range entries {
+		entryMap, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		hooksList, ok := entryMap["hooks"].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, h := range hooksList {
+			hMap, ok := h.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if cmd, ok := hMap["command"].(string); ok && cmd == command {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ensureMoteSkills installs mote skill files to ~/.claude/skills/.
+// Updates existing files if content has changed.
+func ensureMoteSkills(homeDir string, dryRun bool) error {
+	skillsDir := filepath.Join(homeDir, ".claude", "skills")
+
+	type skillDef struct {
+		name    string
+		content []byte
+	}
+	defs := []skillDef{
+		{"mote-capture", skills.MoteCapture},
+		{"mote-retrieve", skills.MoteRetrieve},
+	}
+
+	for _, s := range defs {
+		targetDir := filepath.Join(skillsDir, s.name)
+		targetFile := filepath.Join(targetDir, "SKILL.md")
+
+		existing, err := os.ReadFile(targetFile)
+		if err == nil && bytes.Equal(existing, s.content) {
+			continue
+		}
+
+		action := "installed"
+		if err == nil {
+			action = "updated"
+		}
+
+		if dryRun {
+			fmt.Printf("  Would install skill: %s\n", s.name)
+			continue
+		}
+
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			return fmt.Errorf("create skill dir %s: %w", s.name, err)
+		}
+		if err := core.AtomicWrite(targetFile, s.content, 0644); err != nil {
+			return fmt.Errorf("write skill %s: %w", s.name, err)
+		}
+		fmt.Printf("  %s skill: %s\n", action, s.name)
+	}
+
+	return nil
 }
 
 // migrateClaudeSettings detects and migrates bd references in settings.json hooks.
