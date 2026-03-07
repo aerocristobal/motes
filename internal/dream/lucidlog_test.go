@@ -116,6 +116,70 @@ func TestLucidLog_LoadMissing(t *testing.T) {
 	}
 }
 
+func TestLucidLog_PruneIfOverLimit(t *testing.T) {
+	ll := NewLucidLog(100) // small budget forces pruning
+	for i := 0; i < 20; i++ {
+		ll.Update(LucidLogUpdates{
+			ObservedPatterns: []Pattern{{PatternID: "p", Description: "long description to inflate tokens significantly"}},
+			VisionsSummary:   []VisionSummary{{Type: "link_suggestion", Batch: i}},
+		})
+	}
+	// Pruning should have trimmed patterns to <= 3 and visions to <= 5
+	if len(ll.ObservedPatterns) > 3 {
+		t.Errorf("expected patterns pruned to <=3, got %d", len(ll.ObservedPatterns))
+	}
+	if len(ll.VisionsSummary) > 5 {
+		t.Errorf("expected visions pruned to <=5, got %d", len(ll.VisionsSummary))
+	}
+}
+
+func TestNewLucidLog_ZeroBudget(t *testing.T) {
+	ll := NewLucidLog(0)
+	if ll.maxTokens != 2000 {
+		t.Errorf("expected default 2000, got %d", ll.maxTokens)
+	}
+}
+
+func TestTension_UnmarshalJSON_String(t *testing.T) {
+	var ten Tension
+	if err := ten.UnmarshalJSON([]byte(`"some tension"`)); err != nil {
+		t.Fatal(err)
+	}
+	if ten.Description != "some tension" {
+		t.Errorf("expected description from string, got %q", ten.Description)
+	}
+}
+
+func TestVisionSummary_UnmarshalJSON_String(t *testing.T) {
+	var vs VisionSummary
+	if err := vs.UnmarshalJSON([]byte(`"link_suggestion"`)); err != nil {
+		t.Fatal(err)
+	}
+	if vs.Type != "link_suggestion" {
+		t.Errorf("expected type from string, got %q", vs.Type)
+	}
+}
+
+func TestTension_UnmarshalJSON_Object(t *testing.T) {
+	var ten Tension
+	if err := ten.UnmarshalJSON([]byte(`{"tension_id":"t1","description":"conflict","mote_ids":["a"]}`)); err != nil {
+		t.Fatal(err)
+	}
+	if ten.TensionID != "t1" {
+		t.Errorf("expected tension_id t1, got %q", ten.TensionID)
+	}
+}
+
+func TestVisionSummary_UnmarshalJSON_Object(t *testing.T) {
+	var vs VisionSummary
+	if err := vs.UnmarshalJSON([]byte(`{"type":"staleness","mote_ids":["m1"],"batch":2}`)); err != nil {
+		t.Fatal(err)
+	}
+	if vs.Batch != 2 {
+		t.Errorf("expected batch 2, got %d", vs.Batch)
+	}
+}
+
 func TestPatternMerge(t *testing.T) {
 	p := Pattern{PatternID: "p1", MoteIDs: []string{"a", "b"}, Strength: 2.0}
 	other := Pattern{PatternID: "p1", MoteIDs: []string{"b", "c"}, Strength: 3.0}

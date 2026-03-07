@@ -241,6 +241,37 @@ func TestApply_LinkSuggestion_NoDuplicateBodyRef(t *testing.T) {
 	}
 }
 
+func TestApply_LinkSuggestion_MissingLinkType(t *testing.T) {
+	_, mm, im, vw := setupApplyTest(t)
+
+	mA, _ := mm.Create("context", "Source", core.CreateOpts{Tags: []string{"test"}})
+
+	vr := NewVisionReviewer(vw, mm, im)
+	v := Vision{Type: "link_suggestion", SourceMotes: []string{mA.ID}, TargetMotes: []string{"target"}, LinkType: ""}
+
+	if err := vr.apply(v); err == nil {
+		t.Error("expected error for empty LinkType")
+	}
+}
+
+func TestApply_Staleness_Deprecate(t *testing.T) {
+	_, mm, im, vw := setupApplyTest(t)
+
+	m, _ := mm.Create("context", "Old mote", core.CreateOpts{Tags: []string{"stale"}})
+
+	vr := NewVisionReviewer(vw, mm, im)
+	v := Vision{Type: "staleness", Action: "deprecate", SourceMotes: []string{m.ID}}
+
+	if err := vr.apply(v); err != nil {
+		t.Fatalf("apply staleness deprecate: %v", err)
+	}
+
+	updated, _ := mm.Read(m.ID)
+	if updated.Status != "deprecated" {
+		t.Errorf("expected status 'deprecated', got %q", updated.Status)
+	}
+}
+
 func TestApply_Signal(t *testing.T) {
 	root, mm, im, vw := setupApplyTest(t)
 
