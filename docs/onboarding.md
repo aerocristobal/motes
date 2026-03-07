@@ -132,7 +132,16 @@ mote context authentication
 mote session-end
 ```
 
-Flushes batched access counts, suggests crystallization candidates, and provides maintenance hints. Run `mote dream` periodically for deeper automated maintenance.
+Flushes batched access counts, suggests crystallization candidates, and provides maintenance hints.
+
+Every few sessions, run the dream cycle for deeper automated maintenance:
+
+```bash
+mote dream              # Analyze graph, produce visions
+mote dream --review     # Review and apply/reject each vision
+```
+
+The dream cycle detects missing links, stale content, contradictions, and more. Each finding becomes a "vision" that you review interactively. See [docs/maintenance.md](docs/maintenance.md) for the full maintenance workflow.
 
 ## Example CLAUDE.md Configurations
 

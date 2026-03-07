@@ -114,6 +114,8 @@ Body can come from `--body`, stdin (`--body -` or pipe), or an editor (default).
 
 Origins: `normal`, `failure`, `revert`, `hotfix`, `discovery`
 
+Beyond tasks, capture knowledge as it happens: `lesson` for debugging insights, `explore` for research findings, `decision` for architectural choices. Link them into the graph with `mote link`. See [docs/maintenance.md](docs/maintenance.md#knowledge-capture) for guidance.
+
 ### Querying
 
 ```bash
@@ -171,6 +173,8 @@ mote dream --review         # Interactive review of pending visions
 
 It detects: missing links, contradictions, stale motes, overloaded tags, compression candidates, constellation evolution, and co-access patterns.
 
+The cycle produces draft visions (from Sonnet batches) which are reconciled by Opus into finalized visions in `visions.jsonl`. Review finalized visions with `--review` and accept, edit, reject, or defer each one. See [docs/maintenance.md](docs/maintenance.md) for the full workflow and vision type reference.
+
 ### Maintenance
 
 ```bash
@@ -183,6 +187,8 @@ mote constellation list     # Tag frequency overview
 mote crystallize <id>       # Convert completed work to permanent knowledge
 mote promote <id>           # Copy mote to global ~/.claude/memory/
 ```
+
+For guidance on when to run each command and a suggested maintenance schedule, see [docs/maintenance.md](docs/maintenance.md).
 
 ### Onboarding & Migration
 
