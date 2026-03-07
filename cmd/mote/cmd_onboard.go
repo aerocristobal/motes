@@ -100,6 +100,13 @@ func runOnboardProject() error {
 	} else {
 		fmt.Println("  CLAUDE.md            needs ## Motes")
 	}
+
+	home, _ := os.UserHomeDir()
+	claudeDir := filepath.Join(home, ".claude")
+	settingsHasBd := settingsHasBdRefs(filepath.Join(claudeDir, "settings.json"))
+	if settingsHasBd {
+		fmt.Println("  settings.json        has bd references")
+	}
 	fmt.Println()
 
 	if onboardDryRun {
@@ -115,6 +122,9 @@ func runOnboardProject() error {
 		}
 		if importCount > 0 {
 			fmt.Printf("  Would import %d beads issues\n", importCount)
+		}
+		if settingsHasBd {
+			migrateClaudeSettings(claudeDir, true)
 		}
 		return nil
 	}
@@ -221,15 +231,20 @@ func runOnboardProject() error {
 		fmt.Println("Updated CLAUDE.md with ## Motes section")
 	}
 
+	// --- Migrate settings.json hooks ---
+	migrated, err := migrateClaudeSettings(claudeDir, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: settings migration: %v\n", err)
+	} else if migrated > 0 {
+		fmt.Printf("Migrated %d hook(s) in ~/.claude/settings.json\n", migrated)
+	}
+
 	fmt.Printf("\nOnboarding complete: %d motes created.\n", totalCreated)
 
 	// --- Print cleanup instructions ---
 	if len(beadsIssues) > 0 {
 		fmt.Println(`
 --- Manual steps ---
-Remove bd references from CLAUDE.md:
-  - Remove the bd 'Quick Reference' section
-  - Replace 'bd sync' with 'mote session-end' in session workflow
   - Remove .beads/ once you've verified the import`)
 	}
 
@@ -259,6 +274,13 @@ func runOnboardGlobal() error {
 	} else {
 		fmt.Println("  ~/.claude/memory/      will create")
 	}
+
+	home, _ := os.UserHomeDir()
+	claudeDir := filepath.Join(home, ".claude")
+	settingsHasBd := settingsHasBdRefs(filepath.Join(claudeDir, "settings.json"))
+	if settingsHasBd {
+		fmt.Println("  settings.json          has bd references")
+	}
 	fmt.Println()
 
 	if onboardDryRun {
@@ -269,6 +291,9 @@ func runOnboardGlobal() error {
 		}
 		if importCount > 0 {
 			fmt.Printf("  Would import %d beads issues\n", importCount)
+		}
+		if settingsHasBd {
+			migrateClaudeSettings(claudeDir, true)
 		}
 		return nil
 	}
@@ -326,13 +351,19 @@ func runOnboardGlobal() error {
 	motes, _ := mm.ReadAllParallel()
 	im.Rebuild(motes)
 
+	// --- Migrate settings.json hooks ---
+	migrated, err := migrateClaudeSettings(claudeDir, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: settings migration: %v\n", err)
+	} else if migrated > 0 {
+		fmt.Printf("Migrated %d hook(s) in ~/.claude/settings.json\n", migrated)
+	}
+
 	fmt.Printf("\nGlobal onboarding complete: %d motes created.\n", totalCreated)
 
 	if len(beadsIssues) > 0 {
 		fmt.Println(`
 --- Manual steps ---
-Update ~/.claude/CLAUDE.md:
-  - Replace bd instructions with motes instructions
   - Remove ~/.beads/ once you've verified the import`)
 	}
 
@@ -465,4 +496,105 @@ func fileContains(path, substr string) bool {
 		return false
 	}
 	return strings.Contains(string(data), substr)
+}
+
+// settingsHasBdRefs checks if a settings.json file contains bd command references.
+func settingsHasBdRefs(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(data), "\"bd ")
+}
+
+// migrateClaudeSettings detects and migrates bd references in settings.json hooks.
+// claudeDir is the directory containing settings.json (e.g. ~/.claude/).
+// Returns the number of hooks migrated.
+func migrateClaudeSettings(claudeDir string, dryRun bool) (int, error) {
+	settingsPath := filepath.Join(claudeDir, "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("read settings.json: %w", err)
+	}
+
+	var settings map[string]interface{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return 0, fmt.Errorf("parse settings.json: %w", err)
+	}
+
+	hooksRaw, ok := settings["hooks"]
+	if !ok {
+		return 0, nil
+	}
+	hooks, ok := hooksRaw.(map[string]interface{})
+	if !ok {
+		return 0, nil
+	}
+
+	cmdMap := map[string]string{
+		"bd prime": "mote prime",
+		"bd sync":  "mote session-end",
+	}
+
+	migrated := 0
+
+	for eventName, eventVal := range hooks {
+		entries, ok := eventVal.([]interface{})
+		if !ok {
+			continue
+		}
+		for _, entry := range entries {
+			entryMap, ok := entry.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			hooksList, ok := entryMap["hooks"].([]interface{})
+			if !ok {
+				continue
+			}
+			for _, h := range hooksList {
+				hMap, ok := h.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				cmd, ok := hMap["command"].(string)
+				if !ok {
+					continue
+				}
+				if replacement, found := cmdMap[cmd]; found {
+					fmt.Printf("  Migrated hook: %s → %s (%s)\n", cmd, replacement, eventName)
+					if !dryRun {
+						hMap["command"] = replacement
+					}
+					migrated++
+				} else if strings.HasPrefix(cmd, "bd ") {
+					fmt.Printf("  Warning: unknown bd command %q in %s — manual migration needed\n", cmd, eventName)
+				}
+			}
+		}
+	}
+
+	if migrated > 0 && !dryRun {
+		newData, err := json.MarshalIndent(settings, "", "  ")
+		if err != nil {
+			return migrated, fmt.Errorf("marshal settings: %w", err)
+		}
+		newData = append(newData, '\n')
+		if err := core.AtomicWrite(settingsPath, newData, 0644); err != nil {
+			return migrated, fmt.Errorf("write settings.json: %w", err)
+		}
+	}
+
+	// Check for stale permissions in settings.local.json
+	localSettingsPath := filepath.Join(claudeDir, "settings.local.json")
+	if localData, err := os.ReadFile(localSettingsPath); err == nil {
+		if strings.Contains(string(localData), "\"bd ") {
+			fmt.Println("  Note: settings.local.json contains stale bd permissions — clean up manually if desired")
+		}
+	}
+
+	return migrated, nil
 }

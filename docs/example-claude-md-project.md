@@ -35,42 +35,50 @@ This project uses motes for all planning, memory, and task tracking. Knowledge i
 
 Run `mote prime` at the start of every session for scored, relevant context.
 
-### Task Tracking
+Prime outputs: active tasks, recent decisions, lessons, explores, echoes, and contradiction alerts. It auto-parses your git branch as keywords.
+
+Focus priming on a topic: `mote prime <topic>`
+Inspect a surfaced mote: `mote show <id>`
+
+### Mid-Session Retrieval
+
+When you need context beyond what prime surfaced:
+
+| Need | Command | Example |
+|------|---------|---------|
+| Graph traversal — "What do we know about X?" | `mote context <topic>` | `mote context authentication` |
+| Full-text search — "Where did we mention Y?" | `mote search <query>` | `mote search "retry logic"` |
+| Reference docs — "What does the spec say about Z?" | `mote strata query <topic>` | `mote strata query scoring` |
+| Dependency chain view | `mote context --planning <id>` | `mote context --planning proj-t1abc` |
+
+### Task Tracking & Planning
 
 Find available work:
 
     mote ls --ready           # Tasks with no unfinished blockers
     mote pulse                # Active tasks sorted by weight
 
-Create and manage tasks:
+Create tasks with dependency links:
 
     mote add --type=task --title="Summary" --tag=topic --body "What and why"
+    mote link <story-id> depends_on <epic-id>
     mote update <id> --status=completed
 
-### Planning
+### Capturing Knowledge
 
-Break work into task motes with dependency links:
+Capture when you encounter:
 
-    mote add --type=task --title="Epic: Feature X" --tag=epic --body "Goal"
-    mote add --type=task --title="Implement Y" --tag=story --body "Details"
-    mote link <story-id> depends_on <epic-id>
+| Trigger | Type | Command |
+|---------|------|---------|
+| Non-obvious choice made | decision | `mote add --type=decision --title="Summary" --tag=topic --body "Rationale"` |
+| Gotcha or surprise discovered | lesson | `mote add --type=lesson --title="Summary" --tag=topic --body "Details"` |
+| Researched alternatives | explore | `mote add --type=explore --title="Summary" --tag=topic --body "Findings"` |
+| Quick thought | (auto) | `mote quick "your sentence here"` |
 
-View execution chains:
+After capturing, link related motes: `mote link <id1> relates_to <id2>`
+Give feedback on surfaced motes: `mote feedback <id> useful` or `mote feedback <id> irrelevant`
 
-    mote context --planning <id>
-
-### During Work
-
-Capture knowledge worth preserving:
-
-    mote add --type=decision --title="Summary" --tag=topic --body "Rationale"
-    mote add --type=lesson --title="Summary" --tag=topic --body "Details"
-    mote add --type=explore --title="Summary" --tag=topic --body "Findings"
-
-Link related motes:
-
-    mote link <id1> relates_to <id2>
-    mote link <id1> builds_on <id2>
+**Tag strategy:** Rare, specific tags beat generic ones.
 
 ### Session End
 
