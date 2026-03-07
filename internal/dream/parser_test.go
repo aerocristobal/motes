@@ -146,6 +146,43 @@ func TestParseBatchResponse_MixedPatterns(t *testing.T) {
 	}
 }
 
+func TestExtractJSON_FenceVariants(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"JSON uppercase", "```JSON\n{\"a\":1}\n```", `{"a":1}`},
+		{"jsonc", "```jsonc\n{\"a\":1}\n```", `{"a":1}`},
+		{"leading whitespace", "  \n```json\n{\"a\":1}\n```", `{"a":1}`},
+		{"no lang marker", "```\n{\"a\":1}\n```", `{"a":1}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractJSON(tt.input)
+			if got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestExtractJSON_TopLevelArray(t *testing.T) {
+	input := `[{"visions":[]}]`
+	got := extractJSON(input)
+	if got != input {
+		t.Errorf("got %q, want %q", got, input)
+	}
+}
+
+func TestExtractJSON_ProseBeforeJSON(t *testing.T) {
+	input := "Here is the result:\n\n{\"visions\": []}"
+	got := extractJSON(input)
+	if got != `{"visions": []}` {
+		t.Errorf("got %q", got)
+	}
+}
+
 func TestFilterValidVisions_DefaultSeverity(t *testing.T) {
 	visions := []Vision{
 		{Type: "staleness", Rationale: "old", SourceMotes: []string{"m1"}},

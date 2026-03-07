@@ -90,6 +90,7 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 		}
 		batchVisions, logUpdates, err := do.parser.ParseBatchResponse(response)
 		if err != nil && strings.Contains(err.Error(), "no JSON found") {
+			do.logFailedResponse(i+1, response)
 			fmt.Fprintf(os.Stderr, "  warning: batch %d no JSON, retrying...\n", i+1)
 			response, err = do.invoker.Invoke(prompt, "sonnet")
 			if err == nil {
@@ -238,6 +239,36 @@ func (do *DreamOrchestrator) printDryRun(sr *ScanResult, batches []Batch) {
 		fmt.Printf("    Batch %d: %s (%d motes, tasks: %v)\n",
 			i+1, b.Phase, len(b.MoteIDs), b.Tasks)
 	}
+}
+
+func (do *DreamOrchestrator) logFailedResponse(batch int, raw string) {
+	logPath := filepath.Join(do.root, "dream", "failed_responses.jsonl")
+	preview := raw
+	if len(preview) > 2000 {
+		preview = preview[:2000]
+	}
+	entry := struct {
+		Timestamp       string `json:"timestamp"`
+		Batch           int    `json:"batch"`
+		ResponsePreview string `json:"response_preview"`
+		ResponseLen     int    `json:"response_len"`
+	}{
+		Timestamp:       time.Now().UTC().Format(time.RFC3339),
+		Batch:           batch,
+		ResponsePreview: preview,
+		ResponseLen:     len(raw),
+	}
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.Write(line)
+	f.Write([]byte{'\n'})
 }
 
 func (do *DreamOrchestrator) writeRunLog(result *DreamResult, elapsed time.Duration) {

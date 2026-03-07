@@ -3,6 +3,7 @@ package dream
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -46,26 +47,26 @@ func (rp *ResponseParser) ParseReconciliationResponse(raw string) ([]Vision, err
 	return filterValidVisions(resp.Visions), nil
 }
 
-// extractJSON finds the first balanced top-level JSON object in the text.
-// Handles markdown code fences (```json ... ```) that Claude may wrap responses in.
+var fenceRe = regexp.MustCompile("(?s)```(?:json[c]?|JSON)?\\s*\\n?(.*?)```")
+
+// extractJSON finds the first balanced top-level JSON object or array in the text.
+// Handles markdown code fences (```json ... ```, ```JSON ... ```, ```jsonc ... ```)
+// that Claude may wrap responses in.
 func extractJSON(raw string) string {
 	// Strip markdown code fences if present
 	cleaned := raw
-	if idx := strings.Index(cleaned, "```json"); idx != -1 {
-		cleaned = cleaned[idx+len("```json"):]
-		if end := strings.LastIndex(cleaned, "```"); end != -1 {
-			cleaned = cleaned[:end]
-		}
-	} else if idx := strings.Index(cleaned, "```"); idx != -1 {
-		cleaned = cleaned[idx+len("```"):]
-		if end := strings.LastIndex(cleaned, "```"); end != -1 {
-			cleaned = cleaned[:end]
-		}
+	if m := fenceRe.FindStringSubmatch(cleaned); m != nil {
+		cleaned = m[1]
 	}
 
-	start := strings.Index(cleaned, "{")
+	start := strings.IndexAny(cleaned, "{[")
 	if start == -1 {
 		return ""
+	}
+	openChar := cleaned[start]
+	closeChar := byte('}')
+	if openChar == '[' {
+		closeChar = ']'
 	}
 	depth := 0
 	inString := false
@@ -87,9 +88,9 @@ func extractJSON(raw string) string {
 		if inString {
 			continue
 		}
-		if ch == '{' {
+		if ch == openChar {
 			depth++
-		} else if ch == '}' {
+		} else if ch == closeChar {
 			depth--
 			if depth == 0 {
 				return cleaned[start : i+1]
