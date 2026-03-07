@@ -8,7 +8,7 @@ This project uses motes for all planning, memory, and task tracking. Knowledge i
 
 ### Session Start
 
-Run `mote prime` at the start of every session for scored, relevant context.
+***Run `mote prime` at the start of every session for scored, relevant context.***
 
 ### Task Tracking
 
@@ -49,7 +49,7 @@ Link related motes:
 
 ### Session End
 
-Run `mote session-end` for access flush and maintenance suggestions.
+***Run `mote session-end` for access flush and maintenance suggestions.***
 
 Run `mote dream` periodically for automated maintenance. Review with `mote dream --review`.
 
