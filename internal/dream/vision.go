@@ -249,7 +249,10 @@ func (vr *VisionReviewer) apply(v Vision) error {
 		if len(v.SourceMotes) == 0 || len(v.TargetMotes) == 0 || v.LinkType == "" {
 			return fmt.Errorf("link vision missing required fields")
 		}
-		return vr.mm.Link(v.SourceMotes[0], v.LinkType, v.TargetMotes[0], vr.im)
+		if err := vr.mm.Link(v.SourceMotes[0], v.LinkType, v.TargetMotes[0], vr.im); err != nil {
+			return err
+		}
+		return vr.insertBodyRef(v.SourceMotes[0], v.TargetMotes[0])
 	case "staleness":
 		if v.Action == "deprecate" && len(v.SourceMotes) > 0 {
 			return vr.mm.Deprecate(v.SourceMotes[0], "")
@@ -336,4 +339,26 @@ func (vr *VisionReviewer) apply(v Vision) error {
 		fmt.Printf("  -> Added co_access signal %q to config\n", signal.Name)
 	}
 	return nil
+}
+
+// insertBodyRef appends a wiki-link to the source mote body if not already present.
+func (vr *VisionReviewer) insertBodyRef(sourceID, targetID string) error {
+	m, err := vr.mm.Read(sourceID)
+	if err != nil {
+		return fmt.Errorf("read mote %s: %w", sourceID, err)
+	}
+	ref := "[[" + targetID + "]]"
+	if strings.Contains(m.Body, ref) {
+		return nil
+	}
+	m.Body += "\nSee also: " + ref + "\n"
+	data, err := core.SerializeMote(m)
+	if err != nil {
+		return fmt.Errorf("serialize: %w", err)
+	}
+	path, err := vr.mm.MoteFilePath(sourceID)
+	if err != nil {
+		return fmt.Errorf("get file path: %w", err)
+	}
+	return core.AtomicWrite(path, data, 0644)
 }

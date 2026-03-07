@@ -194,6 +194,53 @@ func TestApply_Constellation(t *testing.T) {
 	}
 }
 
+func TestApply_LinkSuggestion_InsertsBodyRef(t *testing.T) {
+	_, mm, im, vw := setupApplyTest(t)
+
+	mA, _ := mm.Create("context", "Source mote", core.CreateOpts{Tags: []string{"test"}, Body: "Original body."})
+	mB, _ := mm.Create("context", "Target mote", core.CreateOpts{Tags: []string{"test"}})
+
+	motes, _ := mm.ReadAllParallel()
+	im.Rebuild(motes)
+
+	vr := NewVisionReviewer(vw, mm, im)
+	v := Vision{Type: "link_suggestion", SourceMotes: []string{mA.ID}, TargetMotes: []string{mB.ID}, LinkType: "relates_to"}
+
+	if err := vr.apply(v); err != nil {
+		t.Fatalf("apply link_suggestion: %v", err)
+	}
+
+	updated, _ := mm.Read(mA.ID)
+	ref := "[[" + mB.ID + "]]"
+	if !strings.Contains(updated.Body, ref) {
+		t.Errorf("expected body to contain %s, got %q", ref, updated.Body)
+	}
+}
+
+func TestApply_LinkSuggestion_NoDuplicateBodyRef(t *testing.T) {
+	_, mm, im, vw := setupApplyTest(t)
+
+	mB, _ := mm.Create("context", "Target mote", core.CreateOpts{Tags: []string{"test"}})
+	mA, _ := mm.Create("context", "Source mote", core.CreateOpts{Tags: []string{"test"}, Body: "Already has [[" + mB.ID + "]] link."})
+
+	motes, _ := mm.ReadAllParallel()
+	im.Rebuild(motes)
+
+	vr := NewVisionReviewer(vw, mm, im)
+	v := Vision{Type: "link_suggestion", SourceMotes: []string{mA.ID}, TargetMotes: []string{mB.ID}, LinkType: "relates_to"}
+
+	if err := vr.apply(v); err != nil {
+		t.Fatalf("apply link_suggestion: %v", err)
+	}
+
+	updated, _ := mm.Read(mA.ID)
+	ref := "[[" + mB.ID + "]]"
+	count := strings.Count(updated.Body, ref)
+	if count != 1 {
+		t.Errorf("expected exactly 1 occurrence of %s, got %d in %q", ref, count, updated.Body)
+	}
+}
+
 func TestApply_Signal(t *testing.T) {
 	root, mm, im, vw := setupApplyTest(t)
 

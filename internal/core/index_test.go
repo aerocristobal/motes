@@ -188,6 +188,87 @@ func TestEdgeIndex_Neighbors(t *testing.T) {
 	}
 }
 
+func TestExtractBodyLinks(t *testing.T) {
+	// Basic extraction
+	links := ExtractBodyLinks("See [[motes-A]] and [[motes-B]].", "self")
+	if len(links) != 2 || links[0] != "motes-A" || links[1] != "motes-B" {
+		t.Errorf("basic: got %v", links)
+	}
+
+	// Self-link exclusion
+	links = ExtractBodyLinks("Ref [[self]] and [[other]].", "self")
+	if len(links) != 1 || links[0] != "other" {
+		t.Errorf("self-exclusion: got %v", links)
+	}
+
+	// Dedup
+	links = ExtractBodyLinks("[[dup]] then [[dup]] again.", "x")
+	if len(links) != 1 || links[0] != "dup" {
+		t.Errorf("dedup: got %v", links)
+	}
+
+	// No matches
+	links = ExtractBodyLinks("No links here.", "x")
+	if len(links) != 0 {
+		t.Errorf("no matches: got %v", links)
+	}
+}
+
+func TestRebuild_BodyWikiLinks(t *testing.T) {
+	dir := t.TempDir()
+	im := NewIndexManager(dir)
+
+	motes := []*Mote{
+		{ID: "p-A", Body: "References [[p-B]] in body."},
+	}
+	if err := im.Rebuild(motes); err != nil {
+		t.Fatal(err)
+	}
+	idx, _ := im.Load()
+
+	found := false
+	for _, e := range idx.Edges {
+		if e.Source == "p-A" && e.Target == "p-B" && e.EdgeType == "body_ref" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected body_ref edge from p-A to p-B")
+	}
+}
+
+func TestRebuild_BodyWikiLinks_CoexistsWithFrontmatter(t *testing.T) {
+	dir := t.TempDir()
+	im := NewIndexManager(dir)
+
+	motes := []*Mote{
+		{ID: "p-A", RelatesTo: []string{"p-B"}, Body: "Also see [[p-B]] in text."},
+	}
+	if err := im.Rebuild(motes); err != nil {
+		t.Fatal(err)
+	}
+	idx, _ := im.Load()
+
+	hasRelatesTo := false
+	hasBodyRef := false
+	for _, e := range idx.Edges {
+		if e.Source == "p-A" && e.Target == "p-B" {
+			if e.EdgeType == "relates_to" {
+				hasRelatesTo = true
+			}
+			if e.EdgeType == "body_ref" {
+				hasBodyRef = true
+			}
+		}
+	}
+	if !hasRelatesTo {
+		t.Error("expected relates_to edge")
+	}
+	if !hasBodyRef {
+		t.Error("expected body_ref edge")
+	}
+}
+
 func TestIndexManager_FileCreated(t *testing.T) {
 	dir := t.TempDir()
 	im := NewIndexManager(dir)

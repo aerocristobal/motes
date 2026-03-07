@@ -3,12 +3,31 @@ package core
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
 	"motes/internal/security"
 )
+
+var wikiLinkRe = regexp.MustCompile(`\[\[([a-zA-Z0-9._-]+)\]\]`)
+
+// ExtractBodyLinks finds all [[id]] wiki-links in body text, excluding self-references and duplicates.
+func ExtractBodyLinks(body, selfID string) []string {
+	matches := wikiLinkRe.FindAllStringSubmatch(body, -1)
+	seen := map[string]bool{}
+	var result []string
+	for _, m := range matches {
+		id := m[1]
+		if id == selfID || seen[id] {
+			continue
+		}
+		seen[id] = true
+		result = append(result, id)
+	}
+	return result
+}
 
 // Mote is the atomic unit of knowledge in the nebula.
 type Mote struct {

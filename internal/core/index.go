@@ -143,6 +143,11 @@ func (im *IndexManager) Rebuild(motes []*Mote) error {
 		for _, target := range m.BuildsOn {
 			edges = append(edges, Edge{Source: target, Target: m.ID, EdgeType: "built_by_ref"})
 		}
+
+		// Index-only edges for body wiki-links
+		for _, target := range ExtractBodyLinks(m.Body, m.ID) {
+			edges = append(edges, Edge{Source: m.ID, Target: target, EdgeType: "body_ref"})
+		}
 	}
 
 	idx := &EdgeIndex{Edges: edges, TagStats: tagStats}

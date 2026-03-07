@@ -21,6 +21,7 @@ var (
 	updateTitle  string
 	updateWeight float64
 	updateAddTag []string
+	updateBody   string
 )
 
 func init() {
@@ -28,12 +29,13 @@ func init() {
 	updateCmd.Flags().StringVar(&updateTitle, "title", "", "New title")
 	updateCmd.Flags().Float64Var(&updateWeight, "weight", 0, "New weight (0.0-1.0)")
 	updateCmd.Flags().StringArrayVar(&updateAddTag, "add-tag", nil, "Tag to append (repeatable)")
+	updateCmd.Flags().StringVar(&updateBody, "body", "", "New body content")
 	rootCmd.AddCommand(updateCmd)
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
-	if !cmd.Flags().Changed("status") && !cmd.Flags().Changed("title") && !cmd.Flags().Changed("weight") && !cmd.Flags().Changed("add-tag") {
-		return fmt.Errorf("at least one flag required: --status, --title, --weight, --add-tag")
+	if !cmd.Flags().Changed("status") && !cmd.Flags().Changed("title") && !cmd.Flags().Changed("weight") && !cmd.Flags().Changed("add-tag") && !cmd.Flags().Changed("body") {
+		return fmt.Errorf("at least one flag required: --status, --title, --weight, --add-tag, --body")
 	}
 
 	moteID := args[0]
@@ -74,6 +76,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if cmd.Flags().Changed("body") {
+		if len(updateBody) > 10000 {
+			return fmt.Errorf("body too long (max 10000 characters)")
+		}
+	}
+
 	root, err := findMemoryRoot()
 	if err != nil {
 		return err
@@ -102,6 +110,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			tags = append(tags, t)
 		}
 		fields["tags"] = tags
+	}
+	if cmd.Flags().Changed("body") {
+		fields["body"] = updateBody
 	}
 
 	if err := mm.Update(moteID, fields); err != nil {
