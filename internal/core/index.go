@@ -144,6 +144,12 @@ func (im *IndexManager) Rebuild(motes []*Mote) error {
 			edges = append(edges, Edge{Source: target, Target: m.ID, EdgeType: "built_by_ref"})
 		}
 
+		// Parent/child hierarchy edges
+		if m.Parent != "" {
+			edges = append(edges, Edge{Source: m.ID, Target: m.Parent, EdgeType: "child_of"})
+			edges = append(edges, Edge{Source: m.Parent, Target: m.ID, EdgeType: "parent_of"})
+		}
+
 		// Index-only edges for body wiki-links
 		for _, target := range ExtractBodyLinks(m.Body, m.ID) {
 			edges = append(edges, Edge{Source: m.ID, Target: target, EdgeType: "body_ref"})

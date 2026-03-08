@@ -25,6 +25,7 @@ Developer reference for architecture, storage, and design decisions. For usage i
 - **ID format:** `<scope>-<typechar><base36-timestamp><random-suffix>` (collision-resistant)
 - **Mote types:** task, decision, lesson, context, question, constellation, anchor, explore
 - **Link types:** depends_on/blocks (planning), relates_to, builds_on, contradicts, supersedes, caused_by, informed_by (memory)
+- **Dream vision types:** link_suggestion, contradiction, tag_refinement, staleness, compression, signal, merge_suggestion. The `merge_suggestion` vision merges 3+ redundant motes into one authoritative mote using `supersedes` links (auto-deprecation), with inbound/outbound link migration to the new merged mote.
 - **Scoring formula** combines: base weight + edge bonus + status penalty + recency decay + retrieval strength + salience boost + tag specificity + interference penalty
 
 ## Storage Layout

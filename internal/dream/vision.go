@@ -328,6 +328,61 @@ func ApplyVision(v Vision, mm *core.MoteManager, im *core.IndexManager, root str
 			_ = mm.Link(hub.ID, "relates_to", memberID, im)
 		}
 		fmt.Printf("  -> Created constellation %s for tag %q\n", hub.ID, tag)
+	case "merge_suggestion":
+		if len(v.SourceMotes) < 3 {
+			return fmt.Errorf("merge_suggestion needs at least 3 source motes, got %d", len(v.SourceMotes))
+		}
+		if v.Rationale == "" {
+			return fmt.Errorf("merge_suggestion needs rationale as merged body text")
+		}
+		title, body := splitTitleBody(v.Rationale)
+
+		// Determine majority type from source motes
+		typeCounts := map[string]int{}
+		for _, id := range v.SourceMotes {
+			m, err := mm.Read(id)
+			if err != nil {
+				continue
+			}
+			typeCounts[m.Type]++
+		}
+		majorityType := "lesson"
+		maxCount := 0
+		for t, c := range typeCounts {
+			if c > maxCount {
+				maxCount = c
+				majorityType = t
+			}
+		}
+
+		hub, err := mm.Create(majorityType, title, core.CreateOpts{
+			Tags:   v.Tags,
+			Weight: 0.7,
+			Body:   body,
+		})
+		if err != nil {
+			return fmt.Errorf("create merged mote: %w", err)
+		}
+
+		// Build cluster set for link migration filtering
+		clusterSet := make(map[string]bool, len(v.SourceMotes))
+		for _, id := range v.SourceMotes {
+			clusterSet[id] = true
+		}
+
+		// Load edge index for link migration
+		idx, _ := im.Load()
+
+		// Supersede each source mote (auto-deprecates) and migrate links
+		for _, srcID := range v.SourceMotes {
+			if err := mm.Link(hub.ID, "supersedes", srcID, im); err != nil {
+				fmt.Fprintf(os.Stderr, "  warning: supersede link %s->%s failed: %v\n", hub.ID, srcID, err)
+			}
+			if idx != nil {
+				migrateLinks(mm, im, idx, srcID, hub.ID, clusterSet)
+			}
+		}
+		fmt.Printf("  -> Merged %d motes into %s\n", len(v.SourceMotes), hub.ID)
 	case "signal":
 		if cfg == nil || root == "" {
 			return fmt.Errorf("signal apply requires config access (use NewVisionReviewerWithConfig)")
@@ -347,6 +402,34 @@ func ApplyVision(v Vision, mm *core.MoteManager, im *core.IndexManager, root str
 		fmt.Printf("  -> Added co_access signal %q to config\n", signal.Name)
 	}
 	return nil
+}
+
+// splitTitleBody splits rationale text into title (first line) and body (rest).
+func splitTitleBody(text string) (string, string) {
+	text = strings.TrimSpace(text)
+	if idx := strings.IndexByte(text, '\n'); idx >= 0 {
+		return strings.TrimSpace(text[:idx]), strings.TrimSpace(text[idx+1:])
+	}
+	return text, ""
+}
+
+// migrateLinks re-creates inbound/outbound links from oldID onto newID,
+// skipping edges where the other end is in clusterIDs (intra-cluster) or supersedes edges.
+func migrateLinks(mm *core.MoteManager, im *core.IndexManager, idx *core.EdgeIndex, oldID, newID string, clusterIDs map[string]bool) {
+	// Migrate outgoing links
+	for _, e := range idx.Neighbors(oldID, nil) {
+		if clusterIDs[e.Target] || e.EdgeType == "supersedes" || e.EdgeType == "superseded_by" {
+			continue
+		}
+		_ = mm.Link(newID, e.EdgeType, e.Target, im)
+	}
+	// Migrate incoming links
+	for _, e := range idx.Incoming(oldID, nil) {
+		if clusterIDs[e.Source] || e.EdgeType == "supersedes" || e.EdgeType == "superseded_by" {
+			continue
+		}
+		_ = mm.Link(e.Source, e.EdgeType, newID, im)
+	}
 }
 
 // insertBodyRef appends a wiki-link to the source mote body if not already present.

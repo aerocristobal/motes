@@ -47,6 +47,12 @@ type SignalCandidate struct {
 	Pattern string
 }
 
+// MergeCluster identifies a group of highly similar motes that may be redundant.
+type MergeCluster struct {
+	MoteIDs       []string
+	AvgSimilarity float64
+}
+
 // StrataCrystallizationCandidate identifies frequently-queried strata topics.
 type StrataCrystallizationCandidate struct {
 	Corpus     string
@@ -74,6 +80,7 @@ type ScanResult struct {
 	UncrystallizedIssues    []string
 	StrataCrystallization   []StrataCrystallizationCandidate
 	SignalCandidates        []SignalCandidate
+	MergeCandidates         []MergeCluster
 }
 
 // HasWork returns true if any scan category found candidates.
@@ -87,7 +94,8 @@ func (sr *ScanResult) HasWork() bool {
 		len(sr.CompressionCandidates) > 0 ||
 		len(sr.UncrystallizedIssues) > 0 ||
 		len(sr.StrataCrystallization) > 0 ||
-		len(sr.SignalCandidates) > 0
+		len(sr.SignalCandidates) > 0 ||
+		len(sr.MergeCandidates) > 0
 }
 
 // Batch groups motes for a single Claude invocation.

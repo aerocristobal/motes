@@ -63,6 +63,9 @@ func (bc *BatchConstructor) Build(candidates *ScanResult) []Batch {
 		}
 		moteTaskMap[ce.ConstellationID]["constellation_evolution"] = true
 	}
+	for _, mc := range candidates.MergeCandidates {
+		addMotes(mc.MoteIDs, "merge_review")
+	}
 	for _, sc := range candidates.SignalCandidates {
 		if moteTaskMap[sc.MoteID] == nil {
 			moteTaskMap[sc.MoteID] = map[string]bool{}
@@ -178,7 +181,78 @@ func (bc *BatchConstructor) Build(candidates *ScanResult) []Batch {
 		})
 	}
 
+	// Ensure merge cluster co-location: all members of each cluster must be in the same batch
+	batches = ensureMergeCoLocation(batches, candidates.MergeCandidates, moteTaskMap)
+
 	return batches
+}
+
+// ensureMergeCoLocation moves scattered merge cluster members into the batch containing the majority.
+func ensureMergeCoLocation(batches []Batch, clusters []MergeCluster, moteTaskMap map[string]map[string]bool) []Batch {
+	for _, mc := range clusters {
+		if len(mc.MoteIDs) == 0 {
+			continue
+		}
+		clusterSet := make(map[string]bool, len(mc.MoteIDs))
+		for _, id := range mc.MoteIDs {
+			clusterSet[id] = true
+		}
+
+		// Find which batch has the most members
+		batchCounts := make(map[int]int)
+		moteInBatch := make(map[string]int)
+		for bi, b := range batches {
+			for _, id := range b.MoteIDs {
+				if clusterSet[id] {
+					batchCounts[bi]++
+					moteInBatch[id] = bi
+				}
+			}
+		}
+
+		// Find majority batch
+		majorityBatch := -1
+		majorityCount := 0
+		for bi, count := range batchCounts {
+			if count > majorityCount {
+				majorityCount = count
+				majorityBatch = bi
+			}
+		}
+		if majorityBatch < 0 || len(batchCounts) <= 1 {
+			continue // All in one batch or not found
+		}
+
+		// Move scattered members to majority batch
+		for id := range clusterSet {
+			bi, ok := moteInBatch[id]
+			if !ok || bi == majorityBatch {
+				continue
+			}
+			// Remove from old batch
+			var remaining []string
+			for _, mid := range batches[bi].MoteIDs {
+				if mid != id {
+					remaining = append(remaining, mid)
+				}
+			}
+			batches[bi].MoteIDs = remaining
+			batches[bi].Tasks = collectTasks(remaining, moteTaskMap)
+
+			// Add to majority batch
+			batches[majorityBatch].MoteIDs = append(batches[majorityBatch].MoteIDs, id)
+		}
+		batches[majorityBatch].Tasks = collectTasks(batches[majorityBatch].MoteIDs, moteTaskMap)
+	}
+
+	// Remove empty batches
+	var result []Batch
+	for _, b := range batches {
+		if len(b.MoteIDs) > 0 {
+			result = append(result, b)
+		}
+	}
+	return result
 }
 
 func collectTasks(ids []string, moteTaskMap map[string]map[string]bool) []string {

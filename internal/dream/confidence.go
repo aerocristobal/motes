@@ -145,6 +145,17 @@ func scoreStructure(v Vision) float64 {
 		if len(v.Tags) > 0 {
 			filled++
 		}
+	case "merge_suggestion":
+		total += 3 // source motes >= 3, tags, rationale length
+		if len(v.SourceMotes) >= 3 {
+			filled++
+		}
+		if len(v.Tags) > 0 {
+			filled++
+		}
+		if len(v.Rationale) > 100 {
+			filled++
+		}
 	default:
 		total++ // source motes for unknown types
 		if len(v.SourceMotes) > 0 {

@@ -24,6 +24,9 @@ var (
 	addWeight float64
 	addOrigin string
 	addBody   string
+	addParent string
+	addAccept []string
+	addSize   string
 )
 
 func init() {
@@ -33,6 +36,9 @@ func init() {
 	addCmd.Flags().Float64Var(&addWeight, "weight", 0.5, "Initial weight (0.0-1.0)")
 	addCmd.Flags().StringVar(&addOrigin, "origin", "normal", "Origin (normal|failure|revert|hotfix|discovery)")
 	addCmd.Flags().StringVar(&addBody, "body", "", "Mote body (use - for stdin)")
+	addCmd.Flags().StringVar(&addParent, "parent", "", "Parent mote ID for hierarchy")
+	addCmd.Flags().StringArrayVar(&addAccept, "accept", nil, "Acceptance criterion (repeatable)")
+	addCmd.Flags().StringVar(&addSize, "size", "", "Effort size (xs|s|m|l|xl)")
 	_ = addCmd.MarkFlagRequired("type")
 	_ = addCmd.MarkFlagRequired("title")
 	rootCmd.AddCommand(addCmd)
@@ -60,6 +66,19 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	if err := security.ValidateWeight(addWeight); err != nil {
 		return fmt.Errorf("invalid weight: %w", err)
+	}
+
+	if addParent != "" {
+		if err := security.ValidateMoteID(addParent); err != nil {
+			return fmt.Errorf("invalid parent ID: %w", err)
+		}
+	}
+
+	if addSize != "" {
+		validSizes := []string{"xs", "s", "m", "l", "xl"}
+		if err := security.ValidateEnum(addSize, validSizes, "size"); err != nil {
+			return fmt.Errorf("invalid size: %w", err)
+		}
 	}
 
 	validOrigins := []string{"normal", "failure", "revert", "hotfix", "discovery"}
@@ -115,10 +134,13 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	mm := core.NewMoteManager(root)
 	m, err := mm.Create(addType, addTitle, core.CreateOpts{
-		Tags:   addTags,
-		Weight: addWeight,
-		Origin: addOrigin,
-		Body:   string(bodyBytes),
+		Tags:       addTags,
+		Weight:     addWeight,
+		Origin:     addOrigin,
+		Body:       string(bodyBytes),
+		Parent:     addParent,
+		Acceptance: addAccept,
+		Size:       addSize,
 	})
 	if err != nil {
 		return fmt.Errorf("create mote: %w", err)

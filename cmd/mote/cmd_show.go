@@ -41,6 +41,16 @@ func runShow(cmd *cobra.Command, args []string) error {
 	fmt.Println(format.Field("tags", format.TagList(m.Tags)))
 	fmt.Println(format.Field("weight", fmt.Sprintf("%.2f", m.Weight)))
 	fmt.Println(format.Field("origin", m.Origin))
+	if m.Size != "" {
+		fmt.Println(format.Field("size", m.Size))
+	}
+	if m.Parent != "" {
+		parentTitle := m.Parent
+		if p, err := mm.Read(m.Parent); err == nil {
+			parentTitle = m.Parent + " (" + p.Title + ")"
+		}
+		fmt.Println(format.Field("parent", parentTitle))
+	}
 	fmt.Println(format.Field("created_at", m.CreatedAt.Format(time.RFC3339)))
 	if m.LastAccessed != nil {
 		fmt.Println(format.Field("last_accessed", m.LastAccessed.Format(time.RFC3339)))
@@ -59,6 +69,32 @@ func runShow(cmd *cobra.Command, args []string) error {
 		printLinks(mm, "supersedes", m.Supersedes)
 		printLinks(mm, "caused_by", m.CausedBy)
 		printLinks(mm, "informed_by", m.InformedBy)
+	}
+
+	children, _ := mm.Children(m.ID)
+	if len(children) > 0 {
+		fmt.Println("\n--- children ---")
+		for _, c := range children {
+			marker := "[ ]"
+			if c.Status == "completed" {
+				marker = "[x]"
+			}
+			fmt.Printf("  %s %s %q [%s]\n", marker, c.ID, c.Title, c.Status)
+		}
+	}
+
+	if len(m.Acceptance) > 0 {
+		fmt.Println("\n--- acceptance ---")
+		met := 0
+		for i, a := range m.Acceptance {
+			check := "[ ]"
+			if i < len(m.AcceptanceMet) && m.AcceptanceMet[i] {
+				check = "[x]"
+				met++
+			}
+			fmt.Printf("  %s %d. %s\n", check, i+1, a)
+		}
+		fmt.Printf("  Progress: %d/%d\n", met, len(m.Acceptance))
 	}
 
 	if m.Body != "" {

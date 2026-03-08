@@ -23,6 +23,7 @@ var (
 	lsStale   bool
 	lsReady   bool
 	lsCompact bool
+	lsParent  string
 )
 
 func init() {
@@ -32,6 +33,7 @@ func init() {
 	lsCmd.Flags().BoolVar(&lsStale, "stale", false, "Show motes with no access in 90+ days")
 	lsCmd.Flags().BoolVar(&lsReady, "ready", false, "Show tasks with zero unfinished blockers")
 	lsCmd.Flags().BoolVar(&lsCompact, "compact", false, "One-line-per-mote compact output: ID: Title")
+	lsCmd.Flags().StringVar(&lsParent, "parent", "", "Filter by parent mote ID")
 	rootCmd.AddCommand(lsCmd)
 }
 
@@ -42,6 +44,7 @@ func runLs(cmd *cobra.Command, args []string) error {
 		Status: lsStatus,
 		Stale:  lsStale,
 		Ready:  lsReady,
+		Parent: lsParent,
 	}, false, lsCompact)
 }
 

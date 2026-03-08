@@ -67,6 +67,16 @@ type Mote struct {
 	// Deprecation tracking
 	DeprecatedBy string `yaml:"deprecated_by,omitempty"`
 
+	// Hierarchy
+	Parent string `yaml:"parent,omitempty"`
+
+	// Acceptance criteria
+	Acceptance    []string `yaml:"acceptance,omitempty"`
+	AcceptanceMet []bool   `yaml:"acceptance_met,omitempty"`
+
+	// Effort sizing
+	Size string `yaml:"size,omitempty"` // xs|s|m|l|xl
+
 	// Strata integration (anchor motes only)
 	StrataCorpus      string     `yaml:"strata_corpus,omitempty"`
 	StrataQueryHint   string     `yaml:"strata_query_hint,omitempty"`

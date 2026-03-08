@@ -113,6 +113,18 @@ but have no explicit links or shared tags. For each "content_link_review" task, 
 conceptual overlap warrants a permanent "relates_to" link. Only promote pairs with genuine thematic
 connection, not incidental vocabulary overlap.
 {{end}}
+{{if hasTask .Tasks "merge_review"}}
+## Merge Review Context
+Some motes in this batch were flagged as highly similar. For "merge_review" tasks,
+evaluate whether 3+ motes are truly redundant and should be merged into one.
+If yes, produce a merge_suggestion vision:
+- type: "merge_suggestion", action: "merge"
+- source_motes: ALL mote IDs to merge
+- tags: union of all tags (deduplicated)
+- rationale: FULL body text of the new merged mote (first line = title, rest = body)
+- severity: "medium"
+Only merge truly redundant content. Different perspectives on the same topic should stay separate.
+{{end}}
 
 IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in markdown code fences.
 
@@ -121,8 +133,8 @@ Required format:
 
 Your ENTIRE response must be this JSON object. No text before or after.
 
-Vision types: link_suggestion, contradiction, tag_refinement, staleness, compression, signal.
-Vision actions: add_link, remove, split_tag, deprecate, compress, add_signal.
+Vision types: link_suggestion, contradiction, tag_refinement, staleness, compression, signal, merge_suggestion.
+Vision actions: add_link, remove, split_tag, deprecate, compress, add_signal, merge.
 If no findings for a category, use an empty array [].
 `
 
@@ -144,6 +156,6 @@ IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in
 Required format:
 {"visions": [{"type": "link_suggestion", "action": "add_link", "source_motes": ["id1"], "target_motes": ["id2"], "link_type": "relates_to", "rationale": "why", "severity": "medium"}]}
 
-Vision types: link_suggestion, contradiction, tag_refinement, staleness, compression, signal.
+Vision types: link_suggestion, contradiction, tag_refinement, staleness, compression, signal, merge_suggestion.
 If no visions, respond with: {"visions": []}
 `

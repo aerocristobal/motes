@@ -109,6 +109,7 @@ type PreScanConfig struct {
 	ThemeGrowthThresholdPct    int                      `yaml:"theme_growth_threshold_pct"`
 	CompressionMinWords        int                      `yaml:"compression_min_words"`
 	ContentSimilarity          ContentSimilarityConfig  `yaml:"content_similarity"`
+	MergeSimilarityMultiplier  float64                  `yaml:"merge_similarity_multiplier"`
 }
 
 // ContentSimilarityConfig controls content-based semantic linking.
@@ -237,6 +238,7 @@ func DefaultConfig() *Config {
 					MaxTerms:     8,
 					PrimingBoost: 0.15,
 				},
+				MergeSimilarityMultiplier: 2.0,
 			},
 			Journal: JournalConfig{MaxTokens: 2000},
 			Interrupts: InterruptConfig{HighSeverityMotePct: 20},

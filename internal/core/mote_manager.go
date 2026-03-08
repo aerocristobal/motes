@@ -24,6 +24,9 @@ type CreateOpts struct {
 	Body          string
 	StrataCorpus  string
 	SourceIssue   string
+	Parent        string
+	Acceptance    []string
+	Size          string
 }
 
 type ListFilters struct {
@@ -32,6 +35,7 @@ type ListFilters struct {
 	Status string
 	Stale  bool
 	Ready  bool
+	Parent string
 }
 
 type AccessBatchEntry struct {
@@ -88,18 +92,21 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 
 	now := time.Now().UTC()
 	m := &Mote{
-		ID:           id,
-		Type:         moteType,
-		Status:       "active",
-		Title:        title,
-		Tags:         opts.Tags,
-		Weight:       weight,
-		Origin:       origin,
-		CreatedAt:    now,
-		AccessCount:  0,
-		Body:         opts.Body,
-		StrataCorpus: opts.StrataCorpus,
-		SourceIssue:  opts.SourceIssue,
+		ID:            id,
+		Type:          moteType,
+		Status:        "active",
+		Title:         title,
+		Tags:          opts.Tags,
+		Weight:        weight,
+		Origin:        origin,
+		CreatedAt:     now,
+		AccessCount:   0,
+		Body:          opts.Body,
+		StrataCorpus:  opts.StrataCorpus,
+		SourceIssue:   opts.SourceIssue,
+		Parent:        opts.Parent,
+		Acceptance:    opts.Acceptance,
+		Size:          opts.Size,
 	}
 
 	data, err := SerializeMote(m)
@@ -151,6 +158,14 @@ func (mm *MoteManager) Update(moteID string, fields map[string]interface{}) erro
 			m.Body = v.(string)
 		case "deprecated_by":
 			m.DeprecatedBy = v.(string)
+		case "parent":
+			m.Parent = v.(string)
+		case "acceptance":
+			m.Acceptance = v.([]string)
+		case "acceptance_met":
+			m.AcceptanceMet = v.([]bool)
+		case "size":
+			m.Size = v.(string)
 		}
 	}
 	data, err := SerializeMote(m)
@@ -183,6 +198,9 @@ func (mm *MoteManager) List(filters ListFilters) ([]*Mote, error) {
 			continue
 		}
 		if filters.Tag != "" && !hasTag(m, filters.Tag) {
+			continue
+		}
+		if filters.Parent != "" && m.Parent != filters.Parent {
 			continue
 		}
 		if filters.Stale {
@@ -218,6 +236,21 @@ func (mm *MoteManager) List(filters ListFilters) ([]*Mote, error) {
 	}
 
 	return result, nil
+}
+
+// Children returns all motes whose Parent field matches parentID.
+func (mm *MoteManager) Children(parentID string) ([]*Mote, error) {
+	motes, err := mm.ReadAllParallel()
+	if err != nil {
+		return nil, err
+	}
+	var children []*Mote
+	for _, m := range motes {
+		if m.Parent == parentID {
+			children = append(children, m)
+		}
+	}
+	return children, nil
 }
 
 // transitiveReady returns true if all transitive dependencies are non-active.

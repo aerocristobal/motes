@@ -33,6 +33,12 @@ Close it when done:
 
     mote update <id> --status=completed
 
+For multi-step work, decompose with `mote plan`:
+
+    mote plan <parent-id> --child "Step 1" --child "Step 2" --sequential
+    mote progress <parent-id>    # Track completion
+    mote check <id> <index>      # Mark acceptance criteria
+
 **Do NOT use** TodoWrite, TaskCreate, or markdown files as substitutes.
 
 ## Cross-Project Knowledge

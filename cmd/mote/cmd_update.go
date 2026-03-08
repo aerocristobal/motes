@@ -22,6 +22,9 @@ var (
 	updateWeight float64
 	updateAddTag []string
 	updateBody   string
+	updateAccept []string
+	updateSize   string
+	updateParent string
 )
 
 func init() {
@@ -30,12 +33,15 @@ func init() {
 	updateCmd.Flags().Float64Var(&updateWeight, "weight", 0, "New weight (0.0-1.0)")
 	updateCmd.Flags().StringArrayVar(&updateAddTag, "add-tag", nil, "Tag to append (repeatable)")
 	updateCmd.Flags().StringVar(&updateBody, "body", "", "New body content")
+	updateCmd.Flags().StringArrayVar(&updateAccept, "accept", nil, "Acceptance criterion to append (repeatable)")
+	updateCmd.Flags().StringVar(&updateSize, "size", "", "Effort size (xs|s|m|l|xl)")
+	updateCmd.Flags().StringVar(&updateParent, "parent", "", "Parent mote ID")
 	rootCmd.AddCommand(updateCmd)
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
-	if !cmd.Flags().Changed("status") && !cmd.Flags().Changed("title") && !cmd.Flags().Changed("weight") && !cmd.Flags().Changed("add-tag") && !cmd.Flags().Changed("body") {
-		return fmt.Errorf("at least one flag required: --status, --title, --weight, --add-tag, --body")
+	if !cmd.Flags().Changed("status") && !cmd.Flags().Changed("title") && !cmd.Flags().Changed("weight") && !cmd.Flags().Changed("add-tag") && !cmd.Flags().Changed("body") && !cmd.Flags().Changed("accept") && !cmd.Flags().Changed("size") && !cmd.Flags().Changed("parent") {
+		return fmt.Errorf("at least one flag required: --status, --title, --weight, --add-tag, --body, --accept, --size, --parent")
 	}
 
 	moteID := args[0]
@@ -82,6 +88,21 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if cmd.Flags().Changed("size") {
+		validSizes := []string{"xs", "s", "m", "l", "xl"}
+		if err := security.ValidateEnum(updateSize, validSizes, "size"); err != nil {
+			return fmt.Errorf("invalid size: %w", err)
+		}
+	}
+
+	if cmd.Flags().Changed("parent") {
+		if updateParent != "" {
+			if err := security.ValidateMoteID(updateParent); err != nil {
+				return fmt.Errorf("invalid parent ID: %w", err)
+			}
+		}
+	}
+
 	root, err := findMemoryRoot()
 	if err != nil {
 		return err
@@ -113,6 +134,26 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 	if cmd.Flags().Changed("body") {
 		fields["body"] = updateBody
+	}
+	if cmd.Flags().Changed("accept") {
+		m, err := mm.Read(moteID)
+		if err != nil {
+			return fmt.Errorf("read mote: %w", err)
+		}
+		acceptance := m.Acceptance
+		acceptanceMet := m.AcceptanceMet
+		for _, a := range updateAccept {
+			acceptance = append(acceptance, a)
+			acceptanceMet = append(acceptanceMet, false)
+		}
+		fields["acceptance"] = acceptance
+		fields["acceptance_met"] = acceptanceMet
+	}
+	if cmd.Flags().Changed("size") {
+		fields["size"] = updateSize
+	}
+	if cmd.Flags().Changed("parent") {
+		fields["parent"] = updateParent
 	}
 
 	if err := mm.Update(moteID, fields); err != nil {

@@ -312,6 +312,7 @@ func (do *DreamOrchestrator) printDryRun(sr *ScanResult, batches []Batch) {
 	fmt.Printf("  Uncrystallized issues:    %d\n", len(sr.UncrystallizedIssues))
 	fmt.Printf("  Strata crystallization:   %d\n", len(sr.StrataCrystallization))
 	fmt.Printf("  Signal candidates:        %d\n", len(sr.SignalCandidates))
+	fmt.Printf("  Merge candidates:         %d\n", len(sr.MergeCandidates))
 	fmt.Println()
 	fmt.Printf("  Planned batches: %d\n", len(batches))
 	for i, b := range batches {

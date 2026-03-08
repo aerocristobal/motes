@@ -199,6 +199,22 @@ func runPlanningContext(root, moteID string) error {
 		return fmt.Errorf("read mote %s: %w", moteID, err)
 	}
 
+	// Show hierarchy context
+	if target.Parent != "" {
+		if parent, err := mm.Read(target.Parent); err == nil {
+			fmt.Printf("Parent: %s %q [%s]\n", parent.ID, parent.Title, parent.Status)
+			if siblings, err := mm.Children(target.Parent); err == nil {
+				for _, s := range siblings {
+					if s.ID == moteID {
+						continue
+					}
+					fmt.Printf("  Sibling: %s %q [%s]\n", s.ID, s.Title, s.Status)
+				}
+			}
+			fmt.Println()
+		}
+	}
+
 	// BFS backward through depends_on to find all prerequisites
 	// BFS forward through blocks to find all dependents
 	visited := map[string]*core.Mote{moteID: target}

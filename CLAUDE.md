@@ -41,6 +41,31 @@ Create tasks with dependency links:
     mote link <story-id> depends_on <epic-id>
     mote update <id> --status=completed
 
+### Planning Workflow
+
+For multi-step work, use hierarchical task decomposition:
+
+    # 1. Create parent task
+    mote add --type=task --title="Goal" --size=l --tag=topic
+
+    # 2. Decompose into subtasks (inherits parent tags)
+    mote plan <parent-id> --child "Step 1" --child "Step 2" --sequential
+
+    # 3. Add acceptance criteria
+    mote update <child-id> --accept "criterion A" --accept "criterion B"
+
+    # 4. Check progress
+    mote progress <parent-id>
+
+    # 5. Find next ready work
+    mote ls --ready
+
+    # 6. Mark criteria met
+    mote check <id> <index>
+
+    # 7. Complete subtask
+    mote update <id> --status=completed
+
 ### Capturing Knowledge
 
 Capture when you encounter:

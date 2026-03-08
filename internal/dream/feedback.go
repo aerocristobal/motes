@@ -226,6 +226,15 @@ func checkPersistence(e FeedbackEntry, mm *core.MoteManager, edgeIndex *core.Edg
 		}
 		// Check if any constellation mote exists (we don't track the hub ID)
 		return true
+	case "merge_suggestion":
+		// All source motes should be deprecated
+		for _, id := range e.SourceMotes {
+			m, err := mm.Read(id)
+			if err != nil || m.Status != "deprecated" {
+				return false
+			}
+		}
+		return true
 	case "signal":
 		return true // Signal persistence is in config, hard to check generically
 	}

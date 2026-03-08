@@ -53,7 +53,7 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	sr.LinkCandidates = linkCandidates
 
 	var wg sync.WaitGroup
-	wg.Add(8)
+	wg.Add(9)
 	go func() { defer wg.Done(); sr.ContentLinkCandidates = ps.findContentLinkCandidates(motes, idx, linkCandidates) }()
 	go func() { defer wg.Done(); sr.ContradictionCandidates = ps.findContradictionCandidates(motes) }()
 	go func() { defer wg.Done(); sr.OverloadedTags = ps.findOverloadedTags(idx.TagStats) }()
@@ -62,6 +62,7 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	go func() { defer wg.Done(); sr.CompressionCandidates = ps.findCompressionCandidates(motes) }()
 	go func() { defer wg.Done(); sr.UncrystallizedIssues = ps.findUncrystallized(motes) }()
 	go func() { defer wg.Done(); sr.StrataCrystallization = ps.findStrataCandidates() }()
+	go func() { defer wg.Done(); sr.MergeCandidates = ps.findMergeCandidates(motes, idx) }()
 	sr.SignalCandidates = ps.findSignalPatterns(motes)
 	wg.Wait()
 
@@ -471,6 +472,128 @@ func (ps *PreScanner) findContentLinkCandidates(motes []*core.Mote, idx *core.Ed
 	}
 
 	return candidates
+}
+
+// findMergeCandidates identifies clusters of 3+ highly similar motes using union-find
+// over BM25 similarity pairs with a threshold of 2x the content_similarity minScore.
+func (ps *PreScanner) findMergeCandidates(motes []*core.Mote, idx *core.EdgeIndex) []MergeCluster {
+	csCfg := ps.config.PreScan.ContentSimilarity
+	if !csCfg.Enabled {
+		return nil
+	}
+
+	bm25Idx := ps.moteBM25
+	if bm25Idx == nil || bm25Idx.DocCount == 0 {
+		chunks := make([]strata.Chunk, 0, len(motes))
+		for _, m := range motes {
+			if m.Status == "deprecated" {
+				continue
+			}
+			chunks = append(chunks, strata.Chunk{ID: m.ID, Text: m.Title + " " + m.Body})
+		}
+		bm25Idx = strata.BuildBM25Index(chunks)
+	}
+
+	minScore := csCfg.MinScore
+	if minScore <= 0 {
+		minScore = 1.0
+	}
+	multiplier := ps.config.PreScan.MergeSimilarityMultiplier
+	if multiplier <= 0 {
+		multiplier = 2.0
+	}
+	mergeThreshold := minScore * multiplier
+
+	maxTerms := csCfg.MaxTerms
+	if maxTerms <= 0 {
+		maxTerms = 8
+	}
+
+	// Build adjacency list from BM25 similarity pairs above threshold
+	type pairKey struct{ a, b string }
+	pairScores := map[pairKey]float64{}
+	adj := map[string][]string{}
+
+	for _, m := range motes {
+		if m.Status == "deprecated" {
+			continue
+		}
+		similar := bm25Idx.FindSimilar(m.ID, 5, mergeThreshold, maxTerms)
+		for _, sr := range similar {
+			a, b := m.ID, sr.DocID
+			if a > b {
+				a, b = b, a
+			}
+			pk := pairKey{a, b}
+			if _, seen := pairScores[pk]; !seen {
+				pairScores[pk] = sr.Score
+				adj[a] = append(adj[a], b)
+				adj[b] = append(adj[b], a)
+			}
+		}
+	}
+
+	// Union-find to extract connected components
+	parent := map[string]string{}
+	var find func(string) string
+	find = func(x string) string {
+		if parent[x] == "" {
+			parent[x] = x
+		}
+		if parent[x] != x {
+			parent[x] = find(parent[x])
+		}
+		return parent[x]
+	}
+	union := func(a, b string) {
+		ra, rb := find(a), find(b)
+		if ra != rb {
+			parent[ra] = rb
+		}
+	}
+
+	for pk := range pairScores {
+		union(pk.a, pk.b)
+	}
+
+	// Group into components
+	components := map[string][]string{}
+	for id := range adj {
+		root := find(id)
+		components[root] = append(components[root], id)
+	}
+
+	// Filter to size >= 3 and compute avg similarity
+	var clusters []MergeCluster
+	for _, members := range components {
+		if len(members) < 3 {
+			continue
+		}
+		var totalScore float64
+		var count int
+		for i := 0; i < len(members); i++ {
+			for j := i + 1; j < len(members); j++ {
+				a, b := members[i], members[j]
+				if a > b {
+					a, b = b, a
+				}
+				if s, ok := pairScores[pairKey{a, b}]; ok {
+					totalScore += s
+					count++
+				}
+			}
+		}
+		avgSim := 0.0
+		if count > 0 {
+			avgSim = totalScore / float64(count)
+		}
+		clusters = append(clusters, MergeCluster{
+			MoteIDs:       members,
+			AvgSimilarity: avgSim,
+		})
+	}
+
+	return clusters
 }
 
 func sharedTags(a, b *core.Mote) []string {
