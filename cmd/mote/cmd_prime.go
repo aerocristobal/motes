@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,7 +17,11 @@ import (
 	"motes/internal/format"
 )
 
-var primeJSON bool
+var (
+	primeJSON bool
+	primeHook bool
+	primeMode string
+)
 
 // PrimeOutput is the JSON output structure for mote prime --json.
 type PrimeOutput struct {
@@ -52,10 +58,52 @@ var primeCmd = &cobra.Command{
 
 func init() {
 	primeCmd.Flags().BoolVar(&primeJSON, "json", false, "Output in JSON format")
+	primeCmd.Flags().BoolVar(&primeHook, "hook", false, "Wrap output in {\"additionalContext\": ...} JSON for hooks")
+	primeCmd.Flags().StringVar(&primeMode, "mode", "startup", "Output mode: startup (full), resume (abbreviated), compact (full + body snippets)")
 	rootCmd.AddCommand(primeCmd)
 }
 
 func runPrime(cmd *cobra.Command, args []string) error {
+	if primeHook {
+		return runPrimeHook(cmd, args)
+	}
+	return runPrimeInner(cmd, args)
+}
+
+func runPrimeHook(cmd *cobra.Command, args []string) error {
+	// Capture stdout, wrap in additionalContext JSON
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	os.Stdout = w
+
+	runErr := runPrimeInner(cmd, args)
+
+	w.Close()
+	os.Stdout = old
+
+	captured, _ := io.ReadAll(r)
+	if runErr != nil {
+		return runErr
+	}
+
+	text := strings.TrimSpace(string(captured))
+	if text == "" {
+		fmt.Println("{}")
+		return nil
+	}
+
+	out := struct {
+		AdditionalContext string `json:"additionalContext"`
+	}{AdditionalContext: text}
+	data, _ := json.Marshal(out)
+	fmt.Println(string(data))
+	return nil
+}
+
+func runPrimeInner(cmd *cobra.Command, args []string) error {
 	root := mustFindRoot()
 	cfg, err := core.LoadConfig(root)
 	if err != nil {
@@ -95,6 +143,11 @@ func runPrime(cmd *cobra.Command, args []string) error {
 	// Use session topics as fallback if no args given
 	if len(args) == 0 && session != nil && len(session.Topics) > 0 {
 		args = session.Topics
+	}
+
+	// Resume mode: abbreviated output — active tasks + session-accessed motes only
+	if primeMode == "resume" {
+		return runPrimeResume(root, mm, motes, args)
 	}
 
 	// Get active tasks sorted by weight
@@ -206,7 +259,7 @@ func runPrime(cmd *cobra.Command, args []string) error {
 			}
 			minScore := csCfg.MinScore
 			if minScore <= 0 {
-				minScore = 1.0
+				minScore = bm25Idx.ThresholdFor("content_similarity")
 			}
 			maxTerms := csCfg.MaxTerms
 			if maxTerms <= 0 {
@@ -304,7 +357,7 @@ func runPrime(cmd *cobra.Command, args []string) error {
 		fmt.Println("## Relevant decisions")
 		fmt.Println()
 		for _, sm := range decisions {
-			fmt.Printf("  %s[%.3f] %s — %s\n", motePrefix(sm.Mote), sm.Score, sm.Mote.ID, sm.Mote.Title)
+			printScoredMote(sm)
 		}
 		fmt.Println()
 	}
@@ -313,7 +366,7 @@ func runPrime(cmd *cobra.Command, args []string) error {
 		fmt.Println("## Key lessons")
 		fmt.Println()
 		for _, sm := range lessons {
-			fmt.Printf("  %s[%.3f] %s — %s\n", motePrefix(sm.Mote), sm.Score, sm.Mote.ID, sm.Mote.Title)
+			printScoredMote(sm)
 		}
 		fmt.Println()
 	}
@@ -322,7 +375,7 @@ func runPrime(cmd *cobra.Command, args []string) error {
 		fmt.Println("## Prior explorations")
 		fmt.Println()
 		for _, sm := range explores {
-			fmt.Printf("  %s[%.3f] %s — %s\n", motePrefix(sm.Mote), sm.Score, sm.Mote.ID, sm.Mote.Title)
+			printScoredMote(sm)
 		}
 		fmt.Println()
 	}
@@ -339,7 +392,7 @@ func runPrime(cmd *cobra.Command, args []string) error {
 			fmt.Println("## Content echoes")
 			fmt.Println()
 			for _, sm := range echoes {
-				fmt.Printf("  %s[%.3f] %s — %s\n", motePrefix(sm.Mote), sm.Score, sm.Mote.ID, sm.Mote.Title)
+				printScoredMote(sm)
 			}
 			fmt.Println()
 		}
@@ -558,4 +611,80 @@ func scoredMotesToEntriesFromScored(scored []core.ScoredMote) []MoteEntry {
 		entries = append(entries, moteToEntry(sm.Mote, sm.Score))
 	}
 	return entries
+}
+
+// printScoredMote prints a scored mote line, with body snippet in compact mode.
+func printScoredMote(sm core.ScoredMote) {
+	fmt.Printf("  %s[%.3f] %s — %s\n", motePrefix(sm.Mote), sm.Score, sm.Mote.ID, sm.Mote.Title)
+	if primeMode == "compact" && sm.Mote.Body != "" {
+		snippet := format.Truncate(strings.ReplaceAll(sm.Mote.Body, "\n", " "), 200)
+		fmt.Printf("           %s\n", snippet)
+	}
+}
+
+// runPrimeResume outputs abbreviated prime: active tasks + motes accessed this session.
+func runPrimeResume(root string, mm *core.MoteManager, motes []*core.Mote, args []string) error {
+	// Read session access batch to find accessed mote IDs
+	accessedIDs := readAccessBatchIDs(root)
+
+	// Active tasks
+	var activeTasks []*core.Mote
+	for _, m := range motes {
+		if m.Type == "task" && m.Status == "active" {
+			activeTasks = append(activeTasks, m)
+		}
+	}
+	sort.Slice(activeTasks, func(i, j int) bool {
+		return activeTasks[i].Weight > activeTasks[j].Weight
+	})
+
+	if len(activeTasks) > 0 {
+		fmt.Println("## Active work (resume)")
+		fmt.Println()
+		for _, task := range activeTasks {
+			fmt.Printf("  [%.2f] %s — %s\n", task.Weight, task.ID, task.Title)
+		}
+		fmt.Println()
+	}
+
+	// Motes accessed this session
+	if len(accessedIDs) > 0 {
+		moteByID := make(map[string]*core.Mote, len(motes))
+		for _, m := range motes {
+			moteByID[m.ID] = m
+		}
+
+		fmt.Println("## Session context (accessed this session)")
+		fmt.Println()
+		for id := range accessedIDs {
+			if m, ok := moteByID[id]; ok && m.Status == "active" {
+				fmt.Printf("  %s (%s) — %s\n", m.ID, m.Type, m.Title)
+			}
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
+// readAccessBatchIDs reads the access batch file and returns unique mote IDs.
+func readAccessBatchIDs(root string) map[string]bool {
+	batchPath := filepath.Join(root, ".access_batch.jsonl")
+	f, err := os.Open(batchPath)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	ids := make(map[string]bool)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		var entry struct {
+			MoteID string `json:"mote_id"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &entry) == nil && entry.MoteID != "" {
+			ids[entry.MoteID] = true
+		}
+	}
+	return ids
 }

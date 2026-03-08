@@ -423,8 +423,14 @@ func (ps *PreScanner) findContentLinkCandidates(motes []*core.Mote, idx *core.Ed
 		}
 	}
 
+	// Use adaptive threshold when config doesn't specify one
+	if minScore <= 0 || minScore == 1.0 {
+		minScore = bm25Idx.ThresholdFor("content_similarity")
+	}
+
 	seen := make(map[pairKey]bool)
 	var candidates []MotePair
+	var allScores []float64
 
 	for _, m := range motes {
 		if m.Status == "deprecated" {
@@ -432,6 +438,7 @@ func (ps *PreScanner) findContentLinkCandidates(motes []*core.Mote, idx *core.Ed
 		}
 		similar := bm25Idx.FindSimilar(m.ID, topK, minScore, maxTerms)
 		for _, sr := range similar {
+			allScores = append(allScores, sr.Score)
 			a, b := m.ID, sr.DocID
 			if a > b {
 				a, b = b, a
@@ -449,6 +456,12 @@ func (ps *PreScanner) findContentLinkCandidates(motes []*core.Mote, idx *core.Ed
 			})
 		}
 	}
+
+	// Calibrate BM25 index with observed scores for future use
+	if len(allScores) > 0 {
+		bm25Idx.SetCalibration(allScores)
+	}
+
 	return candidates
 }
 
