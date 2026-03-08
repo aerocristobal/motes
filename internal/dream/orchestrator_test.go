@@ -153,7 +153,7 @@ func TestAutoApply_NoVisions(t *testing.T) {
 
 	cfg := core.DefaultConfig()
 	orch := NewDreamOrchestrator(root, cfg)
-	applied, failed, err := orch.AutoApply(cfg)
+	applied, failed, _, err := orch.AutoApply(cfg)
 	if err != nil {
 		t.Fatalf("AutoApply: %v", err)
 	}
@@ -180,13 +180,15 @@ func TestAutoApply_AppliesAllVisions(t *testing.T) {
 	vw := NewVisionWriter(dreamDir)
 	vw.WriteFinal([]Vision{{
 		Type:        "link_suggestion",
+		Action:      "add_link",
+		Severity:    "high",
 		SourceMotes: []string{mA.ID},
 		TargetMotes: []string{mB.ID},
 		LinkType:    "relates_to",
-		Rationale:   "test",
+		Rationale:   "These motes share common themes and should be linked for better navigation",
 	}})
 
-	applied, failed, err := orch.AutoApply(cfg)
+	applied, failed, _, err := orch.AutoApply(cfg)
 	if err != nil {
 		t.Fatalf("AutoApply: %v", err)
 	}
@@ -227,13 +229,15 @@ func TestAutoApply_DependsOnNowApplied(t *testing.T) {
 	vw := NewVisionWriter(dreamDir)
 	vw.WriteFinal([]Vision{{
 		Type:        "link_suggestion",
+		Action:      "add_link",
+		Severity:    "high",
 		SourceMotes: []string{mA.ID},
 		TargetMotes: []string{mB.ID},
 		LinkType:    "depends_on",
-		Rationale:   "dependency link",
+		Rationale:   "Source mote directly depends on target for its implementation context",
 	}})
 
-	applied, failed, err := orch.AutoApply(cfg)
+	applied, failed, _, err := orch.AutoApply(cfg)
 	if err != nil {
 		t.Fatalf("AutoApply: %v", err)
 	}

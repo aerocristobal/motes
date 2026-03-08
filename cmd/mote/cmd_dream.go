@@ -76,13 +76,16 @@ func runDream(cmd *cobra.Command, args []string) error {
 	case "complete":
 		fmt.Printf("\nDream cycle complete: %d batches, %d visions.\n", result.Batches, result.Visions)
 		if result.Visions > 0 {
-			applied, failed, err := orch.AutoApply(cfg)
+			applied, failed, deferred, err := orch.AutoApply(cfg)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "warning: auto-apply error: %v\n", err)
 			} else {
 				fmt.Printf("  Auto-applied: %d visions\n", applied)
 				if failed > 0 {
 					fmt.Printf("  Failed: %d (run: mote dream --manual)\n", failed)
+				}
+				if deferred > 0 {
+					fmt.Printf("  Deferred: %d low-confidence (run: mote dream --review)\n", deferred)
 				}
 			}
 		}
@@ -117,9 +120,9 @@ func runDreamStats(root string) error {
 
 	fmt.Println("Dream Feedback Statistics")
 	fmt.Println("=========================")
-	fmt.Printf("%-18s %6s %7s %9s %8s %10s %10s\n",
-		"Vision Type", "Total", "Checked", "Persisted", "Reverted", "Avg Delta", "Positive%")
-	fmt.Println("-----------------------------------------------------------------------------------")
+	fmt.Printf("%-18s %6s %7s %9s %8s %10s %10s %8s\n",
+		"Vision Type", "Total", "Checked", "Persisted", "Reverted", "Avg Delta", "Positive%", "AvgConf")
+	fmt.Println("--------------------------------------------------------------------------------------------")
 
 	// Sort keys for stable output
 	types := make([]string, 0, len(stats))
@@ -130,8 +133,8 @@ func runDreamStats(root string) error {
 
 	for _, vt := range types {
 		s := stats[vt]
-		fmt.Printf("%-18s %6d %7d %9d %8d %+9.4f %9.1f%%\n",
-			vt, s.Total, s.Checked, s.Persisted, s.Reverted, s.AvgDelta, s.PositivePct)
+		fmt.Printf("%-18s %6d %7d %9d %8d %+9.4f %9.1f%% %7.0f%%\n",
+			vt, s.Total, s.Checked, s.Persisted, s.Reverted, s.AvgDelta, s.PositivePct, s.AvgConfidence*100)
 	}
 	return nil
 }

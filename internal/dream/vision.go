@@ -187,6 +187,9 @@ func (vr *VisionReviewer) display(v Vision) {
 	fmt.Printf("  Type:     %s\n", v.Type)
 	fmt.Printf("  Action:   %s\n", v.Action)
 	fmt.Printf("  Severity: %s\n", v.Severity)
+	if v.Confidence > 0 {
+		fmt.Printf("  Confidence: %.0f%%\n", v.Confidence*100)
+	}
 	fmt.Printf("  Sources:  %s\n", strings.Join(v.SourceMotes, ", "))
 	if len(v.TargetMotes) > 0 {
 		fmt.Printf("  Targets:  %s\n", strings.Join(v.TargetMotes, ", "))

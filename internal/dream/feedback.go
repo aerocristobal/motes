@@ -20,6 +20,7 @@ type FeedbackEntry struct {
 	TargetMotes []string           `json:"target_motes,omitempty"`
 	LinkType    string             `json:"link_type,omitempty"`
 	Tags        []string           `json:"tags,omitempty"`
+	Confidence  float64            `json:"confidence,omitempty"`
 	PreScores   map[string]float64 `json:"pre_scores"`
 	PostScores  map[string]float64 `json:"post_scores,omitempty"`
 	ScoreDelta  *float64           `json:"score_delta,omitempty"`
@@ -29,12 +30,13 @@ type FeedbackEntry struct {
 
 // FeedbackStats aggregates feedback metrics for a vision type.
 type FeedbackStats struct {
-	Total       int     `json:"total"`
-	Checked     int     `json:"checked"`
-	Persisted   int     `json:"persisted"`
-	Reverted    int     `json:"reverted"`
-	AvgDelta    float64 `json:"avg_score_delta"`
-	PositivePct float64 `json:"positive_delta_pct"`
+	Total         int     `json:"total"`
+	Checked       int     `json:"checked"`
+	Persisted     int     `json:"persisted"`
+	Reverted      int     `json:"reverted"`
+	AvgDelta      float64 `json:"avg_score_delta"`
+	PositivePct   float64 `json:"positive_delta_pct"`
+	AvgConfidence float64 `json:"avg_confidence"`
 }
 
 const feedbackFile = "feedback.jsonl"
@@ -49,6 +51,7 @@ func RecordApplied(root string, v Vision, preScores map[string]float64) {
 		TargetMotes: v.TargetMotes,
 		LinkType:    v.LinkType,
 		Tags:        v.Tags,
+		Confidence:  v.Confidence,
 		PreScores:   preScores,
 	}
 	appendFeedbackEntry(root, entry)
@@ -241,6 +244,7 @@ func GetStats(root string) map[string]*FeedbackStats {
 			stats[e.VisionType] = s
 		}
 		s.Total++
+		s.AvgConfidence += e.Confidence
 
 		if e.CheckedAt == "" {
 			continue
@@ -265,6 +269,9 @@ func GetStats(root string) map[string]*FeedbackStats {
 
 	// Compute averages
 	for _, s := range stats {
+		if s.Total > 0 {
+			s.AvgConfidence /= float64(s.Total)
+		}
 		if s.Checked > 0 {
 			s.AvgDelta /= float64(s.Checked)
 			s.PositivePct = (s.PositivePct / float64(s.Checked)) * 100

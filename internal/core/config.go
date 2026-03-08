@@ -67,14 +67,15 @@ type SignalConfig struct {
 }
 
 type DreamConfig struct {
-	ScheduleHintDays int              `yaml:"schedule_hint_days"`
-	ReviewMode       string           `yaml:"review_mode"` // "auto" | "manual"
-	Provider         DreamProvider    `yaml:"provider"`
-	Batching         BatchingConfig   `yaml:"batching"`
-	Reconciliation   ReconConfig      `yaml:"reconciliation"`
-	PreScan          PreScanConfig    `yaml:"pre_scan"`
-	Journal          JournalConfig    `yaml:"journal"`
-	Interrupts       InterruptConfig  `yaml:"interrupts"`
+	ScheduleHintDays    int              `yaml:"schedule_hint_days"`
+	ReviewMode          string           `yaml:"review_mode"` // "auto" | "manual"
+	ConfidenceThreshold float64          `yaml:"confidence_threshold"`
+	Provider            DreamProvider    `yaml:"provider"`
+	Batching            BatchingConfig   `yaml:"batching"`
+	Reconciliation      ReconConfig      `yaml:"reconciliation"`
+	PreScan             PreScanConfig    `yaml:"pre_scan"`
+	Journal             JournalConfig    `yaml:"journal"`
+	Interrupts          InterruptConfig  `yaml:"interrupts"`
 }
 
 type DreamProvider struct {
@@ -206,8 +207,9 @@ func DefaultConfig() *Config {
 			},
 		},
 		Dream: DreamConfig{
-			ScheduleHintDays: 2,
-			ReviewMode:       "auto",
+			ScheduleHintDays:    2,
+			ReviewMode:          "auto",
+			ConfidenceThreshold: 0.6,
 			Provider: DreamProvider{
 				Batch:          ProviderEntry{Backend: "claude-cli", Auth: "oauth", Model: "claude-sonnet-4-20250514"},
 				Reconciliation: ProviderEntry{Backend: "claude-cli", Auth: "oauth", Model: "claude-opus-4-20250514"},

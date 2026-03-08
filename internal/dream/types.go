@@ -15,6 +15,7 @@ type Vision struct {
 	Rationale   string   `json:"rationale"`
 	Severity    string   `json:"severity"` // low, medium, high
 	Tags        []string `json:"tags,omitempty"`
+	Confidence  float64  `json:"confidence,omitempty"` // 0.0-1.0, deterministic
 }
 
 // DreamResult is the summary returned after a dream run.

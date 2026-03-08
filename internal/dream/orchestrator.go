@@ -171,21 +171,43 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 	return result, nil
 }
 
-// AutoApply applies all pending visions, recording feedback with pre-apply scores.
-func (do *DreamOrchestrator) AutoApply(cfg *core.Config) (applied int, failed int, err error) {
+// AutoApply applies pending visions above the confidence threshold, deferring the rest.
+func (do *DreamOrchestrator) AutoApply(cfg *core.Config) (applied int, failed int, deferred int, err error) {
 	mm := core.NewMoteManager(do.root)
 	im := core.NewIndexManager(do.root)
 	if _, err := im.Load(); err != nil {
-		return 0, 0, fmt.Errorf("load index: %w", err)
+		return 0, 0, 0, fmt.Errorf("load index: %w", err)
 	}
 
 	visions := do.visions.ReadFinal()
 	if len(visions) == 0 {
-		return 0, 0, nil
+		return 0, 0, 0, nil
 	}
 
-	for _, v := range visions {
-		// Snapshot pre-apply scores
+	// Load feedback stats for confidence scoring
+	stats := GetStats(do.root)
+
+	threshold := cfg.Dream.ConfidenceThreshold
+	if threshold <= 0 {
+		threshold = 0.6
+	}
+
+	// Score and split visions
+	var toApply, toDefer []Vision
+	for i := range visions {
+		affectedIDs := AffectedMoteIDs(visions[i])
+		preScores := SnapshotScores(mm, cfg, affectedIDs)
+		visions[i].Confidence = ScoreConfidence(visions[i], stats, preScores)
+
+		if visions[i].Confidence >= threshold {
+			toApply = append(toApply, visions[i])
+		} else {
+			toDefer = append(toDefer, visions[i])
+		}
+	}
+
+	// Apply high-confidence visions
+	for _, v := range toApply {
 		affectedIDs := AffectedMoteIDs(v)
 		preScores := SnapshotScores(mm, cfg, affectedIDs)
 
@@ -198,10 +220,16 @@ func (do *DreamOrchestrator) AutoApply(cfg *core.Config) (applied int, failed in
 		}
 	}
 
-	// Remove visions file — all have been attempted
-	os.Remove(filepath.Join(do.root, "dream", "visions.jsonl"))
+	deferred = len(toDefer)
 
-	return applied, failed, nil
+	// Write deferred visions back, or remove file if none remain
+	if len(toDefer) > 0 {
+		_ = do.visions.WriteFinal(toDefer)
+	} else {
+		os.Remove(filepath.Join(do.root, "dream", "visions.jsonl"))
+	}
+
+	return applied, failed, deferred, nil
 }
 
 // printDryRun outputs the scan results and planned batches without executing.
