@@ -9,11 +9,17 @@ Interactive knowledge capture. Use when you detect a capture-worthy moment durin
 - Alternatives were researched or evaluated → `explore`
 - A quick thought worth preserving → `mote quick`
 
+## Current Tags
+!mote tags --compact
+
+## Recent Active Tasks (for linking)
+!mote ls --type=task --status=active --compact
+
 ## Workflow
 
 1. **Identify type** from context: decision, lesson, or explore
 2. **Draft title** — concise, searchable summary
-3. **Suggest tags** — check existing tags with `mote tags` and prefer rare/specific over generic
+3. **Suggest tags** — prefer tags from Current Tags above; use rare/specific over generic
 4. **Suggest links** — find related motes with `mote search "<keywords>"` and propose links
 5. **Create the mote:**
 
@@ -32,7 +38,6 @@ mote link <new-id> builds_on <prior-id>
 
 - Use 1-3 tags per mote
 - Specific beats generic: `bm25-scoring` > `search` > `code`
-- Check `mote tags` for existing vocabulary before inventing new tags
 - Reuse existing tags when they fit; only create new ones for genuinely new topics
 
 ## Type Selection Guide

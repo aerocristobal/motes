@@ -17,11 +17,12 @@ var lsCmd = &cobra.Command{
 }
 
 var (
-	lsType   string
-	lsTag    string
-	lsStatus string
-	lsStale  bool
-	lsReady  bool
+	lsType    string
+	lsTag     string
+	lsStatus  string
+	lsStale   bool
+	lsReady   bool
+	lsCompact bool
 )
 
 func init() {
@@ -30,6 +31,7 @@ func init() {
 	lsCmd.Flags().StringVar(&lsStatus, "status", "", "Filter by status")
 	lsCmd.Flags().BoolVar(&lsStale, "stale", false, "Show motes with no access in 90+ days")
 	lsCmd.Flags().BoolVar(&lsReady, "ready", false, "Show tasks with zero unfinished blockers")
+	lsCmd.Flags().BoolVar(&lsCompact, "compact", false, "One-line-per-mote compact output: ID: Title")
 	rootCmd.AddCommand(lsCmd)
 }
 
@@ -40,10 +42,10 @@ func runLs(cmd *cobra.Command, args []string) error {
 		Status: lsStatus,
 		Stale:  lsStale,
 		Ready:  lsReady,
-	}, false)
+	}, false, lsCompact)
 }
 
-func doLs(filters core.ListFilters, sortByWeight bool) error {
+func doLs(filters core.ListFilters, sortByWeight bool, compact bool) error {
 	root := mustFindRoot()
 	mm := core.NewMoteManager(root)
 
@@ -61,6 +63,13 @@ func doLs(filters core.ListFilters, sortByWeight bool) error {
 		sort.Slice(motes, func(i, j int) bool {
 			return motes[i].Weight > motes[j].Weight
 		})
+	}
+
+	if compact {
+		for _, m := range motes {
+			fmt.Printf("%s: %s\n", m.ID, m.Title)
+		}
+		return nil
 	}
 
 	fmt.Printf("%-24s  %-14s  %-12s  %-8s  %s\n",

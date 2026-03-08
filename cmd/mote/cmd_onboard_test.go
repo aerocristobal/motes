@@ -158,10 +158,14 @@ func TestEnsureClaudeHooks_CreatesNew(t *testing.T) {
 	}
 
 	hooks := settings["hooks"].(map[string]interface{})
-	for _, event := range []string{"SessionStart", "PreCompact"} {
-		if !hookEventHasCommand(hooks, event, "mote prime") {
-			t.Errorf("expected %s hook with 'mote prime'", event)
-		}
+	if !hookEventHasCommand(hooks, "SessionStart", "mote prime --hook --mode=startup") {
+		t.Error("expected SessionStart hook with startup mode")
+	}
+	if !hookEventHasCommand(hooks, "PreCompact", "mote prime --hook --mode=compact") {
+		t.Error("expected PreCompact hook with compact mode")
+	}
+	if !hookEventHasCommand(hooks, "UserPromptSubmit", "mote prompt-context") {
+		t.Error("expected UserPromptSubmit hook with mote prompt-context")
 	}
 }
 
@@ -192,14 +196,14 @@ func TestEnsureClaudeHooks_MergesExisting(t *testing.T) {
 
 	hooks := settings["hooks"].(map[string]interface{})
 
-	// SessionStart should have 2 entries (original + mote prime)
+	// SessionStart should have 5 entries (original + 4 mote prime modes)
 	entries := hooks["SessionStart"].([]interface{})
-	if len(entries) != 2 {
-		t.Errorf("expected 2 SessionStart entries, got %d", len(entries))
+	if len(entries) != 5 {
+		t.Errorf("expected 5 SessionStart entries, got %d", len(entries))
 	}
 
 	// PreCompact should be added
-	if !hookEventHasCommand(hooks, "PreCompact", "mote prime") {
+	if !hookEventHasCommand(hooks, "PreCompact", "mote prime --hook --mode=compact") {
 		t.Error("expected PreCompact hook to be added")
 	}
 

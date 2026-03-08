@@ -2,6 +2,12 @@
 
 Intelligent context retrieval. Use when you need project knowledge beyond what `mote prime` surfaced.
 
+## Active Tasks
+!mote pulse --compact
+
+## Available Strata
+!mote strata ls --compact
+
 ## Decision Tree
 
 ### "What do we know about X?" → Graph Traversal

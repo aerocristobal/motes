@@ -10,9 +10,12 @@ import (
 	"motes/internal/core"
 )
 
+var tagsCompact bool
+
 var tagsCmd = &cobra.Command{
 	Use:   "tags",
 	Short: "Tag analysis tools",
+	RunE:  runTagsList,
 }
 
 var tagsAuditCmd = &cobra.Command{
@@ -22,8 +25,40 @@ var tagsAuditCmd = &cobra.Command{
 }
 
 func init() {
+	tagsCmd.Flags().BoolVar(&tagsCompact, "compact", false, "Single line, comma-separated tag list")
 	tagsCmd.AddCommand(tagsAuditCmd)
 	rootCmd.AddCommand(tagsCmd)
+}
+
+func runTagsList(cmd *cobra.Command, args []string) error {
+	// If subcommand not specified, list tags
+	root := mustFindRoot()
+	im := core.NewIndexManager(root)
+	idx, err := im.Load()
+	if err != nil {
+		return fmt.Errorf("load index: %w", err)
+	}
+
+	if len(idx.TagStats) == 0 {
+		fmt.Println("No tags found.")
+		return nil
+	}
+
+	var tags []string
+	for tag := range idx.TagStats {
+		tags = append(tags, tag)
+	}
+	sort.Strings(tags)
+
+	if tagsCompact {
+		fmt.Println(strings.Join(tags, ", "))
+		return nil
+	}
+
+	for _, tag := range tags {
+		fmt.Printf("%-20s  %d\n", tag, idx.TagStats[tag])
+	}
+	return nil
 }
 
 type auditEntry struct {

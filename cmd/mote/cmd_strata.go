@@ -67,9 +67,10 @@ var strataStatsCmd = &cobra.Command{
 }
 
 var (
-	strataCorpus   string
-	strataNoAnchor bool
-	strataTopK     int
+	strataCorpus    string
+	strataNoAnchor  bool
+	strataTopK      int
+	strataLsCompact bool
 )
 
 func init() {
@@ -79,6 +80,8 @@ func init() {
 
 	strataQueryCmd.Flags().StringVar(&strataCorpus, "corpus", "", "Search a specific corpus")
 	strataQueryCmd.Flags().IntVar(&strataTopK, "top-k", 0, "Number of results (default from config)")
+
+	strataLsCmd.Flags().BoolVar(&strataLsCompact, "compact", false, "Corpus names only, one per line")
 
 	strataCmd.AddCommand(strataAddCmd)
 	strataCmd.AddCommand(strataQueryCmd)
@@ -181,6 +184,13 @@ func runStrataLs(cmd *cobra.Command, args []string) error {
 
 	if len(corpora) == 0 {
 		fmt.Println("No strata corpora found.")
+		return nil
+	}
+
+	if strataLsCompact {
+		for _, c := range corpora {
+			fmt.Println(c.Manifest.Name)
+		}
 		return nil
 	}
 

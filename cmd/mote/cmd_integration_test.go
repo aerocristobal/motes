@@ -371,10 +371,14 @@ func TestInit_InstallsHooksAndSkills(t *testing.T) {
 	var settings map[string]interface{}
 	json.Unmarshal(data, &settings)
 	hooks := settings["hooks"].(map[string]interface{})
-	for _, event := range []string{"SessionStart", "PreCompact"} {
-		if !hookEventHasCommand(hooks, event, "mote prime") {
-			t.Errorf("expected %s hook after init", event)
-		}
+	if !hookEventHasCommand(hooks, "SessionStart", "mote prime --hook --mode=startup") {
+		t.Error("expected SessionStart hook with startup mode after init")
+	}
+	if !hookEventHasCommand(hooks, "PreCompact", "mote prime --hook --mode=compact") {
+		t.Error("expected PreCompact hook with compact mode after init")
+	}
+	if !hookEventHasCommand(hooks, "UserPromptSubmit", "mote prompt-context") {
+		t.Error("expected UserPromptSubmit hook after init")
 	}
 
 	// Verify skills

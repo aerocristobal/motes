@@ -555,8 +555,30 @@ func settingsHasBdRefs(path string) bool {
 	return strings.Contains(string(data), "\"bd ")
 }
 
-// ensureClaudeHooks installs SessionStart and PreCompact hooks for "mote prime" in settings.json.
-// It is idempotent — if hooks already exist, it does nothing.
+// hookSpec defines a desired hook entry.
+type hookSpec struct {
+	event   string
+	matcher string
+	command string
+}
+
+// desiredHooks returns the full set of hooks mote should install.
+func desiredHooks() []hookSpec {
+	return []hookSpec{
+		// Differentiated SessionStart modes
+		{"SessionStart", "startup", "mote prime --hook --mode=startup"},
+		{"SessionStart", "resume", "mote prime --hook --mode=resume"},
+		{"SessionStart", "compact", "mote prime --hook --mode=compact"},
+		{"SessionStart", "clear", "mote prime --hook --mode=startup"},
+		// PreCompact stays as-is
+		{"PreCompact", "", "mote prime --hook --mode=compact"},
+		// UserPromptSubmit for per-prompt context
+		{"UserPromptSubmit", "", "mote prompt-context"},
+	}
+}
+
+// ensureClaudeHooks installs SessionStart, PreCompact, and UserPromptSubmit hooks in settings.json.
+// It migrates old catch-all matchers to differentiated ones and is idempotent.
 func ensureClaudeHooks(claudeDir string, dryRun bool) error {
 	settingsPath := filepath.Join(claudeDir, "settings.json")
 
@@ -578,26 +600,29 @@ func ensureClaudeHooks(claudeDir string, dryRun bool) error {
 		hooks = map[string]interface{}{}
 	}
 
+	// Migrate: remove old catch-all "mote prime" entries from SessionStart
+	migrateOldHooks(hooks)
+
 	var installed []string
 
-	for _, eventName := range []string{"SessionStart", "PreCompact"} {
-		if hookEventHasCommand(hooks, eventName, "mote prime") {
+	for _, spec := range desiredHooks() {
+		if hookEventHasMatcherCommand(hooks, spec.event, spec.matcher, spec.command) {
 			continue
 		}
 
 		entry := map[string]interface{}{
-			"matcher": "",
+			"matcher": spec.matcher,
 			"hooks": []interface{}{
 				map[string]interface{}{
 					"type":    "command",
-					"command": "mote prime",
+					"command": spec.command,
 				},
 			},
 		}
 
-		existing, _ := hooks[eventName].([]interface{})
-		hooks[eventName] = append(existing, entry)
-		installed = append(installed, eventName)
+		existing, _ := hooks[spec.event].([]interface{})
+		hooks[spec.event] = append(existing, entry)
+		installed = append(installed, fmt.Sprintf("%s[%s]", spec.event, spec.matcher))
 	}
 
 	if len(installed) == 0 {
@@ -625,9 +650,53 @@ func ensureClaudeHooks(claudeDir string, dryRun bool) error {
 	}
 
 	for _, name := range installed {
-		fmt.Printf("  installed %s hook: mote prime\n", name)
+		fmt.Printf("  installed hook: %s\n", name)
 	}
 	return nil
+}
+
+// migrateOldHooks removes old catch-all "mote prime" (without --hook) entries
+// from SessionStart and PreCompact so they can be replaced by differentiated hooks.
+func migrateOldHooks(hooks map[string]interface{}) {
+	for _, eventName := range []string{"SessionStart", "PreCompact"} {
+		entries, ok := hooks[eventName].([]interface{})
+		if !ok {
+			continue
+		}
+		var kept []interface{}
+		for _, entry := range entries {
+			entryMap, ok := entry.(map[string]interface{})
+			if !ok {
+				kept = append(kept, entry)
+				continue
+			}
+			hooksList, ok := entryMap["hooks"].([]interface{})
+			if !ok {
+				kept = append(kept, entry)
+				continue
+			}
+			isOld := false
+			for _, h := range hooksList {
+				hMap, ok := h.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				cmd, _ := hMap["command"].(string)
+				if cmd == "mote prime" {
+					isOld = true
+					break
+				}
+			}
+			if !isOld {
+				kept = append(kept, entry)
+			}
+		}
+		if len(kept) == 0 {
+			delete(hooks, eventName)
+		} else {
+			hooks[eventName] = kept
+		}
+	}
 }
 
 // hookEventHasCommand checks if a hook event already contains a hook with the given command.
@@ -639,6 +708,38 @@ func hookEventHasCommand(hooks map[string]interface{}, eventName, command string
 	for _, entry := range entries {
 		entryMap, ok := entry.(map[string]interface{})
 		if !ok {
+			continue
+		}
+		hooksList, ok := entryMap["hooks"].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, h := range hooksList {
+			hMap, ok := h.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if cmd, ok := hMap["command"].(string); ok && cmd == command {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hookEventHasMatcherCommand checks if a hook event has an entry with both the given matcher and command.
+func hookEventHasMatcherCommand(hooks map[string]interface{}, eventName, matcher, command string) bool {
+	entries, ok := hooks[eventName].([]interface{})
+	if !ok {
+		return false
+	}
+	for _, entry := range entries {
+		entryMap, ok := entry.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		entryMatcher, _ := entryMap["matcher"].(string)
+		if entryMatcher != matcher {
 			continue
 		}
 		hooksList, ok := entryMap["hooks"].([]interface{})
