@@ -175,6 +175,8 @@ It detects: missing links, contradictions, stale motes, overloaded tags, compres
 
 The cycle produces draft visions (from Sonnet batches) which are reconciled by Opus into finalized visions in `visions.jsonl`. Review finalized visions with `--review` and accept, edit, reject, or defer each one. See [docs/maintenance.md](docs/maintenance.md) for the full workflow and vision type reference.
 
+**Self-consistency voting:** Set `batching.self_consistency_runs: 3` in `.memory/config.yaml` to invoke each batch 3 times and keep only majority-agreed visions. This reduces hallucinated suggestions at the cost of additional LLM calls. The agreement fraction feeds into confidence scoring. Disabled by default (`1`).
+
 ### Maintenance
 
 ```bash

@@ -16,8 +16,8 @@ mote dream --dry-run    # Preview what would be analyzed (no LLM calls)
 A dream run goes through four stages:
 
 1. **PreScan** — Deterministic analysis finds candidates: orphan motes, stale content, overloaded tags, compression opportunities, co-access patterns
-2. **Batch Reasoning** — Candidates are grouped into batches and sent to Claude Sonnet for analysis. Each batch produces draft visions written to `visions_draft.jsonl`
-3. **Reconciliation** — All draft visions and the lucid log are sent to Claude Opus, which deduplicates, resolves conflicts, and produces finalized visions
+2. **Batch Reasoning** — Candidates are grouped into batches and sent to Claude Sonnet for analysis. Each batch produces draft visions written to `visions_draft.jsonl`. When self-consistency voting is enabled (`self_consistency_runs > 1`), each batch is invoked N times in parallel and only visions that appear in a majority of runs survive — reducing hallucinated visions.
+3. **Reconciliation** — All draft visions and the lucid log are sent to Claude Opus, which merges overlapping visions, resolves conflicts, and produces finalized visions
 4. **Write** — Finalized visions are written to `visions.jsonl` for review
 
 ### The Two Vision Files

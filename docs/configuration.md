@@ -70,6 +70,7 @@ dream:
     strategy: hybrid
     max_motes_per_batch: 10
     clustered_fraction: 0.6
+    self_consistency_runs: 1    # 1 = disabled, 3 = recommended for voting
   reconciliation:
     enabled: true
     max_refetch_motes: 15
@@ -176,6 +177,7 @@ Controls the headless LLM maintenance cycle.
 | `batching.strategy` | string | `hybrid` | `hybrid` = 60% tag-clustered + 40% interleaved |
 | `batching.max_motes_per_batch` | int | `10` | Maximum motes per LLM batch |
 | `batching.clustered_fraction` | float | `0.6` | Fraction of motes in clustered batches |
+| `batching.self_consistency_runs` | int | `1` | Invoke each batch N times and keep majority-agreed visions. `1` = disabled, `3` = recommended |
 | `reconciliation.enabled` | bool | `true` | Whether to run Opus reconciliation pass |
 | `reconciliation.max_refetch_motes` | int | `15` | Max motes to re-read during reconciliation |
 
@@ -273,6 +275,7 @@ dream:
   schedule_hint_days: 1
   batching:
     max_motes_per_batch: 15
+    self_consistency_runs: 3
   pre_scan:
     link_candidate_min_shared_tags: 2
     staleness_threshold_days: 90

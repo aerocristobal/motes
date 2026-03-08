@@ -7,7 +7,7 @@ Developer reference for architecture, storage, and design decisions. For usage i
 1. **Storage Layer** — `.memory/` directory: mote markdown files in `nodes/`, `index.jsonl` edge index, `config.yaml`, `constellations.jsonl`, strata corpora in `strata/`, dream artifacts in `dream/`
 2. **Core Engine** — MoteManager (CRUD), IndexManager (edge index), ScoreEngine (relevance scoring), GraphTraverser (BFS with hop-limited spreading activation), SeedSelector (ambient signal matching), ConfigManager
 3. **Strata Engine** — BM25-based reference knowledge search. StrataManager, Chunker (heading-aware/function-level/sliding-window), BM25Index (~150 LOC). No embeddings, no network.
-4. **Dream Orchestrator** — Headless LLM maintenance cycle. PreScanner (deterministic candidate finding), BatchConstructor, PromptBuilder, ClaudeInvoker (shells out to `claude` CLI), ResponseParser, LucidLog, VisionWriter
+4. **Dream Orchestrator** — Headless LLM maintenance cycle. PreScanner (deterministic candidate finding), BatchConstructor, PromptBuilder, ClaudeInvoker (shells out to `claude` CLI), ResponseParser, LucidLog, VisionWriter, VoteVisions (self-consistency voting across N runs per batch)
 
 ## Three Processing Modes
 
