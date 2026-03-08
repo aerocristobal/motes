@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"motes/internal/core"
 )
 
 func TestMigrateClaudeSettings_BdPrime(t *testing.T) {
@@ -276,13 +278,18 @@ func TestOnboard_CleanupFlag(t *testing.T) {
 	cwd, _ := os.Getwd()
 	beadsDir := filepath.Join(cwd, ".beads")
 	os.MkdirAll(beadsDir, 0755)
-	os.WriteFile(filepath.Join(beadsDir, "issues.jsonl"), []byte{}, 0644)
+	issueData := `{"id":"test-1","title":"Test issue","status":"open","priority":1,"issue_type":"task"}`
+	os.WriteFile(filepath.Join(beadsDir, "issues.jsonl"), []byte(issueData), 0644)
 
 	onboardDryRun = false
 	onboardGlobal = false
 	onboardCleanup = true
 	onboardIncludeClosed = false
-	defer func() { onboardCleanup = false }()
+	onboardFrom = "beads"
+	defer func() {
+		onboardCleanup = false
+		onboardFrom = ""
+	}()
 
 	if err := runOnboard(onboardCmd, nil); err != nil {
 		t.Fatalf("onboard --cleanup: %v", err)
@@ -291,4 +298,273 @@ func TestOnboard_CleanupFlag(t *testing.T) {
 	if dirExists(beadsDir) {
 		t.Error("expected .beads/ to be removed with --cleanup")
 	}
+}
+
+// --- detectSources tests ---
+
+func TestDetectSources_WithBeadsAndMD(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create MEMORY.md
+	os.WriteFile(filepath.Join(dir, "MEMORY.md"), []byte("# Test\nsome content"), 0644)
+
+	// Create .beads/issues.jsonl
+	beadsDir := filepath.Join(dir, ".beads")
+	os.MkdirAll(beadsDir, 0755)
+	issues := `{"id":"1","title":"Open issue","status":"open","priority":1,"issue_type":"task"}
+{"id":"2","title":"Closed issue","status":"closed","priority":2,"issue_type":"bug"}`
+	os.WriteFile(filepath.Join(beadsDir, "issues.jsonl"), []byte(issues), 0644)
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	d := detectSources(dir)
+
+	if d.memoryMDPath == "" {
+		t.Error("expected MEMORY.md to be detected")
+	}
+	if len(d.beadsIssues) != 2 {
+		t.Errorf("expected 2 beads issues, got %d", len(d.beadsIssues))
+	}
+	if d.openBeads != 1 {
+		t.Errorf("expected 1 open bead, got %d", d.openBeads)
+	}
+	if d.closedBeads != 1 {
+		t.Errorf("expected 1 closed bead, got %d", d.closedBeads)
+	}
+}
+
+func TestDetectSources_Empty(t *testing.T) {
+	dir := t.TempDir()
+
+	d := detectSources(dir)
+
+	if d.memoryMDPath != "" {
+		t.Error("expected no MEMORY.md")
+	}
+	if len(d.beadsIssues) != 0 {
+		t.Error("expected no beads issues")
+	}
+	if d.memoryDirExists {
+		t.Error("expected .memory/ to not exist")
+	}
+	if d.claudeHasMotes {
+		t.Error("expected CLAUDE.md to not have motes")
+	}
+}
+
+// --- buildMenu tests ---
+
+func TestBuildMenu_AllDetected(t *testing.T) {
+	d := sourceDetection{
+		beadsIssues:  []beadsIssue{{ID: "1", Status: "open"}},
+		openBeads:    1,
+		memoryMDPath: "/tmp/MEMORY.md",
+		ghAvailable:  true,
+	}
+
+	opts := buildMenu(d)
+
+	if len(opts) != 4 {
+		t.Fatalf("expected 4 options, got %d", len(opts))
+	}
+	if opts[0].source != sourceMarkdown {
+		t.Errorf("expected first option to be markdown, got %s", opts[0].source)
+	}
+	if opts[1].source != sourceBeads {
+		t.Errorf("expected second option to be beads, got %s", opts[1].source)
+	}
+	if opts[2].source != sourceGithub {
+		t.Errorf("expected third option to be github, got %s", opts[2].source)
+	}
+	if opts[3].source != sourceFresh {
+		t.Errorf("expected last option to be fresh, got %s", opts[3].source)
+	}
+}
+
+func TestBuildMenu_NoneDetected(t *testing.T) {
+	d := sourceDetection{}
+
+	opts := buildMenu(d)
+
+	if len(opts) != 1 {
+		t.Fatalf("expected 1 option (fresh only), got %d", len(opts))
+	}
+	if opts[0].source != sourceFresh {
+		t.Errorf("expected only option to be fresh, got %s", opts[0].source)
+	}
+}
+
+// --- promptSelection tests ---
+
+func TestPromptSelection_Valid(t *testing.T) {
+	opts := []menuOption{
+		{source: sourceMarkdown, label: "Markdown", description: "desc1"},
+		{source: sourceBeads, label: "Beads", description: "desc2"},
+		{source: sourceFresh, label: "Fresh", description: "desc3"},
+	}
+
+	chosen, err := promptSelection(strings.NewReader("2\n"), opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if chosen.source != sourceBeads {
+		t.Errorf("expected beads, got %s", chosen.source)
+	}
+}
+
+func TestPromptSelection_OutOfRange(t *testing.T) {
+	opts := []menuOption{
+		{source: sourceFresh, label: "Fresh", description: "desc"},
+	}
+
+	_, err := promptSelection(strings.NewReader("5\n"), opts)
+	if err == nil {
+		t.Error("expected error for out-of-range choice")
+	}
+	if !strings.Contains(err.Error(), "invalid choice") {
+		t.Errorf("expected 'invalid choice' in error, got: %v", err)
+	}
+}
+
+func TestPromptSelection_NonNumeric(t *testing.T) {
+	opts := []menuOption{
+		{source: sourceFresh, label: "Fresh", description: "desc"},
+	}
+
+	_, err := promptSelection(strings.NewReader("abc\n"), opts)
+	if err == nil {
+		t.Error("expected error for non-numeric input")
+	}
+	if !strings.Contains(err.Error(), "not a number") {
+		t.Errorf("expected 'not a number' in error, got: %v", err)
+	}
+}
+
+// --- promptRepo tests ---
+
+func TestPromptRepo_Valid(t *testing.T) {
+	repo, err := promptRepo(strings.NewReader("owner/repo\n"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if repo != "owner/repo" {
+		t.Errorf("expected owner/repo, got %s", repo)
+	}
+}
+
+func TestPromptRepo_Invalid(t *testing.T) {
+	_, err := promptRepo(strings.NewReader("noslash\n"))
+	if err == nil {
+		t.Error("expected error for invalid repo format")
+	}
+	if !strings.Contains(err.Error(), "invalid repo format") {
+		t.Errorf("expected 'invalid repo format' in error, got: %v", err)
+	}
+}
+
+// --- runMigrateMarkdown test ---
+
+func TestRunMigrateMarkdown(t *testing.T) {
+	_, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	cwd, _ := os.Getwd()
+	root := filepath.Join(cwd, ".memory")
+
+	// Create a MEMORY.md with sections
+	mdPath := filepath.Join(cwd, "MEMORY.md")
+	content := "## Decisions\nWe chose Go for speed.\n\n## Lessons\nAlways test first.\n"
+	os.WriteFile(mdPath, []byte(content), 0644)
+
+	mm := newTestMoteManager(root)
+
+	created, err := runMigrateMarkdown(mm, mdPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if created == 0 {
+		t.Error("expected at least 1 mote created")
+	}
+
+	// Check original was archived
+	if _, err := os.Stat(mdPath); !os.IsNotExist(err) {
+		t.Error("expected MEMORY.md to be archived (renamed)")
+	}
+}
+
+// --- runMigrateBeads test ---
+
+func TestRunMigrateBeads(t *testing.T) {
+	_, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	cwd, _ := os.Getwd()
+	root := filepath.Join(cwd, ".memory")
+	mm := newTestMoteManager(root)
+
+	issues := []beadsIssue{
+		{ID: "b1", Title: "Open task", Status: "open", Priority: 1, IssueType: "task", Description: "do stuff"},
+		{ID: "b2", Title: "Closed bug", Status: "closed", Priority: 2, IssueType: "bug", Description: "was broken"},
+	}
+
+	// Without includeClosed
+	created, err := runMigrateBeads(mm, issues, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if created != 1 {
+		t.Errorf("expected 1 created (open only), got %d", created)
+	}
+
+	// With includeClosed (b1 already imported, only b2 new)
+	created2, err := runMigrateBeads(mm, issues, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if created2 != 1 {
+		t.Errorf("expected 1 created (closed only, open already imported), got %d", created2)
+	}
+}
+
+// --- --from flag tests ---
+
+func TestOnboard_FromFresh(t *testing.T) {
+	_, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	onboardFrom = "fresh"
+	onboardDryRun = false
+	onboardGlobal = false
+	onboardIncludeClosed = false
+	onboardCleanup = false
+	defer func() { onboardFrom = "" }()
+
+	if err := runOnboard(onboardCmd, nil); err != nil {
+		t.Fatalf("onboard --from=fresh: %v", err)
+	}
+}
+
+func TestOnboard_FromInvalid(t *testing.T) {
+	_, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	onboardFrom = "bogus"
+	onboardDryRun = false
+	onboardGlobal = false
+	defer func() { onboardFrom = "" }()
+
+	err := runOnboard(onboardCmd, nil)
+	if err == nil {
+		t.Fatal("expected error for --from=bogus")
+	}
+	if !strings.Contains(err.Error(), "invalid --from value") {
+		t.Errorf("expected 'invalid --from value' in error, got: %v", err)
+	}
+}
+
+// newTestMoteManager is a helper to create a MoteManager for the given root.
+func newTestMoteManager(root string) *core.MoteManager {
+	return core.NewMoteManager(root)
 }

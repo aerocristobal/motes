@@ -5,8 +5,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,14 +18,40 @@ import (
 	"motes/skills"
 )
 
+type onboardSource string
+
+const (
+	sourceMarkdown onboardSource = "markdown"
+	sourceBeads    onboardSource = "beads"
+	sourceGithub   onboardSource = "github"
+	sourceFresh    onboardSource = "fresh"
+)
+
+type sourceDetection struct {
+	beadsIssues     []beadsIssue
+	openBeads       int
+	closedBeads     int
+	memoryMDPath    string
+	memoryDirExists bool
+	ghAvailable     bool
+	claudeHasMotes  bool
+	settingsHasBd   bool
+}
+
+type menuOption struct {
+	source      onboardSource
+	label       string
+	description string
+}
+
 var onboardCmd = &cobra.Command{
 	Use:   "onboard",
 	Short: "Detect and migrate existing systems (beads, MEMORY.md) into motes",
 	Long: `Onboards the current project (or global layer with --global) by:
-  1. Detecting existing sources (.beads/, MEMORY.md, .memory/)
-  2. Initializing .memory/ if absent
-  3. Migrating MEMORY.md sections into typed motes
-  4. Importing beads issues as motes (idempotent)
+  1. Detecting existing sources (.beads/, MEMORY.md, .memory/, gh CLI)
+  2. Prompting which source to migrate from (or use --from to skip)
+  3. Initializing .memory/ if absent
+  4. Migrating the selected source into motes
   5. Rebuilding the index
   6. Updating CLAUDE.md with motes instructions`,
 	RunE: runOnboard,
@@ -33,13 +62,19 @@ var (
 	onboardDryRun        bool
 	onboardIncludeClosed bool
 	onboardCleanup       bool
+	onboardFrom          string
+	onboardRepo          string
+	onboardPhaseParents  bool
 )
 
 func init() {
 	onboardCmd.Flags().BoolVar(&onboardGlobal, "global", false, "Onboard the global layer (~/.claude/memory/)")
 	onboardCmd.Flags().BoolVar(&onboardDryRun, "dry-run", false, "Show what would happen without writing")
-	onboardCmd.Flags().BoolVar(&onboardIncludeClosed, "include-closed", false, "Also import closed beads issues (default: open only)")
+	onboardCmd.Flags().BoolVar(&onboardIncludeClosed, "include-closed", false, "Also import closed beads/github issues (default: open only)")
 	onboardCmd.Flags().BoolVar(&onboardCleanup, "cleanup", false, "Remove .beads/ after successful import")
+	onboardCmd.Flags().StringVar(&onboardFrom, "from", "", "Migration source: markdown, beads, github, fresh (skips interactive prompt)")
+	onboardCmd.Flags().StringVar(&onboardRepo, "repo", "", "GitHub repo (owner/repo) for --from=github")
+	onboardCmd.Flags().BoolVar(&onboardPhaseParents, "phase-parents", false, "Create parent task motes per phase label (github import)")
 	rootCmd.AddCommand(onboardCmd)
 }
 
@@ -60,6 +95,317 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 	return runOnboardProject()
 }
 
+// detectSources scans the environment for migration sources.
+func detectSources(cwd string) sourceDetection {
+	var d sourceDetection
+
+	beadsPath := filepath.Join(cwd, ".beads", "issues.jsonl")
+	d.beadsIssues, _ = parseBeadsFile(beadsPath)
+	d.openBeads, d.closedBeads = countBeadsByStatus(d.beadsIssues)
+
+	d.memoryMDPath = findMemoryMD(cwd)
+	d.memoryDirExists = dirExists(filepath.Join(cwd, ".memory"))
+
+	claudeMDPath := filepath.Join(cwd, "CLAUDE.md")
+	d.claudeHasMotes = fileContains(claudeMDPath, "## Motes")
+
+	_, err := exec.LookPath("gh")
+	d.ghAvailable = err == nil
+
+	home, _ := os.UserHomeDir()
+	claudeDir := filepath.Join(home, ".claude")
+	d.settingsHasBd = settingsHasBdRefs(filepath.Join(claudeDir, "settings.json"))
+
+	return d
+}
+
+// printSourceSummary prints what was detected.
+func printSourceSummary(d sourceDetection) {
+	fmt.Println()
+	if len(d.beadsIssues) > 0 {
+		fmt.Printf("  .beads/       %d open, %d closed\n", d.openBeads, d.closedBeads)
+	} else {
+		fmt.Println("  .beads/       not found")
+	}
+	if d.memoryMDPath != "" {
+		fmt.Printf("  %-14s found\n", filepath.Base(d.memoryMDPath))
+	} else {
+		fmt.Println("  MEMORY.md     not found")
+	}
+	if d.ghAvailable {
+		fmt.Println("  gh CLI        available")
+	} else {
+		fmt.Println("  gh CLI        not found")
+	}
+	if d.memoryDirExists {
+		fmt.Println("  .memory/      exists")
+	} else {
+		fmt.Println("  .memory/      will create")
+	}
+	if d.claudeHasMotes {
+		fmt.Println("  CLAUDE.md     has ## Motes")
+	} else {
+		fmt.Println("  CLAUDE.md     needs ## Motes")
+	}
+	if d.settingsHasBd {
+		fmt.Println("  settings.json has bd references")
+	}
+	fmt.Println()
+}
+
+// buildMenu builds numbered options from detected sources.
+func buildMenu(d sourceDetection) []menuOption {
+	var opts []menuOption
+
+	if d.memoryMDPath != "" {
+		opts = append(opts, menuOption{
+			source:      sourceMarkdown,
+			label:       "Markdown files (MEMORY.md)",
+			description: "Splits sections into typed motes, archives the original.",
+		})
+	}
+
+	if len(d.beadsIssues) > 0 {
+		desc := fmt.Sprintf("Imports %d open issues as motes", d.openBeads)
+		if d.closedBeads > 0 {
+			desc += fmt.Sprintf(" (use --include-closed for all %d).", d.openBeads+d.closedBeads)
+		} else {
+			desc += "."
+		}
+		opts = append(opts, menuOption{
+			source:      sourceBeads,
+			label:       "Beads issues",
+			description: desc,
+		})
+	}
+
+	if d.ghAvailable {
+		opts = append(opts, menuOption{
+			source:      sourceGithub,
+			label:       "GitHub Issues",
+			description: "Fetches issues from a GitHub repo via the gh CLI.",
+		})
+	}
+
+	// Fresh start is always last
+	opts = append(opts, menuOption{
+		source:      sourceFresh,
+		label:       "Fresh start",
+		description: "No migration — just initialize and configure.",
+	})
+
+	return opts
+}
+
+// promptSelection prints the menu and reads a choice from r.
+func promptSelection(r io.Reader, opts []menuOption) (menuOption, error) {
+	fmt.Println("Select a migration source:")
+	fmt.Println()
+	for i, opt := range opts {
+		fmt.Printf("  %d) %s\n", i+1, opt.label)
+		fmt.Printf("     %s\n", opt.description)
+		fmt.Println()
+	}
+	fmt.Printf("Enter choice [1-%d]: ", len(opts))
+
+	scanner := bufio.NewScanner(r)
+	if !scanner.Scan() {
+		return menuOption{}, fmt.Errorf("no input received")
+	}
+	input := strings.TrimSpace(scanner.Text())
+	n, err := strconv.Atoi(input)
+	if err != nil {
+		return menuOption{}, fmt.Errorf("invalid choice: %q (not a number)", input)
+	}
+	if n < 1 || n > len(opts) {
+		return menuOption{}, fmt.Errorf("invalid choice: %d (must be 1-%d)", n, len(opts))
+	}
+	return opts[n-1], nil
+}
+
+// promptRepo reads an owner/repo string from r.
+func promptRepo(r io.Reader) (string, error) {
+	fmt.Print("Enter GitHub repo (owner/repo): ")
+	scanner := bufio.NewScanner(r)
+	if !scanner.Scan() {
+		return "", fmt.Errorf("no input received")
+	}
+	repo := strings.TrimSpace(scanner.Text())
+	if !strings.Contains(repo, "/") || strings.Count(repo, "/") != 1 {
+		return "", fmt.Errorf("invalid repo format: %q (expected owner/repo)", repo)
+	}
+	parts := strings.Split(repo, "/")
+	if parts[0] == "" || parts[1] == "" {
+		return "", fmt.Errorf("invalid repo format: %q (expected owner/repo)", repo)
+	}
+	return repo, nil
+}
+
+// runMigrateMarkdown migrates MEMORY.md sections into motes and archives the file.
+func runMigrateMarkdown(mm *core.MoteManager, path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("read %s: %w", path, err)
+	}
+	sections := parseSections(string(data))
+	if len(sections) == 0 {
+		return 0, nil
+	}
+
+	fmt.Printf("Migrating %s (%d sections)...\n", filepath.Base(path), len(sections))
+	var created int
+	for _, s := range sections {
+		m, err := mm.Create(s.moteType, s.heading, core.CreateOpts{
+			Tags:   s.tags,
+			Origin: s.origin,
+			Body:   strings.TrimSpace(s.body),
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  warning: %q: %v\n", s.heading, err)
+			continue
+		}
+		created++
+		fmt.Printf("  created %s [%s] %s\n", m.ID, s.moteType, s.heading)
+	}
+
+	// Archive original
+	archivePath := path + ".migrated." + time.Now().Format("20060102")
+	if err := os.Rename(path, archivePath); err != nil {
+		fmt.Fprintf(os.Stderr, "  warning: could not archive: %v\n", err)
+	} else {
+		fmt.Printf("  archived to %s\n", filepath.Base(archivePath))
+	}
+
+	return created, nil
+}
+
+// runMigrateBeads imports beads issues as motes.
+func runMigrateBeads(mm *core.MoteManager, issues []beadsIssue, includeClosed bool) (int, error) {
+	existingSourceIssues := buildSourceIssueSet(mm)
+
+	fmt.Println("Importing beads issues...")
+	var created int
+	for _, issue := range issues {
+		if issue.Status == "closed" && !includeClosed {
+			continue
+		}
+		if existingSourceIssues[issue.ID] {
+			fmt.Printf("  skipped %s (already imported)\n", issue.ID)
+			continue
+		}
+
+		moteType, origin := beadsTypeToMote(issue.IssueType)
+		weight := beadsPriorityToWeight(issue.Priority)
+		tags := inferTags(issue.Title)
+
+		m, err := mm.Create(moteType, issue.Title, core.CreateOpts{
+			Tags:        tags,
+			Weight:      weight,
+			Origin:      origin,
+			Body:        issue.Description,
+			SourceIssue: issue.ID,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  warning: %q: %v\n", issue.Title, err)
+			continue
+		}
+
+		if issue.Status == "closed" {
+			_ = mm.Update(m.ID, map[string]interface{}{"status": "completed"})
+		}
+
+		created++
+		status := "active"
+		if issue.Status == "closed" {
+			status = "completed"
+		}
+		fmt.Printf("  created %s [%s] %s (%s)\n", m.ID, moteType, issue.Title, status)
+	}
+
+	return created, nil
+}
+
+// runImportGithub wraps the github-import functions for use from onboard.
+func runImportGithub(mm *core.MoteManager, im *core.IndexManager, repo string, includeClosed bool, phaseParents bool) (int, error) {
+	issues, err := fetchGithubIssues(repo)
+	if err != nil {
+		return 0, fmt.Errorf("fetch issues from %s: %w", repo, err)
+	}
+
+	var openCount, closedCount int
+	for _, iss := range issues {
+		if iss.State == "CLOSED" {
+			closedCount++
+		} else {
+			openCount++
+		}
+	}
+	fmt.Printf("Found %d issues (%d open, %d closed) in %s\n", len(issues), openCount, closedCount, repo)
+
+	existingSourceIssues := buildSourceIssueSet(mm)
+
+	// Set the global flags that importGithubIssues reads
+	oldIncludeClosed := ghImportIncludeClosed
+	oldPhaseParents := ghImportPhaseParents
+	ghImportIncludeClosed = includeClosed
+	ghImportPhaseParents = phaseParents
+	defer func() {
+		ghImportIncludeClosed = oldIncludeClosed
+		ghImportPhaseParents = oldPhaseParents
+	}()
+
+	created, _, _ := importGithubIssues(mm, im, repo, issues, existingSourceIssues)
+	return created, nil
+}
+
+// runCommonSetup performs post-migration setup: index rebuild, CLAUDE.md, hooks, skills.
+func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManager, dryRun bool) error {
+	home, _ := os.UserHomeDir()
+	claudeDir := filepath.Join(home, ".claude")
+
+	if dryRun {
+		settingsHasBd := settingsHasBdRefs(filepath.Join(claudeDir, "settings.json"))
+		if settingsHasBd {
+			migrateClaudeSettings(claudeDir, true)
+		}
+		ensureClaudeHooks(claudeDir, true)
+		ensureMoteSkills(home, true)
+		return nil
+	}
+
+	// Rebuild index
+	motes, _ := mm.ReadAllParallel()
+	im.Rebuild(motes)
+
+	// Update CLAUDE.md
+	modified, err := ensureClaudeMD(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: CLAUDE.md: %v\n", err)
+	} else if modified {
+		fmt.Println("Updated CLAUDE.md with ## Motes section")
+	}
+
+	// Migrate settings.json hooks
+	migrated, err := migrateClaudeSettings(claudeDir, false)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "warning: settings migration: %v\n", err)
+	} else if migrated > 0 {
+		fmt.Printf("Migrated %d hook(s) in ~/.claude/settings.json\n", migrated)
+	}
+
+	// Install hooks
+	if err := ensureClaudeHooks(claudeDir, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
+	}
+
+	// Install skills
+	if err := ensureMoteSkills(home, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
+	}
+
+	return nil
+}
+
 func runOnboardProject() error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -70,64 +416,39 @@ func runOnboardProject() error {
 
 	// --- Detection ---
 	fmt.Println("Detecting sources...")
+	d := detectSources(cwd)
 
-	beadsPath := filepath.Join(cwd, ".beads", "issues.jsonl")
-	beadsIssues, _ := parseBeadsFile(beadsPath)
-	openBeads, closedBeads := countBeadsByStatus(beadsIssues)
+	// --- Determine source ---
+	var source onboardSource
 
-	memoryMDPath := findMemoryMD(cwd)
-
-	memoryDirExists := dirExists(root)
-
-	claudeMDPath := filepath.Join(cwd, "CLAUDE.md")
-	claudeHasMotes := fileContains(claudeMDPath, "## Motes")
-
-	// Print summary
-	fmt.Println()
-	if len(beadsIssues) > 0 {
-		fmt.Printf("  .beads/issues.jsonl  %d open, %d closed\n", openBeads, closedBeads)
-	} else {
-		fmt.Println("  .beads/              not found")
-	}
-	if memoryMDPath != "" {
-		fmt.Printf("  %s         found\n", filepath.Base(memoryMDPath))
-	} else {
-		fmt.Println("  MEMORY.md            not found")
-	}
-	if memoryDirExists {
-		fmt.Println("  .memory/             exists")
-	} else {
-		fmt.Println("  .memory/             will create")
-	}
-	if claudeHasMotes {
-		fmt.Println("  CLAUDE.md            has ## Motes")
-	} else {
-		fmt.Println("  CLAUDE.md            needs ## Motes")
-	}
-
-	home, _ := os.UserHomeDir()
-	claudeDir := filepath.Join(home, ".claude")
-	settingsHasBd := settingsHasBdRefs(filepath.Join(claudeDir, "settings.json"))
-	if settingsHasBd {
-		fmt.Println("  settings.json        has bd references")
-	}
-	fmt.Println()
-
-	if onboardDryRun {
-		fmt.Println("Dry run — no changes made.")
-		if memoryMDPath != "" {
-			data, _ := os.ReadFile(memoryMDPath)
-			sections := parseSections(string(data))
-			fmt.Printf("  Would create %d motes from %s\n", len(sections), filepath.Base(memoryMDPath))
+	if onboardFrom != "" {
+		// Validate --from flag
+		switch onboardSource(onboardFrom) {
+		case sourceMarkdown, sourceBeads, sourceGithub, sourceFresh:
+			source = onboardSource(onboardFrom)
+		default:
+			return fmt.Errorf("invalid --from value: %q (must be markdown, beads, github, or fresh)", onboardFrom)
 		}
-		importCount := openBeads
+	} else if onboardDryRun {
+		// Dry run without --from: show all detected sources (current behavior)
+		printSourceSummary(d)
+		fmt.Println("Dry run — no changes made.")
+		if d.memoryMDPath != "" {
+			data, _ := os.ReadFile(d.memoryMDPath)
+			sections := parseSections(string(data))
+			fmt.Printf("  Would create %d motes from %s\n", len(sections), filepath.Base(d.memoryMDPath))
+		}
+		importCount := d.openBeads
 		if onboardIncludeClosed {
-			importCount += closedBeads
+			importCount += d.closedBeads
 		}
 		if importCount > 0 {
 			fmt.Printf("  Would import %d beads issues\n", importCount)
 		}
-		if settingsHasBd {
+
+		home, _ := os.UserHomeDir()
+		claudeDir := filepath.Join(home, ".claude")
+		if d.settingsHasBd {
 			migrateClaudeSettings(claudeDir, true)
 		}
 		ensureClaudeHooks(claudeDir, true)
@@ -136,10 +457,19 @@ func runOnboardProject() error {
 			fmt.Println("  Would remove .beads/")
 		}
 		return nil
+	} else {
+		// Interactive: show summary and prompt
+		printSourceSummary(d)
+		opts := buildMenu(d)
+		chosen, err := promptSelection(os.Stdin, opts)
+		if err != nil {
+			return err
+		}
+		source = chosen.source
 	}
 
-	// --- Init .memory/ ---
-	if !memoryDirExists {
+	// --- Scaffold .memory/ ---
+	if !d.memoryDirExists {
 		fmt.Println("Initializing .memory/...")
 		if err := scaffoldMemoryDir(root); err != nil {
 			return err
@@ -149,129 +479,69 @@ func runOnboardProject() error {
 	mm := core.NewMoteManager(root)
 	im := core.NewIndexManager(root)
 
-	// Build existing source_issue set for idempotency
-	existingSourceIssues := buildSourceIssueSet(mm)
-
 	var totalCreated int
 
-	// --- Migrate MEMORY.md ---
-	if memoryMDPath != "" {
-		data, err := os.ReadFile(memoryMDPath)
+	// --- Execute selected migration ---
+	switch source {
+	case sourceMarkdown:
+		if d.memoryMDPath == "" {
+			return fmt.Errorf("no MEMORY.md found to migrate")
+		}
+		n, err := runMigrateMarkdown(mm, d.memoryMDPath)
 		if err != nil {
-			return fmt.Errorf("read %s: %w", memoryMDPath, err)
+			return err
 		}
-		sections := parseSections(string(data))
-		if len(sections) > 0 {
-			fmt.Printf("Migrating %s (%d sections)...\n", filepath.Base(memoryMDPath), len(sections))
-			for _, s := range sections {
-				m, err := mm.Create(s.moteType, s.heading, core.CreateOpts{
-					Tags:   s.tags,
-					Origin: s.origin,
-					Body:   strings.TrimSpace(s.body),
-				})
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "  warning: %q: %v\n", s.heading, err)
-					continue
-				}
-				totalCreated++
-				fmt.Printf("  created %s [%s] %s\n", m.ID, s.moteType, s.heading)
-			}
-			// Archive original
-			archivePath := memoryMDPath + ".migrated." + time.Now().Format("20060102")
-			if err := os.Rename(memoryMDPath, archivePath); err != nil {
-				fmt.Fprintf(os.Stderr, "  warning: could not archive: %v\n", err)
-			} else {
-				fmt.Printf("  archived to %s\n", filepath.Base(archivePath))
-			}
+		totalCreated = n
+
+	case sourceBeads:
+		if len(d.beadsIssues) == 0 {
+			return fmt.Errorf("no .beads/issues.jsonl found to migrate")
 		}
-	}
+		n, err := runMigrateBeads(mm, d.beadsIssues, onboardIncludeClosed)
+		if err != nil {
+			return err
+		}
+		totalCreated = n
 
-	// --- Migrate beads ---
-	if len(beadsIssues) > 0 {
-		fmt.Println("Importing beads issues...")
-		for _, issue := range beadsIssues {
-			if issue.Status == "closed" && !onboardIncludeClosed {
-				continue
-			}
-			if existingSourceIssues[issue.ID] {
-				fmt.Printf("  skipped %s (already imported)\n", issue.ID)
-				continue
-			}
-
-			moteType, origin := beadsTypeToMote(issue.IssueType)
-			weight := beadsPriorityToWeight(issue.Priority)
-			tags := inferTags(issue.Title)
-
-			m, err := mm.Create(moteType, issue.Title, core.CreateOpts{
-				Tags:        tags,
-				Weight:      weight,
-				Origin:      origin,
-				Body:        issue.Description,
-				SourceIssue: issue.ID,
-			})
+	case sourceGithub:
+		repo := onboardRepo
+		if repo == "" {
+			repo, err = promptRepo(os.Stdin)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "  warning: %q: %v\n", issue.Title, err)
-				continue
+				return err
 			}
-
-			// Mark completed if closed
-			if issue.Status == "closed" {
-				_ = mm.Update(m.ID, map[string]interface{}{"status": "completed"})
-			}
-
-			totalCreated++
-			status := "active"
-			if issue.Status == "closed" {
-				status = "completed"
-			}
-			fmt.Printf("  created %s [%s] %s (%s)\n", m.ID, moteType, issue.Title, status)
 		}
+		n, err := runImportGithub(mm, im, repo, onboardIncludeClosed, onboardPhaseParents)
+		if err != nil {
+			return err
+		}
+		totalCreated = n
+
+	case sourceFresh:
+		// No-op: just initialize and configure
 	}
 
-	// --- Rebuild index ---
-	motes, _ := mm.ReadAllParallel()
-	im.Rebuild(motes)
-
-	// --- Update CLAUDE.md ---
-	modified, err := ensureClaudeMD(cwd)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: CLAUDE.md: %v\n", err)
-	} else if modified {
-		fmt.Println("Updated CLAUDE.md with ## Motes section")
-	}
-
-	// --- Migrate settings.json hooks ---
-	migrated, err := migrateClaudeSettings(claudeDir, false)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "warning: settings migration: %v\n", err)
-	} else if migrated > 0 {
-		fmt.Printf("Migrated %d hook(s) in ~/.claude/settings.json\n", migrated)
-	}
-
-	// --- Install hooks ---
-	if err := ensureClaudeHooks(claudeDir, false); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
-	}
-
-	// --- Install skills ---
-	if err := ensureMoteSkills(home, false); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
+	// --- Common setup ---
+	if err := runCommonSetup(cwd, root, mm, im, false); err != nil {
+		return err
 	}
 
 	fmt.Printf("\nOnboarding complete: %d motes created.\n", totalCreated)
 
 	// --- Cleanup ---
-	beadsDir := filepath.Join(cwd, ".beads")
-	if onboardCleanup && dirExists(beadsDir) {
-		if err := os.RemoveAll(beadsDir); err != nil {
-			fmt.Fprintf(os.Stderr, "warning: remove .beads/: %v\n", err)
-		} else {
-			fmt.Println("Removed .beads/")
-		}
-	} else if len(beadsIssues) > 0 && !onboardCleanup {
-		fmt.Println(`
+	if source == sourceBeads {
+		beadsDir := filepath.Join(cwd, ".beads")
+		if onboardCleanup && dirExists(beadsDir) {
+			if err := os.RemoveAll(beadsDir); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: remove .beads/: %v\n", err)
+			} else {
+				fmt.Println("Removed .beads/")
+			}
+		} else if len(d.beadsIssues) > 0 && !onboardCleanup {
+			fmt.Println(`
 --- Manual steps ---
   - Remove .beads/ once you've verified the import (or use --cleanup)`)
+		}
 	}
 
 	return nil
