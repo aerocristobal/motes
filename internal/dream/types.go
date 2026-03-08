@@ -53,6 +53,12 @@ type MergeCluster struct {
 	AvgSimilarity float64
 }
 
+// SummarizationCluster identifies a group of completed motes sharing tags that can be summarized.
+type SummarizationCluster struct {
+	SharedTags []string `json:"shared_tags"`
+	MoteIDs    []string `json:"mote_ids"`
+}
+
 // StrataCrystallizationCandidate identifies frequently-queried strata topics.
 type StrataCrystallizationCandidate struct {
 	Corpus     string
@@ -70,17 +76,18 @@ type ConstellationEvolution struct {
 
 // ScanResult holds all dream pre-scan findings.
 type ScanResult struct {
-	LinkCandidates          []MotePair
-	ContentLinkCandidates   []MotePair
-	ContradictionCandidates []MotePair
-	OverloadedTags          []TagOverload
-	StaleMotes              []string
-	ConstellationEvolution  []ConstellationEvolution
-	CompressionCandidates   []string
-	UncrystallizedIssues    []string
-	StrataCrystallization   []StrataCrystallizationCandidate
-	SignalCandidates        []SignalCandidate
-	MergeCandidates         []MergeCluster
+	LinkCandidates            []MotePair
+	ContentLinkCandidates     []MotePair
+	ContradictionCandidates   []MotePair
+	OverloadedTags            []TagOverload
+	StaleMotes                []string
+	ConstellationEvolution    []ConstellationEvolution
+	CompressionCandidates     []string
+	UncrystallizedIssues      []string
+	StrataCrystallization     []StrataCrystallizationCandidate
+	SignalCandidates          []SignalCandidate
+	MergeCandidates           []MergeCluster
+	SummarizationCandidates   []SummarizationCluster
 }
 
 // HasWork returns true if any scan category found candidates.
@@ -95,7 +102,8 @@ func (sr *ScanResult) HasWork() bool {
 		len(sr.UncrystallizedIssues) > 0 ||
 		len(sr.StrataCrystallization) > 0 ||
 		len(sr.SignalCandidates) > 0 ||
-		len(sr.MergeCandidates) > 0
+		len(sr.MergeCandidates) > 0 ||
+		len(sr.SummarizationCandidates) > 0
 }
 
 // Batch groups motes for a single Claude invocation.

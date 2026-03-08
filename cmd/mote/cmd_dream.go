@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sort"
@@ -9,6 +10,11 @@ import (
 	"motes/internal/core"
 	"motes/internal/dream"
 )
+
+// DreamReviewOutput is the JSON output for mote dream --review --json.
+type DreamReviewOutput struct {
+	Visions []dream.Vision `json:"visions"`
+}
 
 var dreamCmd = &cobra.Command{
 	Use:   "dream",
@@ -21,6 +27,7 @@ var (
 	dreamReview bool
 	dreamManual bool
 	dreamStats  bool
+	dreamJSON   bool
 )
 
 func init() {
@@ -28,6 +35,7 @@ func init() {
 	dreamCmd.Flags().BoolVar(&dreamReview, "review", false, "Review pending visions interactively")
 	dreamCmd.Flags().BoolVar(&dreamManual, "manual", false, "Enter manual review mode instead of auto-applying")
 	dreamCmd.Flags().BoolVar(&dreamStats, "stats", false, "Show feedback statistics for auto-applied visions")
+	dreamCmd.Flags().BoolVar(&dreamJSON, "json", false, "Output pending visions in JSON format (use with --review)")
 	rootCmd.AddCommand(dreamCmd)
 }
 
@@ -40,6 +48,17 @@ func runDream(cmd *cobra.Command, args []string) error {
 
 	if dreamStats {
 		return runDreamStats(root)
+	}
+
+	if dreamJSON && dreamReview {
+		vw := dream.NewVisionWriter(root + "/dream")
+		visions := vw.ReadFinal()
+		data, err := json.MarshalIndent(DreamReviewOutput{Visions: visions}, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal json: %w", err)
+		}
+		fmt.Println(string(data))
+		return nil
 	}
 
 	manualMode := dreamManual || dreamReview

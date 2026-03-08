@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -10,7 +11,22 @@ import (
 	"motes/internal/strata"
 )
 
+// SearchOutput is the JSON output structure for mote search --json.
+type SearchOutput struct {
+	Query   string              `json:"query"`
+	Results []SearchResultEntry `json:"results"`
+}
+
+// SearchResultEntry represents a search result in JSON output.
+type SearchResultEntry struct {
+	ID    string  `json:"id"`
+	Type  string  `json:"type"`
+	Title string  `json:"title"`
+	Score float64 `json:"score"`
+}
+
 var searchTopK int
+var searchJSON bool
 
 var searchCmd = &cobra.Command{
 	Use:   "search <query...>",
@@ -21,6 +37,7 @@ var searchCmd = &cobra.Command{
 
 func init() {
 	searchCmd.Flags().IntVarP(&searchTopK, "top", "k", 10, "Number of results to return")
+	searchCmd.Flags().BoolVar(&searchJSON, "json", false, "Output in JSON format")
 	rootCmd.AddCommand(searchCmd)
 }
 
@@ -45,6 +62,15 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		moteMap[m.ID] = m
 	}
 
+	// Build searchable text including external ref IDs
+	moteSearchText := func(m *core.Mote) string {
+		text := m.Title + " " + m.Body
+		for _, ref := range m.ExternalRefs {
+			text += " " + ref.Provider + " " + ref.ID
+		}
+		return text
+	}
+
 	// Try persistent BM25 index first
 	persistentIdx, loadErr := loadMoteBM25(root)
 
@@ -57,7 +83,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		for i, m := range motes {
 			chunks[i] = strata.Chunk{
 				ID:   m.ID,
-				Text: m.Title + " " + m.Body,
+				Text: moteSearchText(m),
 			}
 		}
 		idx := strata.BuildBM25Index(chunks)
@@ -65,7 +91,33 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(results) == 0 {
+		if searchJSON {
+			fmt.Println(`{"query":"` + query + `","results":[]}`)
+			return nil
+		}
 		fmt.Println("No matching motes found.")
+		return nil
+	}
+
+	if searchJSON {
+		entries := make([]SearchResultEntry, 0, len(results))
+		for _, r := range results {
+			m := moteMap[r.Chunk.ID]
+			if m == nil {
+				continue
+			}
+			entries = append(entries, SearchResultEntry{
+				ID:    m.ID,
+				Type:  m.Type,
+				Title: m.Title,
+				Score: r.Score,
+			})
+		}
+		data, err := json.MarshalIndent(SearchOutput{Query: query, Results: entries}, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal json: %w", err)
+		}
+		fmt.Println(string(data))
 		return nil
 	}
 

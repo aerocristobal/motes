@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -10,6 +11,36 @@ import (
 	"motes/internal/format"
 )
 
+// ShowOutput is the JSON output structure for mote show --json.
+type ShowOutput struct {
+	ID            string             `json:"id"`
+	Type          string             `json:"type"`
+	Status        string             `json:"status"`
+	Title         string             `json:"title"`
+	Tags          []string           `json:"tags"`
+	Weight        float64            `json:"weight"`
+	Origin        string             `json:"origin"`
+	Size          string             `json:"size,omitempty"`
+	Parent        string             `json:"parent,omitempty"`
+	CreatedAt     string             `json:"created_at"`
+	LastAccessed  string             `json:"last_accessed,omitempty"`
+	AccessCount   int                `json:"access_count"`
+	ExternalRefs  []core.ExternalRef `json:"external_refs,omitempty"`
+	DependsOn     []string           `json:"depends_on,omitempty"`
+	Blocks        []string           `json:"blocks,omitempty"`
+	RelatesTo     []string           `json:"relates_to,omitempty"`
+	BuildsOn      []string           `json:"builds_on,omitempty"`
+	Contradicts   []string           `json:"contradicts,omitempty"`
+	Supersedes    []string           `json:"supersedes,omitempty"`
+	CausedBy      []string           `json:"caused_by,omitempty"`
+	InformedBy    []string           `json:"informed_by,omitempty"`
+	Acceptance    []string           `json:"acceptance,omitempty"`
+	AcceptanceMet []bool             `json:"acceptance_met,omitempty"`
+	Body          string             `json:"body"`
+}
+
+var showJSON bool
+
 var showCmd = &cobra.Command{
 	Use:   "show <id>",
 	Short: "Display a mote's content and links",
@@ -18,6 +49,7 @@ var showCmd = &cobra.Command{
 }
 
 func init() {
+	showCmd.Flags().BoolVar(&showJSON, "json", false, "Output in JSON format")
 	rootCmd.AddCommand(showCmd)
 }
 
@@ -32,6 +64,44 @@ func runShow(cmd *cobra.Command, args []string) error {
 			os.Exit(1)
 		}
 		return err
+	}
+
+	if showJSON {
+		out := ShowOutput{
+			ID:            m.ID,
+			Type:          m.Type,
+			Status:        m.Status,
+			Title:         m.Title,
+			Tags:          m.Tags,
+			Weight:        m.Weight,
+			Origin:        m.Origin,
+			Size:          m.Size,
+			Parent:        m.Parent,
+			CreatedAt:     m.CreatedAt.Format(time.RFC3339),
+			AccessCount:   m.AccessCount,
+			ExternalRefs:  m.ExternalRefs,
+			DependsOn:     m.DependsOn,
+			Blocks:        m.Blocks,
+			RelatesTo:     m.RelatesTo,
+			BuildsOn:      m.BuildsOn,
+			Contradicts:   m.Contradicts,
+			Supersedes:    m.Supersedes,
+			CausedBy:      m.CausedBy,
+			InformedBy:    m.InformedBy,
+			Acceptance:    m.Acceptance,
+			AcceptanceMet: m.AcceptanceMet,
+			Body:          m.Body,
+		}
+		if m.LastAccessed != nil {
+			out.LastAccessed = m.LastAccessed.Format(time.RFC3339)
+		}
+		data, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal json: %w", err)
+		}
+		fmt.Println(string(data))
+		_ = mm.AppendAccessBatch(m.ID)
+		return nil
 	}
 
 	fmt.Println(format.Header(m.ID))
@@ -58,6 +128,17 @@ func runShow(cmd *cobra.Command, args []string) error {
 		fmt.Println(format.Field("last_accessed", "(never)"))
 	}
 	fmt.Println(format.Field("access_count", fmt.Sprintf("%d", m.AccessCount)))
+
+	if len(m.ExternalRefs) > 0 {
+		fmt.Println("\n--- external refs ---")
+		for _, ref := range m.ExternalRefs {
+			if ref.URL != "" {
+				fmt.Println(format.Field(ref.Provider, ref.ID+" "+ref.URL))
+			} else {
+				fmt.Println(format.Field(ref.Provider, ref.ID))
+			}
+		}
+	}
 
 	if hasAnyLinks(m) {
 		fmt.Println("\n--- links ---")

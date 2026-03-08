@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -10,7 +11,21 @@ import (
 	"motes/internal/core"
 )
 
-var tagsCompact bool
+// TagsOutput is the JSON output structure for mote tags --json.
+type TagsOutput struct {
+	Tags []TagEntry `json:"tags"`
+}
+
+// TagEntry represents a tag in JSON output.
+type TagEntry struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+var (
+	tagsCompact bool
+	tagsJSON    bool
+)
 
 var tagsCmd = &cobra.Command{
 	Use:   "tags",
@@ -26,6 +41,7 @@ var tagsAuditCmd = &cobra.Command{
 
 func init() {
 	tagsCmd.Flags().BoolVar(&tagsCompact, "compact", false, "Single line, comma-separated tag list")
+	tagsCmd.Flags().BoolVar(&tagsJSON, "json", false, "Output in JSON format")
 	tagsCmd.AddCommand(tagsAuditCmd)
 	rootCmd.AddCommand(tagsCmd)
 }
@@ -49,6 +65,19 @@ func runTagsList(cmd *cobra.Command, args []string) error {
 		tags = append(tags, tag)
 	}
 	sort.Strings(tags)
+
+	if tagsJSON {
+		entries := make([]TagEntry, len(tags))
+		for i, tag := range tags {
+			entries[i] = TagEntry{Name: tag, Count: idx.TagStats[tag]}
+		}
+		data, err := json.MarshalIndent(TagsOutput{Tags: entries}, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal json: %w", err)
+		}
+		fmt.Println(string(data))
+		return nil
+	}
 
 	if tagsCompact {
 		fmt.Println(strings.Join(tags, ", "))

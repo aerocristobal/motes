@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,16 +15,35 @@ import (
 	"motes/internal/strata"
 )
 
+// StatsOutput is the JSON output structure for mote stats --json.
+type StatsOutput struct {
+	TotalMotes      int            `json:"total_motes"`
+	StatusCounts    map[string]int `json:"status_counts"`
+	Accessed7       int            `json:"accessed_7d"`
+	Accessed30      int            `json:"accessed_30d"`
+	Accessed90      int            `json:"accessed_90d"`
+	NeverAccessed   int            `json:"never_accessed"`
+	TotalTags       int            `json:"total_tags"`
+	OverloadedTags  int            `json:"overloaded_tags"`
+	SingletonTags   int            `json:"singleton_tags"`
+	Contradictions  int            `json:"contradictions"`
+	PendingVisions  int            `json:"pending_visions"`
+}
+
 var statsCmd = &cobra.Command{
 	Use:   "stats",
 	Short: "Show retrieval health dashboard",
 	RunE:  runStats,
 }
 
-var statsDecayPreview bool
+var (
+	statsDecayPreview bool
+	statsJSON         bool
+)
 
 func init() {
 	statsCmd.Flags().BoolVar(&statsDecayPreview, "decay-preview", false, "Show motes at risk of recency decay")
+	statsCmd.Flags().BoolVar(&statsJSON, "json", false, "Output in JSON format")
 	rootCmd.AddCommand(statsCmd)
 }
 
@@ -56,28 +76,12 @@ func runStats(cmd *cobra.Command, args []string) error {
 		statusCounts[m.Status]++
 	}
 
-	fmt.Println(format.Header("Nebula Stats"))
-	fmt.Println()
-	fmt.Printf("  Total motes:  %d\n", len(motes))
-	for _, s := range []string{"active", "deprecated", "archived", "completed"} {
-		if c := statusCounts[s]; c > 0 {
-			fmt.Printf("    %-12s %d\n", s+":", c)
-		}
-	}
-
-	// Access distribution
+	// Access distribution (computed for both JSON and human output)
 	now := time.Now()
 	var accessed7, accessed30, accessed90, neverAccessed int
-	var recencySum float64
-	var activeCount int
-
 	for _, m := range motes {
 		if m.LastAccessed == nil {
 			neverAccessed++
-			if m.Status == "active" {
-				recencySum += recencyFactor(nil, cfg.Scoring)
-				activeCount++
-			}
 			continue
 		}
 		days := now.Sub(*m.LastAccessed).Hours() / 24
@@ -90,6 +94,70 @@ func runStats(cmd *cobra.Command, args []string) error {
 		if days <= 90 {
 			accessed90++
 		}
+	}
+
+	tagOverloadThreshold := cfg.Dream.PreScan.TagOverloadThreshold
+	if tagOverloadThreshold <= 0 {
+		tagOverloadThreshold = 15
+	}
+	overloaded := 0
+	singletons := 0
+	for _, count := range idx.TagStats {
+		if count > tagOverloadThreshold {
+			overloaded++
+		}
+		if count == 1 {
+			singletons++
+		}
+	}
+
+	contradictions := countActiveContradictions(motes)
+
+	pendingVisions := 0
+	dreamDir := filepath.Join(root, "dream")
+	if data, err := os.ReadFile(filepath.Join(dreamDir, "visions.jsonl")); err == nil {
+		for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			if l != "" {
+				pendingVisions++
+			}
+		}
+	}
+
+	if statsJSON {
+		out := StatsOutput{
+			TotalMotes:     len(motes),
+			StatusCounts:   statusCounts,
+			Accessed7:      accessed7,
+			Accessed30:     accessed30,
+			Accessed90:     accessed90,
+			NeverAccessed:  neverAccessed,
+			TotalTags:      len(idx.TagStats),
+			OverloadedTags: overloaded,
+			SingletonTags:  singletons,
+			Contradictions: contradictions,
+			PendingVisions: pendingVisions,
+		}
+		data, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal json: %w", err)
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+
+	fmt.Println(format.Header("Nebula Stats"))
+	fmt.Println()
+	fmt.Printf("  Total motes:  %d\n", len(motes))
+	for _, s := range []string{"active", "deprecated", "archived", "completed"} {
+		if c := statusCounts[s]; c > 0 {
+			fmt.Printf("    %-12s %d\n", s+":", c)
+		}
+	}
+
+	// Recency stats for human output
+	var recencySum float64
+	var activeCount int
+	for _, m := range motes {
 		if m.Status == "active" {
 			recencySum += recencyFactor(m.LastAccessed, cfg.Scoring)
 			activeCount++
@@ -127,31 +195,12 @@ func runStats(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  %-24s  %-4d  %s\n", m.ID, m.AccessCount, format.Truncate(m.Title, 40))
 	}
 
-	// Tag health
-	tagOverloadThreshold := cfg.Dream.PreScan.TagOverloadThreshold
-	if tagOverloadThreshold <= 0 {
-		tagOverloadThreshold = 15
-	}
-	overloaded := 0
-	singletons := 0
-	for _, count := range idx.TagStats {
-		if count > tagOverloadThreshold {
-			overloaded++
-		}
-		if count == 1 {
-			singletons++
-		}
-	}
-
 	fmt.Println()
 	fmt.Println(format.Header("Tag Health"))
 	fmt.Println()
 	fmt.Printf("  Total tags:      %d\n", len(idx.TagStats))
 	fmt.Printf("  Overloaded (>%d): %d\n", tagOverloadThreshold, overloaded)
 	fmt.Printf("  Singletons (=1): %d\n", singletons)
-
-	// Active contradictions
-	contradictions := countActiveContradictions(motes)
 	fmt.Printf("  Active contradictions: %d\n", contradictions)
 
 	// Strata info
@@ -172,23 +221,10 @@ func runStats(cmd *cobra.Command, args []string) error {
 	fmt.Println()
 	fmt.Println(format.Header("Dream Cycle"))
 	fmt.Println()
-	dreamDir := filepath.Join(root, "dream")
 	if _, err := os.Stat(dreamDir); os.IsNotExist(err) {
 		fmt.Println("  Status: N/A (no dream directory)")
 	} else {
-		visionsPath := filepath.Join(dreamDir, "visions.jsonl")
-		if data, err := os.ReadFile(visionsPath); err == nil {
-			lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-			count := 0
-			for _, l := range lines {
-				if l != "" {
-					count++
-				}
-			}
-			fmt.Printf("  Pending visions: %d\n", count)
-		} else {
-			fmt.Println("  Pending visions: 0")
-		}
+		fmt.Printf("  Pending visions: %d\n", pendingVisions)
 	}
 
 	return nil

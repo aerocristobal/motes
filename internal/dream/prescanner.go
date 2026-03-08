@@ -37,6 +37,7 @@ func (ps *PreScanner) SetMoteBM25(idx *strata.BM25Index) {
 }
 
 // Scan reads all motes and the index, returning candidates across 9 categories.
+// It uses a content-hash cache to skip unchanged motes where possible.
 func (ps *PreScanner) Scan() (*ScanResult, error) {
 	motes, err := ps.moteManager.ReadAllParallel()
 	if err != nil {
@@ -46,6 +47,20 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Load scan cache and identify changed motes
+	cache := LoadScanCache(ps.root)
+	changedMotes := FilterChanged(motes, cache)
+	_ = SaveScanCache(ps.root, cache)
+
+	// Use changed motes for candidate detection where possible.
+	// Some categories (pair comparisons) still need all motes.
+	candidateMotes := motes
+	if len(changedMotes) > 0 && len(changedMotes) < len(motes) {
+		// For single-mote scans (staleness, compression, uncrystallized), only check changed
+		candidateMotes = changedMotes
+	}
+
 	// findLinkCandidates must run first — contentLinkCandidates filters its results
 	linkCandidates := ps.findLinkCandidates(motes, idx)
 
@@ -53,16 +68,17 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	sr.LinkCandidates = linkCandidates
 
 	var wg sync.WaitGroup
-	wg.Add(9)
+	wg.Add(10)
 	go func() { defer wg.Done(); sr.ContentLinkCandidates = ps.findContentLinkCandidates(motes, idx, linkCandidates) }()
 	go func() { defer wg.Done(); sr.ContradictionCandidates = ps.findContradictionCandidates(motes) }()
 	go func() { defer wg.Done(); sr.OverloadedTags = ps.findOverloadedTags(idx.TagStats) }()
-	go func() { defer wg.Done(); sr.StaleMotes = ps.findStaleMotes(motes) }()
+	go func() { defer wg.Done(); sr.StaleMotes = ps.findStaleMotes(candidateMotes) }()
 	go func() { defer wg.Done(); sr.ConstellationEvolution = ps.findConstellationCandidates(motes) }()
-	go func() { defer wg.Done(); sr.CompressionCandidates = ps.findCompressionCandidates(motes) }()
-	go func() { defer wg.Done(); sr.UncrystallizedIssues = ps.findUncrystallized(motes) }()
+	go func() { defer wg.Done(); sr.CompressionCandidates = ps.findCompressionCandidates(candidateMotes) }()
+	go func() { defer wg.Done(); sr.UncrystallizedIssues = ps.findUncrystallized(candidateMotes) }()
 	go func() { defer wg.Done(); sr.StrataCrystallization = ps.findStrataCandidates() }()
 	go func() { defer wg.Done(); sr.MergeCandidates = ps.findMergeCandidates(motes, idx) }()
+	go func() { defer wg.Done(); sr.SummarizationCandidates = ps.findSummarizationCandidates(motes, idx) }()
 	sr.SignalCandidates = ps.findSignalPatterns(motes)
 	wg.Wait()
 
@@ -593,6 +609,99 @@ func (ps *PreScanner) findMergeCandidates(motes []*core.Mote, idx *core.EdgeInde
 		})
 	}
 
+	return clusters
+}
+
+// findSummarizationCandidates finds clusters of 5+ completed motes with 2+ shared tags
+// that haven't been summarized yet.
+func (ps *PreScanner) findSummarizationCandidates(motes []*core.Mote, idx *core.EdgeIndex) []SummarizationCluster {
+	// Collect completed motes
+	var completed []*core.Mote
+	for _, m := range motes {
+		if m.Status == "completed" {
+			completed = append(completed, m)
+		}
+	}
+	if len(completed) < 5 {
+		return nil
+	}
+
+	// Find motes that are already summarized (linked from a builds_on of a context mote)
+	summarized := map[string]bool{}
+	for _, m := range motes {
+		if m.Type == "context" && strings.Contains(m.Title, "Summary") {
+			for _, id := range m.BuildsOn {
+				summarized[id] = true
+			}
+		}
+	}
+
+	// Filter out already-summarized motes
+	var unsummarized []*core.Mote
+	for _, m := range completed {
+		if !summarized[m.ID] {
+			unsummarized = append(unsummarized, m)
+		}
+	}
+	if len(unsummarized) < 5 {
+		return nil
+	}
+
+	// Build tag->mote index for completed motes
+	tagMotes := map[string][]*core.Mote{}
+	for _, m := range unsummarized {
+		for _, tag := range m.Tags {
+			tagMotes[tag] = append(tagMotes[tag], m)
+		}
+	}
+
+	// Find tag pairs with 5+ members
+	type tagPair struct{ a, b string }
+	pairMembers := map[tagPair]map[string]*core.Mote{}
+	for tag1, motes1 := range tagMotes {
+		moteSet1 := map[string]bool{}
+		for _, m := range motes1 {
+			moteSet1[m.ID] = true
+		}
+		for tag2, motes2 := range tagMotes {
+			if tag2 <= tag1 {
+				continue
+			}
+			for _, m := range motes2 {
+				if moteSet1[m.ID] {
+					pair := tagPair{tag1, tag2}
+					if pairMembers[pair] == nil {
+						pairMembers[pair] = map[string]*core.Mote{}
+					}
+					pairMembers[pair][m.ID] = m
+				}
+			}
+		}
+	}
+
+	var clusters []SummarizationCluster
+	seen := map[string]bool{} // prevent same mote appearing in multiple clusters
+	for pair, members := range pairMembers {
+		if len(members) < 5 {
+			continue
+		}
+		var ids []string
+		for id := range members {
+			if !seen[id] {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) < 5 {
+			continue
+		}
+		for _, id := range ids {
+			seen[id] = true
+		}
+		clusters = append(clusters, SummarizationCluster{
+			SharedTags: []string{pair.a, pair.b},
+			MoteIDs:    ids,
+		})
+	}
 	return clusters
 }
 

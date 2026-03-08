@@ -383,6 +383,29 @@ func ApplyVision(v Vision, mm *core.MoteManager, im *core.IndexManager, root str
 			}
 		}
 		fmt.Printf("  -> Merged %d motes into %s\n", len(v.SourceMotes), hub.ID)
+	case "summarize":
+		if len(v.SourceMotes) < 3 {
+			return fmt.Errorf("summarize needs at least 3 source motes, got %d", len(v.SourceMotes))
+		}
+		if v.Rationale == "" {
+			return fmt.Errorf("summarize needs rationale as summary body text")
+		}
+		title, body := splitTitleBody(v.Rationale)
+
+		hub, err := mm.Create("context", title, core.CreateOpts{
+			Tags:   v.Tags,
+			Weight: 0.6,
+			Body:   body,
+		})
+		if err != nil {
+			return fmt.Errorf("create summary mote: %w", err)
+		}
+		for _, srcID := range v.SourceMotes {
+			_ = mm.Link(hub.ID, "builds_on", srcID, im)
+			// Archive source mote
+			_ = mm.Update(srcID, map[string]interface{}{"status": "archived"})
+		}
+		fmt.Printf("  -> Summarized %d motes into %s\n", len(v.SourceMotes), hub.ID)
 	case "signal":
 		if cfg == nil || root == "" {
 			return fmt.Errorf("signal apply requires config access (use NewVisionReviewerWithConfig)")

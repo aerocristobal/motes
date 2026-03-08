@@ -11,6 +11,13 @@ import (
 	"motes/internal/security"
 )
 
+// ExternalRef represents a reference to an external system (e.g., GitHub issue, Jira ticket).
+type ExternalRef struct {
+	Provider string `yaml:"provider" json:"provider"`
+	ID       string `yaml:"id" json:"id"`
+	URL      string `yaml:"url,omitempty" json:"url,omitempty"`
+}
+
 var wikiLinkRe = regexp.MustCompile(`\[\[([a-zA-Z0-9._-]+)\]\]`)
 
 // ExtractBodyLinks finds all [[id]] wiki-links in body text, excluding self-references and duplicates.
@@ -56,6 +63,9 @@ type Mote struct {
 	Supersedes  []string `yaml:"supersedes"`
 	CausedBy    []string `yaml:"caused_by"`
 	InformedBy  []string `yaml:"informed_by"`
+
+	// External references
+	ExternalRefs []ExternalRef `yaml:"external_refs,omitempty"`
 
 	// Issue integration
 	SourceIssue    string     `yaml:"source_issue,omitempty"`

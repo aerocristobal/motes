@@ -5,7 +5,10 @@ import (
 	"motes/internal/core"
 )
 
-var pulseCompact bool
+var (
+	pulseCompact bool
+	pulseJSON    bool
+)
 
 var pulseCmd = &cobra.Command{
 	Use:   "pulse",
@@ -15,6 +18,7 @@ var pulseCmd = &cobra.Command{
 
 func init() {
 	pulseCmd.Flags().BoolVar(&pulseCompact, "compact", false, "One-line-per-mote compact output: ID: Title")
+	pulseCmd.Flags().BoolVar(&pulseJSON, "json", false, "Output in JSON format")
 	rootCmd.AddCommand(pulseCmd)
 }
 
@@ -22,5 +26,5 @@ func runPulse(cmd *cobra.Command, args []string) error {
 	return doLs(core.ListFilters{
 		Status: "active",
 		Type:   "task",
-	}, true, pulseCompact)
+	}, true, pulseCompact, pulseJSON)
 }

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
@@ -27,6 +28,7 @@ var (
 	addParent string
 	addAccept []string
 	addSize   string
+	addRefs   []string
 )
 
 func init() {
@@ -39,9 +41,26 @@ func init() {
 	addCmd.Flags().StringVar(&addParent, "parent", "", "Parent mote ID for hierarchy")
 	addCmd.Flags().StringArrayVar(&addAccept, "accept", nil, "Acceptance criterion (repeatable)")
 	addCmd.Flags().StringVar(&addSize, "size", "", "Effort size (xs|s|m|l|xl)")
+	addCmd.Flags().StringArrayVar(&addRefs, "ref", nil, "External reference (format: provider:id[:url], repeatable)")
 	_ = addCmd.MarkFlagRequired("type")
 	_ = addCmd.MarkFlagRequired("title")
 	rootCmd.AddCommand(addCmd)
+}
+
+// parseExternalRef parses a "provider:id[:url]" string into an ExternalRef.
+func parseExternalRef(s string) (core.ExternalRef, error) {
+	parts := strings.SplitN(s, ":", 3)
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return core.ExternalRef{}, fmt.Errorf("expected format provider:id[:url]")
+	}
+	ref := core.ExternalRef{
+		Provider: parts[0],
+		ID:       parts[1],
+	}
+	if len(parts) == 3 {
+		ref.URL = parts[2]
+	}
+	return ref, nil
 }
 
 func runAdd(cmd *cobra.Command, args []string) error {
@@ -84,6 +103,16 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	validOrigins := []string{"normal", "failure", "revert", "hotfix", "discovery"}
 	if err := security.ValidateEnum(addOrigin, validOrigins, "origin"); err != nil {
 		return fmt.Errorf("invalid origin: %w", err)
+	}
+
+	// Parse external refs
+	var refs []core.ExternalRef
+	for _, r := range addRefs {
+		ref, err := parseExternalRef(r)
+		if err != nil {
+			return fmt.Errorf("invalid --ref %q: %w", r, err)
+		}
+		refs = append(refs, ref)
 	}
 
 	root, err := findMemoryRoot()
@@ -144,6 +173,16 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("create mote: %w", err)
+	}
+
+	// Set external refs if provided
+	if len(refs) > 0 {
+		m.ExternalRefs = refs
+		data, serErr := core.SerializeMote(m)
+		if serErr == nil {
+			path, _ := mm.MoteFilePath(m.ID)
+			_ = core.AtomicWrite(path, data, 0644)
+		}
 	}
 
 	// Update BM25 index
