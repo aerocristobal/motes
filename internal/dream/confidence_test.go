@@ -68,8 +68,9 @@ func TestScoreConfidence_LowPerformingType(t *testing.T) {
 		Rationale:   "old",
 	}
 	score := ScoreConfidence(v, stats, nil)
-	if score > 0.5 {
-		t.Errorf("low-performing type with low severity: expected < 0.5, got %.4f", score)
+	// With rebalanced weights (agreement=1.0 when voting disabled), score shifts slightly higher
+	if score > 0.55 {
+		t.Errorf("low-performing type with low severity: expected < 0.55, got %.4f", score)
 	}
 }
 

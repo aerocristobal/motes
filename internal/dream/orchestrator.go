@@ -92,6 +92,10 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 	if maxConcurrent <= 0 {
 		maxConcurrent = 4
 	}
+	scRuns := do.config.Batching.SelfConsistencyRuns
+	if scRuns <= 0 {
+		scRuns = 1
+	}
 	sem := make(chan struct{}, maxConcurrent)
 	var wg sync.WaitGroup
 
@@ -102,23 +106,86 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			fmt.Printf("  Batch %d/%d (%s, %d motes)...\n", i+1, len(batches), batch.Phase, len(batch.MoteIDs))
+			fmt.Printf("  Batch %d/%d (%s, %d motes", i+1, len(batches), batch.Phase, len(batch.MoteIDs))
+			if scRuns > 1 {
+				fmt.Printf(", %dx voting", scRuns)
+			}
+			fmt.Println(")...")
+
 			prompt := do.prompts.BuildBatchPrompt(batch, do.lucidLog)
-			response, err := do.invoker.Invoke(prompt, "sonnet")
-			if err != nil {
-				results[i] = batchResult{index: i, err: err}
-				return
-			}
-			visions, updates, err := do.parser.ParseBatchResponse(response)
-			if err != nil && strings.Contains(err.Error(), "no JSON found") {
-				do.logFailedResponse(i+1, response)
-				fmt.Fprintf(os.Stderr, "  warning: batch %d no JSON, retrying...\n", i+1)
-				response, err = do.invoker.Invoke(prompt, "sonnet")
-				if err == nil {
-					visions, updates, err = do.parser.ParseBatchResponse(response)
+
+			if scRuns == 1 {
+				// Single run (no voting)
+				response, err := do.invoker.Invoke(prompt, "sonnet")
+				if err != nil {
+					results[i] = batchResult{index: i, err: err}
+					return
 				}
+				visions, updates, err := do.parser.ParseBatchResponse(response)
+				if err != nil && strings.Contains(err.Error(), "no JSON found") {
+					do.logFailedResponse(i+1, response)
+					fmt.Fprintf(os.Stderr, "  warning: batch %d no JSON, retrying...\n", i+1)
+					response, err = do.invoker.Invoke(prompt, "sonnet")
+					if err == nil {
+						visions, updates, err = do.parser.ParseBatchResponse(response)
+					}
+				}
+				results[i] = batchResult{index: i, visions: visions, updates: updates, err: err}
+			} else {
+				// Self-consistency: invoke N times, vote on results
+				type runResult struct {
+					visions []Vision
+					updates LucidLogUpdates
+					err     error
+				}
+				runResults := make([]runResult, scRuns)
+				var runWg sync.WaitGroup
+				for r := 0; r < scRuns; r++ {
+					runWg.Add(1)
+					go func(r int) {
+						defer runWg.Done()
+						response, err := do.invoker.Invoke(prompt, "sonnet")
+						if err != nil {
+							runResults[r] = runResult{err: err}
+							return
+						}
+						visions, updates, err := do.parser.ParseBatchResponse(response)
+						if err != nil && strings.Contains(err.Error(), "no JSON found") {
+							do.logFailedResponse(i+1, response)
+							response, err = do.invoker.Invoke(prompt, "sonnet")
+							if err == nil {
+								visions, updates, err = do.parser.ParseBatchResponse(response)
+							}
+						}
+						runResults[r] = runResult{visions: visions, updates: updates, err: err}
+					}(r)
+				}
+				runWg.Wait()
+
+				// Collect successful vision lists for voting
+				var candidates [][]Vision
+				var mergedUpdates LucidLogUpdates
+				for _, rr := range runResults {
+					if rr.err != nil {
+						continue
+					}
+					candidates = append(candidates, rr.visions)
+					// Merge lucid log updates from all runs
+					mergedUpdates.ObservedPatterns = append(mergedUpdates.ObservedPatterns, rr.updates.ObservedPatterns...)
+					mergedUpdates.Tensions = append(mergedUpdates.Tensions, rr.updates.Tensions...)
+					mergedUpdates.VisionsSummary = append(mergedUpdates.VisionsSummary, rr.updates.VisionsSummary...)
+					mergedUpdates.Interrupts = append(mergedUpdates.Interrupts, rr.updates.Interrupts...)
+					mergedUpdates.StrataHealth = append(mergedUpdates.StrataHealth, rr.updates.StrataHealth...)
+				}
+
+				if len(candidates) == 0 {
+					results[i] = batchResult{index: i, err: fmt.Errorf("all %d self-consistency runs failed", scRuns)}
+					return
+				}
+
+				voted := VoteVisions(candidates, 0.5)
+				results[i] = batchResult{index: i, visions: voted, updates: mergedUpdates}
 			}
-			results[i] = batchResult{index: i, visions: visions, updates: updates, err: err}
 		}(i, batch)
 	}
 	wg.Wait()

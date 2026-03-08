@@ -16,6 +16,7 @@ type Vision struct {
 	Severity    string   `json:"severity"` // low, medium, high
 	Tags        []string `json:"tags,omitempty"`
 	Confidence  float64  `json:"confidence,omitempty"` // 0.0-1.0, deterministic
+	Agreement   float64  `json:"agreement,omitempty"`  // 0.0-1.0, fraction of runs that agreed
 }
 
 // DreamResult is the summary returned after a dream run.

@@ -53,7 +53,7 @@ Capture when you encounter:
 | Quick thought | (auto) | `mote quick "your sentence here"` |
 | Task done with learnings | (meta) | `mote crystallize <id>` |
 
-After capturing, link related motes: `mote link <id1> relates_to <id2>`
+**Always link after capturing.** Check motes already in context (primed, recently created, discussed this session) and link them: `mote link <id1> relates_to <id2>`. Use `[[mote-id]]` wikilinks in body text when referencing existing motes.
 Give feedback on surfaced motes: `mote feedback <id> useful` or `mote feedback <id> irrelevant`
 
 **Tag strategy:** Rare, specific tags beat generic ones. `bm25-scoring` > `search` > `code`.

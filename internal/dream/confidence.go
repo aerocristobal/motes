@@ -1,21 +1,24 @@
 package dream
 
 // ScoreConfidence computes a deterministic confidence score (0.0-1.0) for a vision
-// based on historical performance, structural completeness, severity, and source mote quality.
+// based on historical performance, structural completeness, severity, source mote quality,
+// and self-consistency agreement.
 func ScoreConfidence(v Vision, stats map[string]*FeedbackStats, preScores map[string]float64) float64 {
 	const (
-		wHistory    = 0.40
-		wStructure  = 0.25
-		wSeverity   = 0.20
-		wMoteQuality = 0.15
+		wHistory    = 0.35
+		wStructure  = 0.20
+		wSeverity   = 0.15
+		wMoteQuality = 0.10
+		wAgreement  = 0.20
 	)
 
 	hist := scoreHistorical(v.Type, stats)
 	structure := scoreStructure(v)
 	severity := scoreSeverity(v.Severity)
 	quality := scoreMoteQuality(v, preScores)
+	agreement := scoreAgreement(v.Agreement)
 
-	score := wHistory*hist + wStructure*structure + wSeverity*severity + wMoteQuality*quality
+	score := wHistory*hist + wStructure*structure + wSeverity*severity + wMoteQuality*quality + wAgreement*agreement
 
 	// Clamp to [0.0, 1.0]
 	if score < 0.0 {
@@ -25,6 +28,15 @@ func ScoreConfidence(v Vision, stats map[string]*FeedbackStats, preScores map[st
 		return 1.0
 	}
 	return score
+}
+
+// scoreAgreement returns a 0.0-1.0 score based on self-consistency agreement.
+// When agreement is 0 (self-consistency disabled / single run), returns 1.0 (neutral).
+func scoreAgreement(agreement float64) float64 {
+	if agreement <= 0 {
+		return 1.0 // neutral when voting is disabled
+	}
+	return agreement
 }
 
 // scoreHistorical returns a 0.0-1.0 score based on past feedback for this vision type.

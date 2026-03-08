@@ -133,6 +133,12 @@ var reconPromptTmpl = `You are performing reconciliation across dream cycle batc
 
 Review the accumulated patterns, tensions, and vision summaries. Produce a final consolidated list of visions that resolves conflicts, removes duplicates, and prioritizes high-value changes.
 
+When multiple visions target the same motes or address the same issue:
+- MERGE them into a single vision with combined source_motes and target_motes lists
+- Synthesize rationales from all contributing visions
+- Use the highest severity among the merged visions
+- Note the number of independent batches that suggested this vision in the rationale
+
 IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in markdown code fences.
 
 Required format:
