@@ -103,6 +103,9 @@ type Mote struct {
     CausedBy     []string `yaml:"caused_by"`
     InformedBy   []string `yaml:"informed_by"`
 
+    // External references (v0.3.0)
+    ExternalRefs []ExternalRef `yaml:"external_refs,omitempty"`
+
     // Issue integration
     SourceIssue   string     `yaml:"source_issue,omitempty"`
     CrystallizedAt *time.Time `yaml:"crystallized_at,omitempty"`
@@ -110,17 +113,47 @@ type Mote struct {
     // Global promotion
     PromotedTo string `yaml:"promoted_to,omitempty"`
 
+    // Deprecation tracking
+    DeprecatedBy string `yaml:"deprecated_by,omitempty"`
+
+    // Hierarchy (v0.2.0)
+    Parent string `yaml:"parent,omitempty"`
+
+    // Acceptance criteria (v0.2.0)
+    Acceptance    []string `yaml:"acceptance,omitempty"`
+    AcceptanceMet []bool   `yaml:"acceptance_met,omitempty"`
+
+    // Effort sizing (v0.2.0)
+    Size string `yaml:"size,omitempty"` // xs|s|m|l|xl
+
     // Strata integration (anchor motes only)
     StrataCorpus      string     `yaml:"strata_corpus,omitempty"`
     StrataQueryHint   string     `yaml:"strata_query_hint,omitempty"`
     StrataQueryCount  int        `yaml:"strata_query_count,omitempty"`
     StrataLastQueried *time.Time `yaml:"strata_last_queried,omitempty"`
 
+    // Soft-delete tracking
+    DeletedAt *time.Time `yaml:"deleted_at,omitempty"`
+
     // Non-YAML (populated after parse)
     Body     string `yaml:"-"` // markdown content below frontmatter
     FilePath string `yaml:"-"` // absolute path to .md file
 }
 ```
+
+### External References
+
+External references link motes to external systems (GitHub issues, Jira tickets, etc.) via structured triples:
+
+```go
+type ExternalRef struct {
+    Provider string `yaml:"provider" json:"provider"`
+    ID       string `yaml:"id" json:"id"`
+    URL      string `yaml:"url,omitempty" json:"url,omitempty"`
+}
+```
+
+Ref IDs are included in BM25 search indexing, so searching for an issue number will surface the linked mote.
 
 Parsing splits the file at `---` boundaries, unmarshals the YAML block into the struct, and stores everything below the second `---` as `Body`. Serialization reverses this: marshal the struct to YAML, wrap in `---` fences, append the body.
 
@@ -206,11 +239,14 @@ Access count updates are batched in `.memory/.access_batch.jsonl` during the ses
 ├── config.yaml                     # scoring, dream, strata, priming config
 ├── constellations.jsonl            # constellation cluster records
 ├── .access_batch.jsonl             # batched access updates (flushed at session end)
+├── trash/                          # soft-deleted motes (restorable)
 ├── dream/
 │   ├── visions.jsonl               # final reconciled visions (pending review)
 │   ├── visions_draft.jsonl         # pre-reconciliation visions
 │   ├── lucid.json                  # last lucid log
-│   └── log.jsonl                   # append-only dream run history
+│   ├── log.jsonl                   # append-only dream run history
+│   ├── scan_state.json             # content-hash cache for incremental prescanning
+│   └── auto_applied.jsonl          # auto-applied dream visions log
 └── strata/
     ├── query_log.jsonl             # append-only strata query log
     └── <corpus-name>/
@@ -522,6 +558,47 @@ func LoadConfig(root string) (*Config, error) {
     return cfg, nil
 }
 ```
+
+### Hierarchical Planning
+
+Parent/child relationships enable structured task decomposition. A child mote references its parent via the `parent` field.
+
+```go
+func (mm *MoteManager) Children(parentID string) ([]*Mote, error)
+```
+
+`mote plan <parent-id> --child "Step 1" --child "Step 2" --sequential` creates child motes and optionally chains them with `depends_on` links. Children inherit the parent's tags.
+
+**Acceptance criteria** are stored as parallel arrays: `Acceptance []string` holds the criteria text and `AcceptanceMet []bool` tracks which are satisfied. `mote check <id> <index>` sets `AcceptanceMet[index-1] = true`.
+
+`mote progress <parent-id>` aggregates child completion status and acceptance criteria into a completion percentage.
+
+### Import/Export
+
+JSONL import/export enables backup, migration, and cross-project transfer of motes.
+
+```go
+type ExportMote struct {
+    ID            string            `json:"id"`
+    Type          string            `json:"type"`
+    Status        string            `json:"status"`
+    Title         string            `json:"title"`
+    Tags          []string          `json:"tags"`
+    Weight        float64           `json:"weight"`
+    Origin        string            `json:"origin"`
+    CreatedAt     time.Time         `json:"created_at"`
+    Body          string            `json:"body"`
+    DependsOn     []string          `json:"depends_on,omitempty"`
+    Parent        string            `json:"parent,omitempty"`
+    Acceptance    []string          `json:"acceptance,omitempty"`
+    AcceptanceMet []bool            `json:"acceptance_met,omitempty"`
+    Size          string            `json:"size,omitempty"`
+    ExternalRefs  []ExternalRef     `json:"external_refs,omitempty"`
+    // ... all link fields with omitempty
+}
+```
+
+On import, deduplication uses SHA256 of `type + title + body` to skip motes that already exist. IDs are regenerated for the target project scope.
 
 ---
 
@@ -838,15 +915,18 @@ type PreScanner struct {
 }
 
 type ScanResult struct {
-    LinkCandidates          []MotePair
-    ContradictionCandidates []MotePair
-    OverloadedTags          []TagOverload
-    StaleMotes              []string
-    ConstellationEvolution  []string
-    CompressionCandidates   []string
-    UncrystallizedIssues    []string
-    StrataCrystallization   []StrataCrystallizationCandidate
-    SignalCandidates        []SignalCandidate
+    LinkCandidates            []MotePair
+    ContentLinkCandidates     []MotePair
+    ContradictionCandidates   []MotePair
+    OverloadedTags            []TagOverload
+    StaleMotes                []string
+    ConstellationEvolution    []ConstellationEvolution
+    CompressionCandidates     []string
+    UncrystallizedIssues      []string
+    StrataCrystallization     []StrataCrystallizationCandidate
+    SignalCandidates          []SignalCandidate
+    MergeCandidates           []MergeCluster
+    SummarizationCandidates   []SummarizationCluster
 }
 
 func (ps *PreScanner) Scan() (*ScanResult, error) {
@@ -868,9 +948,47 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
         UncrystallizedIssues:    ps.findUncrystallized(motes),
         StrataCrystallization:   ps.findStrataCandidates(),
         SignalCandidates:        ps.findSignalPatterns(motes),
+        MergeCandidates:         ps.findMergeCandidates(motes),
+        SummarizationCandidates: ps.findSummarizationCandidates(motes, index),
     }, nil
 }
 ```
+
+#### Scan Cache
+
+The scan cache enables incremental prescanning by tracking content hashes of motes. Unchanged motes are skipped between dream runs.
+
+```go
+type ScanCache struct {
+    Hashes map[string]string `json:"hashes"` // mote ID -> content hash
+}
+
+func ComputeMoteHash(m *Mote) string {
+    data, _ := SerializeMote(m)
+    h := sha256.Sum256(data)
+    return fmt.Sprintf("%x", h[:16])
+}
+
+func FilterChanged(motes []*Mote, cache *ScanCache) []*Mote
+```
+
+Stored at `.memory/dream/scan_state.json`. `FilterChanged` returns only motes whose hash differs from the cached value, updates the cache with current hashes, and prunes entries for deleted motes.
+
+#### Summarization Candidates
+
+The prescanner detects clusters of completed motes suitable for summarization:
+
+- **Detection:** Completed motes grouped by tag pairs with 2+ overlap, threshold 5+ members per cluster
+- **Exclusion:** Motes already linked via `builds_on` from a context mote (already summarized)
+
+```go
+type SummarizationCluster struct {
+    SharedTags []string `json:"shared_tags"`
+    MoteIDs    []string `json:"mote_ids"`
+}
+```
+
+The `summarize` vision type creates a context mote with `builds_on` links to all source motes and archives the sources.
 
 Parallel mote reading:
 
@@ -1114,7 +1232,15 @@ func main() {
     root.AddCommand(addCmd(), showCmd(), lsCmd(), pulseCmd(),
         linkCmd(), unlinkCmd(), contextCmd(), primeCmd(),
         crystallizeCmd(), constellationCmd(), doctorCmd(),
-        statsCmd(), indexCmd(), promoteCmd(), sessionEndCmd())
+        statsCmd(), indexCmd(), promoteCmd(), sessionEndCmd(),
+        updateCmd(), tagsCmd(), searchCmd(), quickCmd(),
+        feedbackCmd(), deleteCmd(), trashCmd())
+
+    // Hierarchical planning
+    root.AddCommand(planCmd(), progressCmd(), checkCmd())
+
+    // Import/Export
+    root.AddCommand(exportCmd(), importCmd())
 
     // Strata (subcommands: add, query, ls, update, rebuild, rm, stats)
     root.AddCommand(strataCmd())
@@ -1258,7 +1384,17 @@ mote/
 │   ├── cmd_dream.go             # dream + dream --review
 │   ├── cmd_init.go              # initialize .memory/
 │   ├── cmd_onboard.go           # detect and migrate from beads/MEMORY.md
-│   └── cmd_migrate.go           # convert MEMORY.md to motes
+│   ├── cmd_migrate.go           # convert MEMORY.md to motes
+│   ├── cmd_plan.go              # hierarchical task decomposition
+│   ├── cmd_progress.go          # parent task completion tracking
+│   ├── cmd_check.go             # acceptance criteria check-off
+│   ├── cmd_export.go            # JSONL export with filters
+│   ├── cmd_import.go            # JSONL import with content-hash dedup
+│   ├── cmd_delete.go            # soft-delete to trash
+│   ├── cmd_trash.go             # trash list/restore/purge
+│   ├── cmd_feedback.go          # mote feedback (useful/irrelevant)
+│   ├── cmd_quick.go             # quick capture without editor
+│   └── cmd_search.go            # full-text BM25 search
 ├── internal/
 │   ├── core/
 │   │   ├── mote.go              # Mote struct, parse, serialize
@@ -1285,7 +1421,8 @@ mote/
 │   │   ├── parser.go            # Response parsing
 │   │   ├── lucidlog.go          # Lucid log accumulation
 │   │   ├── vision.go            # Vision types + writer
-│   │   └── types.go             # Dream cycle type definitions
+│   │   ├── types.go             # Dream cycle type definitions
+│   │   └── scan_cache.go        # Content-hash cache for incremental prescanning
 │   └── format/
 │       └── output.go            # Terminal formatting
 ├── testdata/dream/              # Recorded Claude response fixtures

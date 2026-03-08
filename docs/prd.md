@@ -31,6 +31,8 @@ A hybrid strata integration (Epic 13) extends the system with reference knowledg
 | **Lucid Log** | The accumulating context document maintained across dream batches. Ensures later batches reason with awareness of earlier discoveries. | `.memory/dream/lucid.json` |
 | **Crystallize** | The process of converting ephemeral work (closed issues, session exploration) into permanent motes. Analogous to memory consolidation during sleep. | `mote crystallize <id>` |
 | **Explore** | A mote type (type=explore) capturing investigative findings: API evaluations, library comparisons, architecture surveys, problem-space analyses. Expensive to reproduce, so scored with a type bonus. | `mote add --type=explore` |
+| **External Ref** | A structured reference to an external system (GitHub issue, Jira ticket, etc.) stored as provider/ID/URL triples in mote frontmatter. Ref IDs are indexed for BM25 search. | `--ref provider:id[:url]` on `mote add` |
+| **Scan Cache** | A content-hash index at `.memory/dream/scan_state.json` that tracks SHA256 hashes of serialized motes. Enables incremental prescanning — unchanged motes are skipped on subsequent dream runs. | Internal to `mote dream` |
 
 ---
 
@@ -2150,6 +2152,48 @@ strata:
 
 ---
 
+## Addendum: Post-v0.1 Enhancements
+
+The original epics above document the foundational design. The following enhancements were implemented in subsequent releases and extend the system beyond the original 13 epics.
+
+### v0.1.7 — Soft Delete
+
+- `mote delete <id>` soft-deletes by moving the mote file to `.memory/trash/` and setting `deleted_at` timestamp
+- `mote trash list` shows trashed motes with deletion timestamps
+- `mote trash restore <id>` moves a mote back to `.memory/nodes/`
+- `mote trash purge` permanently removes trashed motes
+- `mote feedback <id> useful|irrelevant` provides explicit retrieval feedback
+
+### v0.2.0 — Hierarchical Planning
+
+- **Parent/child mote relationships** via `parent` field in frontmatter and `mote plan <parent-id> --child "..." [--sequential]`
+- **Acceptance criteria tracking** via `acceptance` (list of strings) and `acceptance_met` (parallel list of booleans) fields; `mote check <id> [index] [--all]` marks criteria met
+- **Effort sizing** via `size` field (xs|s|m|l|xl) set with `--size` flag on `mote add`
+- **Completion tracking** via `mote progress <parent-id>` showing child status, acceptance criteria, and overall completion percentage
+- **Sequential dependency chaining** via `--sequential` flag on `mote plan`, which auto-creates `depends_on` links between consecutive children
+
+### v0.3.0 — Beads Feature Transfer
+
+- **JSONL import/export** via `mote export` and `mote import`
+  - Content-hash deduplication on import (SHA256 of type + title + body)
+  - Filter flags matching `mote ls` (--type, --tag, --status)
+  - `--output` flag for file output, `--dry-run` for preview
+- **Structured external references** via `ExternalRef` type (provider/ID/URL triples in YAML frontmatter)
+  - `--ref provider:id[:url]` flag on `mote add`
+  - Ref IDs are indexed in BM25 search
+- **`--json` flag** on 7+ commands (ls, show, pulse, search, stats, tags, dream --review) for machine-readable output
+- **Content-hash prescanner cache** at `.memory/dream/scan_state.json`
+  - SHA256 of serialized motes for change detection
+  - Incremental scan skips unchanged motes between dream runs
+  - Cache auto-prunes entries for deleted motes
+- **Cluster summarization** in dream cycle
+  - Detects 5+ completed motes with 2+ shared tags (tag-pair grouping)
+  - Excludes already-summarized motes (those linked via `builds_on` from context motes)
+  - `summarize` vision type creates a context mote with `builds_on` links and archives source motes
+- **Quick capture** via `mote quick "your thought here"` (auto-typed, no editor)
+
+---
+
 ## Implementation Phases (Backlog Priority Order)
 
 | Phase | Stories | Deliverable |
@@ -2171,6 +2215,8 @@ strata:
 | **12: Strata Core** | 13.1, 13.2, 13.3, 13.6, 13.9 | `mote strata add/query/ls/update/rm/stats`; anchor motes; BM25 search | Done |
 | **13: Strata-Nebula Integration** | 13.4, 13.5 | Context-triggered strata augmentation (hot path); session strata queries with logging (warm path) | Done |
 | **14: Strata Crystallization** | 13.7, 13.8 | Dream cycle strata-to-mote crystallization; corpus health review | Done |
+| **15: Hierarchical Planning** | — | Parent/child tasks, acceptance criteria, effort sizing, `mote plan/progress/check` (v0.2.0) | Done |
+| **16: Beads Feature Transfer** | — | JSONL import/export, external refs, `--json` flags, scan cache, cluster summarization (v0.3.0) | Done |
 
 ---
 

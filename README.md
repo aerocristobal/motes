@@ -35,6 +35,15 @@ mote link <decision-id> informed_by <task-id>
 # Find available work
 mote ls --ready
 
+# Plan hierarchical work
+mote plan <task-id> --child "Design API" --child "Implement endpoints" --child "Write tests" --sequential
+
+# Track progress
+mote progress <task-id>
+
+# Check off acceptance criteria
+mote check <task-id> 1
+
 # Get session context
 mote prime
 ```
@@ -108,13 +117,22 @@ mote session-end            # End: flush access counts, get suggestions
 
 ```bash
 mote add --type=<type> --title="Title" [--tag=<t>]... [--weight=0.5] [--origin=normal] [--body="text"]
+mote add --type=task --title="Title" --accept "criterion A" --accept "criterion B" --size=m --parent=<id>
 ```
 
 Body can come from `--body`, stdin (`--body -` or pipe), or an editor (default).
 
 Origins: `normal`, `failure`, `revert`, `hotfix`, `discovery`
 
+Attach external references with `--ref provider:id[:url]` (e.g., `--ref github:42:https://github.com/org/repo/issues/42`). Ref IDs are indexed for BM25 search.
+
 Beyond tasks, capture knowledge as it happens: `lesson` for debugging insights, `explore` for research findings, `decision` for architectural choices. Link them into the graph with `mote link`. See [docs/maintenance.md](docs/maintenance.md#knowledge-capture) for guidance.
+
+Quick capture without opening an editor:
+
+```bash
+mote quick "your thought here"
+```
 
 ### Querying
 
@@ -123,11 +141,15 @@ mote ls                             # All active motes
 mote ls --type=task --status=active # Filtered
 mote ls --ready                     # Tasks with no unfinished blockers
 mote ls --stale                     # Motes not accessed in 90+ days
+mote ls --json                      # Machine-readable JSON output
 mote pulse                          # Active tasks sorted by weight
 mote show <id>                      # Full detail with resolved links
+mote search <query>                 # Full-text BM25 search
 mote context <topic>                # Scored context via seed selection + BFS
 mote context --planning <id>        # Dependency chain view
 ```
+
+Most query commands accept `--json` for machine-readable output (ls, show, pulse, search, stats, tags, dream --review).
 
 ### Updating
 
@@ -136,6 +158,17 @@ mote update <id> --status=completed
 mote update <id> --title="New title" --weight=0.8
 mote update <id> --add-tag=newtag --add-tag=another
 ```
+
+### Hierarchical Planning
+
+```bash
+mote plan <parent-id> --child "Step 1" --child "Step 2" [--sequential]
+mote progress <parent-id>                     # Completion tracking with acceptance criteria
+mote check <id> [index]                       # Mark acceptance criterion met (1-indexed)
+mote check <id> --all                         # Mark all criteria met
+```
+
+The `--sequential` flag auto-chains children with `depends_on` links so each step blocks the next.
 
 ### Linking
 
@@ -171,11 +204,37 @@ mote dream --dry-run        # Preview what would be analyzed
 mote dream --review         # Interactive review of pending visions
 ```
 
-It detects: missing links, contradictions, stale motes, overloaded tags, compression candidates, constellation evolution, and co-access patterns.
+It detects: missing links, contradictions, stale motes, overloaded tags, compression candidates, constellation evolution, co-access patterns, and summarization clusters.
 
 The cycle produces draft visions (from Sonnet batches) which are reconciled by Opus into finalized visions in `visions.jsonl`. Review finalized visions with `--review` and accept, edit, reject, or defer each one. See [docs/maintenance.md](docs/maintenance.md) for the full workflow and vision type reference.
 
 **Self-consistency voting:** Set `batching.self_consistency_runs: 3` in `.memory/config.yaml` to invoke each batch 3 times and keep only majority-agreed visions. This reduces hallucinated suggestions at the cost of additional LLM calls. The agreement fraction feeds into confidence scoring. Disabled by default (`1`).
+
+### Import/Export
+
+```bash
+mote export                                           # Export all motes as JSONL
+mote export --type=task --tag=auth --status=completed  # Filtered export
+mote export --output=backup.jsonl                      # Write to file
+mote import backup.jsonl                               # Import with content-hash dedup
+mote import backup.jsonl --dry-run                     # Preview without writing
+```
+
+### Soft Delete
+
+```bash
+mote delete <id>            # Soft-delete (moves to .memory/trash/)
+mote trash list             # Show trashed motes
+mote trash restore <id>     # Restore a trashed mote
+mote trash purge            # Permanently remove trashed motes
+```
+
+### Feedback
+
+```bash
+mote feedback <id> useful      # Mark a mote as useful (boosts retrieval strength)
+mote feedback <id> irrelevant  # Mark as irrelevant (reduces scoring)
+```
 
 ### Maintenance
 
@@ -211,9 +270,12 @@ mote migrate MEMORY.md --dry-run    # Preview without writing
 ├── config.yaml             # All scoring, priming, dream, strata config
 ├── constellations.jsonl    # Constellation cluster records
 ├── .access_batch.jsonl     # Batched access updates (flushed at session-end)
+├── trash/                 # Soft-deleted motes (restorable)
 ├── dream/
 │   ├── log.jsonl           # Dream run history
-│   └── visions.jsonl       # Pending visions from dream analysis
+│   ├── visions.jsonl       # Pending visions from dream analysis
+│   ├── scan_state.json     # Content-hash cache for incremental prescanning
+│   └── auto_applied.jsonl  # Auto-applied dream visions log
 └── strata/<corpus>/
     ├── manifest.json       # Source paths, hashes, chunk count
     ├── chunks.jsonl        # Chunked document content
@@ -231,15 +293,21 @@ title: Implement user authentication
 tags: [auth, api, security]
 weight: 0.7
 origin: normal
+size: l
 created_at: 2026-03-01T10:00:00Z
 depends_on: [myproject-t1xyz9876]
+parent: myproject-t0parent1
+acceptance:
+  - Login endpoint returns signed JWT
+  - Middleware validates token on protected routes
+  - Refresh token rotation
+acceptance_met: [false, false, false]
+external_refs:
+  - provider: github
+    id: "42"
+    url: https://github.com/org/repo/issues/42
 ---
 JWT-based authentication for the REST API.
-
-Acceptance criteria:
-- Login endpoint returns signed JWT
-- Middleware validates token on protected routes
-- Refresh token rotation
 ```
 
 ## Configuration
@@ -247,6 +315,12 @@ Acceptance criteria:
 All configuration lives in `.memory/config.yaml`. See [docs/configuration.md](docs/configuration.md) for the full reference with sample configurations.
 
 `mote init` generates a config with sensible defaults. Every field is optional — missing values fall back to defaults.
+
+## Version History
+
+- **v0.3.0** — Beads feature transfer: JSONL import/export, external refs, `--json` flags, scan cache, cluster summarization
+- **v0.2.0** — Hierarchical planning: parent/child tasks, acceptance criteria, `plan`/`progress`/`check` commands
+- **v0.1.x** — Core system: mote CRUD, graph linking, scoring, context/prime, dream cycle, strata, constellations
 
 ## Design Principles
 
