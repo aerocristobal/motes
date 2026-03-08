@@ -92,6 +92,7 @@ type BatchingConfig struct {
 	Strategy          string  `yaml:"strategy"`
 	MaxMotesPerBatch  int     `yaml:"max_motes_per_batch"`
 	ClusteredFraction float64 `yaml:"clustered_fraction"`
+	MaxConcurrent     int     `yaml:"max_concurrent"`
 }
 
 type ReconConfig struct {

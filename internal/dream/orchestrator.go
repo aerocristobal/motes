@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"motes/internal/core"
@@ -78,35 +79,62 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 	// Clear previous draft visions
 	do.visions.ClearDrafts()
 
-	// Stage 2: Batch reasoning (Claude Sonnet)
+	// Stage 2: Batch reasoning (Claude Sonnet, parallel)
+	type batchResult struct {
+		index   int
+		visions []Vision
+		updates LucidLogUpdates
+		err     error
+	}
+
+	results := make([]batchResult, len(batches))
+	maxConcurrent := do.config.Batching.MaxConcurrent
+	if maxConcurrent <= 0 {
+		maxConcurrent = 4
+	}
+	sem := make(chan struct{}, maxConcurrent)
+	var wg sync.WaitGroup
+
 	for i, batch := range batches {
-		fmt.Printf("  Batch %d/%d (%s, %d motes)...\n", i+1, len(batches), batch.Phase, len(batch.MoteIDs))
-		prompt := do.prompts.BuildBatchPrompt(batch, do.lucidLog)
-		response, err := do.invoker.Invoke(prompt, "sonnet")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  warning: batch %d failed: %v\n", i+1, err)
-			do.lucidLog.RecordBatchFailure(i, err.Error())
-			continue
-		}
-		batchVisions, logUpdates, err := do.parser.ParseBatchResponse(response)
-		if err != nil && strings.Contains(err.Error(), "no JSON found") {
-			do.logFailedResponse(i+1, response)
-			fmt.Fprintf(os.Stderr, "  warning: batch %d no JSON, retrying...\n", i+1)
-			response, err = do.invoker.Invoke(prompt, "sonnet")
-			if err == nil {
-				batchVisions, logUpdates, err = do.parser.ParseBatchResponse(response)
+		wg.Add(1)
+		go func(i int, batch Batch) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			fmt.Printf("  Batch %d/%d (%s, %d motes)...\n", i+1, len(batches), batch.Phase, len(batch.MoteIDs))
+			prompt := do.prompts.BuildBatchPrompt(batch, do.lucidLog)
+			response, err := do.invoker.Invoke(prompt, "sonnet")
+			if err != nil {
+				results[i] = batchResult{index: i, err: err}
+				return
 			}
-		}
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "  warning: batch %d parse error: %v\n", i+1, err)
-			do.lucidLog.RecordBatchFailure(i, fmt.Sprintf("parse: %v", err))
+			visions, updates, err := do.parser.ParseBatchResponse(response)
+			if err != nil && strings.Contains(err.Error(), "no JSON found") {
+				do.logFailedResponse(i+1, response)
+				fmt.Fprintf(os.Stderr, "  warning: batch %d no JSON, retrying...\n", i+1)
+				response, err = do.invoker.Invoke(prompt, "sonnet")
+				if err == nil {
+					visions, updates, err = do.parser.ParseBatchResponse(response)
+				}
+			}
+			results[i] = batchResult{index: i, visions: visions, updates: updates, err: err}
+		}(i, batch)
+	}
+	wg.Wait()
+
+	// Merge results sequentially
+	for _, r := range results {
+		if r.err != nil {
+			fmt.Fprintf(os.Stderr, "  warning: batch %d failed: %v\n", r.index+1, r.err)
+			do.lucidLog.RecordBatchFailure(r.index, r.err.Error())
 			continue
 		}
-		if err := do.visions.WriteDrafts(batchVisions); err != nil {
+		if err := do.visions.WriteDrafts(r.visions); err != nil {
 			fmt.Fprintf(os.Stderr, "  warning: failed to write draft visions: %v\n", err)
 		}
-		do.lucidLog.Update(logUpdates)
-		fmt.Printf("  Batch %d: %d visions\n", i+1, len(batchVisions))
+		do.lucidLog.Update(r.updates)
+		fmt.Printf("  Batch %d: %d visions\n", r.index+1, len(r.visions))
 	}
 
 	// Stage 3: Reconciliation (Claude Opus)

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"motes/internal/core"
@@ -45,19 +46,26 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// findLinkCandidates must run first — contentLinkCandidates filters its results
 	linkCandidates := ps.findLinkCandidates(motes, idx)
-	return &ScanResult{
-		LinkCandidates:          linkCandidates,
-		ContentLinkCandidates:   ps.findContentLinkCandidates(motes, idx, linkCandidates),
-		ContradictionCandidates: ps.findContradictionCandidates(motes),
-		OverloadedTags:          ps.findOverloadedTags(idx.TagStats),
-		StaleMotes:              ps.findStaleMotes(motes),
-		ConstellationEvolution:  ps.findConstellationCandidates(motes),
-		CompressionCandidates:   ps.findCompressionCandidates(motes),
-		UncrystallizedIssues:    ps.findUncrystallized(motes),
-		StrataCrystallization:   ps.findStrataCandidates(),
-		SignalCandidates:        ps.findSignalPatterns(motes),
-	}, nil
+
+	var sr ScanResult
+	sr.LinkCandidates = linkCandidates
+
+	var wg sync.WaitGroup
+	wg.Add(8)
+	go func() { defer wg.Done(); sr.ContentLinkCandidates = ps.findContentLinkCandidates(motes, idx, linkCandidates) }()
+	go func() { defer wg.Done(); sr.ContradictionCandidates = ps.findContradictionCandidates(motes) }()
+	go func() { defer wg.Done(); sr.OverloadedTags = ps.findOverloadedTags(idx.TagStats) }()
+	go func() { defer wg.Done(); sr.StaleMotes = ps.findStaleMotes(motes) }()
+	go func() { defer wg.Done(); sr.ConstellationEvolution = ps.findConstellationCandidates(motes) }()
+	go func() { defer wg.Done(); sr.CompressionCandidates = ps.findCompressionCandidates(motes) }()
+	go func() { defer wg.Done(); sr.UncrystallizedIssues = ps.findUncrystallized(motes) }()
+	go func() { defer wg.Done(); sr.StrataCrystallization = ps.findStrataCandidates() }()
+	sr.SignalCandidates = ps.findSignalPatterns(motes)
+	wg.Wait()
+
+	return &sr, nil
 }
 
 // findLinkCandidates finds pairs of motes with shared tags but no direct link.
