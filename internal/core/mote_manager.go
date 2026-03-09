@@ -41,6 +41,7 @@ type ListFilters struct {
 type AccessBatchEntry struct {
 	MoteID     string `json:"mote_id"`
 	AccessedAt string `json:"accessed_at"`
+	AgentID    string `json:"agent_id,omitempty"`
 }
 
 func NewMoteManager(root string) *MoteManager {
@@ -50,6 +51,50 @@ func NewMoteManager(root string) *MoteManager {
 // Root returns the .memory root path.
 func (mm *MoteManager) Root() string {
 	return mm.root
+}
+
+// LockMote returns a FileLock for a specific mote.
+func (mm *MoteManager) LockMote(moteID string) (*FileLock, error) {
+	path, err := mm.moteFilePath(moteID)
+	if err != nil {
+		return nil, err
+	}
+	lock := NewFileLock(path + ".lock")
+	if err := lock.Lock(); err != nil {
+		return nil, fmt.Errorf("lock mote %s: %w", moteID, err)
+	}
+	return lock, nil
+}
+
+// LockBatch returns a FileLock for the access batch file.
+func (mm *MoteManager) LockBatch() (*FileLock, error) {
+	lock := NewFileLock(filepath.Join(mm.root, ".batch.lock"))
+	if err := lock.Lock(); err != nil {
+		return nil, fmt.Errorf("lock batch: %w", err)
+	}
+	return lock, nil
+}
+
+// LockOps returns a FileLock for multi-file operations.
+func (mm *MoteManager) LockOps() (*FileLock, error) {
+	lock := NewFileLock(filepath.Join(mm.root, ".ops.lock"))
+	if err := lock.Lock(); err != nil {
+		return nil, fmt.Errorf("lock ops: %w", err)
+	}
+	return lock, nil
+}
+
+// TryLockDream attempts a non-blocking lock for dream cycles.
+func (mm *MoteManager) TryLockDream() (*FileLock, bool, error) {
+	lock := NewFileLock(filepath.Join(mm.root, ".dream.lock"))
+	acquired, err := lock.TryLock()
+	if err != nil {
+		return nil, false, fmt.Errorf("try lock dream: %w", err)
+	}
+	if !acquired {
+		return nil, false, nil
+	}
+	return lock, true, nil
 }
 
 func (mm *MoteManager) nodesDir() string {
@@ -91,6 +136,7 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 	}
 
 	now := time.Now().UTC()
+	agentID := ResolveAgentID()
 	m := &Mote{
 		ID:            id,
 		Type:          moteType,
@@ -107,6 +153,8 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 		Parent:        opts.Parent,
 		Acceptance:    opts.Acceptance,
 		Size:          opts.Size,
+		CreatedBy:     agentID,
+		ModifiedBy:    agentID,
 	}
 
 	data, err := SerializeMote(m)
@@ -134,7 +182,20 @@ func (mm *MoteManager) Read(moteID string) (*Mote, error) {
 }
 
 // Update applies field changes to a mote and persists them.
+// Acquires a per-mote lock to prevent lost updates from concurrent agents.
 func (mm *MoteManager) Update(moteID string, fields map[string]interface{}) error {
+	lock, err := mm.LockMote(moteID)
+	if err != nil {
+		return err
+	}
+	defer lock.Unlock()
+
+	return mm.updateUnlocked(moteID, fields)
+}
+
+// updateUnlocked applies field changes without acquiring the per-mote lock.
+// Caller must hold the lock (or ops lock) before calling.
+func (mm *MoteManager) updateUnlocked(moteID string, fields map[string]interface{}) error {
 	m, err := mm.Read(moteID)
 	if err != nil {
 		return err
@@ -168,6 +229,7 @@ func (mm *MoteManager) Update(moteID string, fields map[string]interface{}) erro
 			m.Size = v.(string)
 		}
 	}
+	m.ModifiedBy = ResolveAgentID()
 	data, err := SerializeMote(m)
 	if err != nil {
 		return err
@@ -370,13 +432,21 @@ func (mm *MoteManager) ReadAllParallel() ([]*Mote, error) {
 }
 
 // AppendAccessBatch appends an access record to .access_batch.jsonl.
+// Uses flock to serialize across processes.
 func (mm *MoteManager) AppendAccessBatch(moteID string) error {
+	batchLock, err := mm.LockBatch()
+	if err != nil {
+		return err
+	}
+	defer batchLock.Unlock()
+
 	mm.accessBatchMux.Lock()
 	defer mm.accessBatchMux.Unlock()
 
 	entry := AccessBatchEntry{
 		MoteID:     moteID,
 		AccessedAt: time.Now().UTC().Format(time.RFC3339),
+		AgentID:    ResolveAgentID(),
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {
@@ -395,17 +465,45 @@ func (mm *MoteManager) AppendAccessBatch(moteID string) error {
 }
 
 // FlushAccessBatch reads the access batch, updates mote files, and removes the batch.
+// Uses flock + atomic rename to prevent TOCTOU races with concurrent appends.
 func (mm *MoteManager) FlushAccessBatch() error {
-	mm.accessBatchMux.Lock()
-	defer mm.accessBatchMux.Unlock()
-
 	batchPath := filepath.Join(mm.root, ".access_batch.jsonl")
-	data, err := os.ReadFile(batchPath)
-	if os.IsNotExist(err) {
-		return nil
-	}
+	processingPath := batchPath + ".processing"
+
+	// Process any leftover .processing file from a previous crash
+	mm.processAccessBatchFile(processingPath)
+
+	// Acquire batch lock, rename to .processing, release lock
+	batchLock, err := mm.LockBatch()
 	if err != nil {
 		return err
+	}
+
+	// Check if batch file exists
+	if _, statErr := os.Stat(batchPath); os.IsNotExist(statErr) {
+		batchLock.Unlock()
+		return nil
+	}
+
+	if err := os.Rename(batchPath, processingPath); err != nil {
+		batchLock.Unlock()
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	batchLock.Unlock() // New appends go to fresh file
+
+	// Process the renamed file without holding the batch lock
+	mm.processAccessBatchFile(processingPath)
+	return nil
+}
+
+// processAccessBatchFile processes a batch file and deletes it when done.
+func (mm *MoteManager) processAccessBatchFile(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
 	}
 
 	type counts struct {
@@ -453,19 +551,40 @@ func (mm *MoteManager) FlushAccessBatch() error {
 		}
 	}
 
-	return os.Remove(batchPath)
+	os.Remove(path)
 }
 
 // FlushAccessBatchStats flushes the batch and returns stats (access count, mote count).
+// Uses flock + atomic rename to prevent TOCTOU races.
 func (mm *MoteManager) FlushAccessBatchStats() (accessCount, moteCount int, err error) {
-	mm.accessBatchMux.Lock()
-	defer mm.accessBatchMux.Unlock()
-
 	batchPath := filepath.Join(mm.root, ".access_batch.jsonl")
-	data, err := os.ReadFile(batchPath)
-	if os.IsNotExist(err) {
+	processingPath := batchPath + ".processing"
+
+	// Process any leftover .processing file from a previous crash
+	mm.processAccessBatchFile(processingPath)
+
+	// Acquire batch lock, rename to .processing, release lock
+	batchLock, lockErr := mm.LockBatch()
+	if lockErr != nil {
+		return 0, 0, lockErr
+	}
+
+	if _, statErr := os.Stat(batchPath); os.IsNotExist(statErr) {
+		batchLock.Unlock()
 		return 0, 0, nil
 	}
+
+	if err := os.Rename(batchPath, processingPath); err != nil {
+		batchLock.Unlock()
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	batchLock.Unlock()
+
+	// Process the renamed file
+	data, err := os.ReadFile(processingPath)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -516,7 +635,7 @@ func (mm *MoteManager) FlushAccessBatchStats() (accessCount, moteCount int, err 
 	}
 
 	moteCount = len(grouped)
-	return accessCount, moteCount, os.Remove(batchPath)
+	return accessCount, moteCount, os.Remove(processingPath)
 }
 
 // Link creates a link from sourceID to targetID with the given type.
@@ -856,4 +975,27 @@ func (mm *MoteManager) PurgeTrash(retentionDays int, all bool) ([]string, error)
 	}
 
 	return purged, nil
+}
+
+// LinkLocked acquires the ops lock, then per-mote locks (in alphabetical ID order
+// to prevent deadlocks), before performing the link operation.
+func (mm *MoteManager) LinkLocked(sourceID, linkType, targetID string, im *IndexManager) error {
+	opsLock, err := mm.LockOps()
+	if err != nil {
+		return err
+	}
+	defer opsLock.Unlock()
+
+	return mm.Link(sourceID, linkType, targetID, im)
+}
+
+// UnlinkLocked acquires the ops lock before performing the unlink operation.
+func (mm *MoteManager) UnlinkLocked(sourceID, linkType, targetID string, im *IndexManager) error {
+	opsLock, err := mm.LockOps()
+	if err != nil {
+		return err
+	}
+	defer opsLock.Unlock()
+
+	return mm.Unlink(sourceID, linkType, targetID, im)
 }

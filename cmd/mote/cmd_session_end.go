@@ -33,6 +33,14 @@ func runSessionEnd(cmd *cobra.Command, args []string) error {
 
 	mm := core.NewMoteManager(root)
 	im := core.NewIndexManager(root)
+
+	// Acquire ops lock for the entire session-end operation
+	opsLock, err := mm.LockOps()
+	if err != nil {
+		return fmt.Errorf("acquire ops lock: %w", err)
+	}
+	defer opsLock.Unlock()
+
 	hadOutput := false
 
 	// Read access batch BEFORE flush to capture session mote IDs

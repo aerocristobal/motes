@@ -50,6 +50,17 @@ func runDream(cmd *cobra.Command, args []string) error {
 		return runDreamStats(root)
 	}
 
+	// Acquire exclusive dream lock (non-blocking)
+	dreamLockMM := core.NewMoteManager(root)
+	dreamLock, acquired, lockErr := dreamLockMM.TryLockDream()
+	if lockErr != nil {
+		return fmt.Errorf("dream lock: %w", lockErr)
+	}
+	if !acquired {
+		return fmt.Errorf("dream cycle already running")
+	}
+	defer dreamLock.Unlock()
+
 	if dreamJSON && dreamReview {
 		vw := dream.NewVisionWriter(root + "/dream")
 		visions := vw.ReadFinal()

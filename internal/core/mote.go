@@ -93,6 +93,10 @@ type Mote struct {
 	StrataQueryCount  int        `yaml:"strata_query_count,omitempty"`
 	StrataLastQueried *time.Time `yaml:"strata_last_queried,omitempty"`
 
+	// Agent tracking
+	CreatedBy  string `yaml:"created_by,omitempty"`
+	ModifiedBy string `yaml:"modified_by,omitempty"`
+
 	// Soft-delete tracking
 	DeletedAt *time.Time `yaml:"deleted_at,omitempty"`
 

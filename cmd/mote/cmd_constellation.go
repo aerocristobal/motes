@@ -34,7 +34,7 @@ var constellationSynthesizeCmd = &cobra.Command{
 
 var synthesizeMinCount int
 
-// Global mutex to protect constellation record writes across processes
+// constellationWriteMux is kept for in-process protection; cross-process uses ops lock.
 var constellationWriteMux sync.Mutex
 
 func init() {
@@ -121,6 +121,14 @@ type constellationRecord struct {
 func runConstellationSynthesize(cmd *cobra.Command, args []string) error {
 	root := mustFindRoot()
 	mm := core.NewMoteManager(root)
+
+	// Acquire ops lock for the entire synthesis operation
+	opsLock, err := mm.LockOps()
+	if err != nil {
+		return fmt.Errorf("acquire ops lock: %w", err)
+	}
+	defer opsLock.Unlock()
+
 	im := core.NewIndexManager(root)
 	idx, err := im.Load()
 	if err != nil {

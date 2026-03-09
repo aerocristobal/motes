@@ -50,7 +50,7 @@ func runLink(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load index: %w", err)
 	}
 
-	if err := mm.Link(sourceID, linkType, targetID, im); err != nil {
+	if err := mm.LinkLocked(sourceID, linkType, targetID, im); err != nil {
 		return err
 	}
 
@@ -91,7 +91,7 @@ func runUnlink(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load index: %w", err)
 	}
 
-	if err := mm.Unlink(sourceID, linkType, targetID, im); err != nil {
+	if err := mm.UnlinkLocked(sourceID, linkType, targetID, im); err != nil {
 		return err
 	}
 
