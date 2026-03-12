@@ -48,4 +48,24 @@ Promote valuable motes to the global layer:
     mote promote <id>
 
 Global motes are stored in `~/.claude/memory/` and surface during `mote prime` in any project.
+
+## Hooks
+
+Mote installs Claude Code hooks automatically via `mote onboard`:
+
+- **SessionStart** — `mote prime --hook` (differentiated: startup, resume, compact, clear)
+- **PreCompact** — `mote prime --hook --mode=compact`
+- **UserPromptSubmit** — `mote prompt-context`
+- **Stop** — `mote session-end --hook` (guaranteed cleanup even if session ends abruptly)
+
+Re-run `mote onboard` to install or update hooks.
+
+## Multi-Agent Patterns
+
+When spawning subagents, motes supports safe concurrent access:
+
+- Set `MOTE_AGENT_ID=subagent-<purpose>` for write attribution
+- The `mote-subagent` skill (auto-installed by onboard) gives subagents concise retrieval/capture instructions
+- Motes uses flock-based locking — multiple agents can safely read/write simultaneously
+- Only the parent agent should run `mote prime` and `mote session-end`
 ```

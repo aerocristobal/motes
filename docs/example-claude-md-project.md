@@ -96,4 +96,8 @@ Give feedback on surfaced motes: `mote feedback <id> useful` or `mote feedback <
 Run `mote session-end` for access flush and maintenance suggestions.
 
 Run `mote dream` periodically for automated maintenance. Review with `mote dream --review`.
+
+### Multi-Agent Support
+
+Motes supports concurrent access from multiple agents. Hooks are auto-installed by `mote onboard` (including a Stop hook for guaranteed session cleanup). Re-run `mote onboard` after upgrading to install new hooks.
 ```

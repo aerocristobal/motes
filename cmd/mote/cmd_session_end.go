@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 
 var sessionEndDryRun bool
 var sessionEndNoSummary bool
+var sessionEndHook bool
 
 var sessionEndCmd = &cobra.Command{
 	Use:   "session-end",
@@ -26,9 +28,49 @@ func init() {
 	rootCmd.AddCommand(sessionEndCmd)
 	sessionEndCmd.Flags().BoolVar(&sessionEndDryRun, "dry-run", false, "Print link suggestions without creating them")
 	sessionEndCmd.Flags().BoolVar(&sessionEndNoSummary, "no-summary", false, "Skip auto-creating session context mote")
+	sessionEndCmd.Flags().BoolVar(&sessionEndHook, "hook", false, "Wrap output in {\"additionalContext\": ...} JSON for hooks")
 }
 
 func runSessionEnd(cmd *cobra.Command, args []string) error {
+	if sessionEndHook {
+		return runSessionEndHook(cmd, args)
+	}
+	return runSessionEndInner(cmd, args)
+}
+
+func runSessionEndHook(cmd *cobra.Command, args []string) error {
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	os.Stdout = w
+
+	runErr := runSessionEndInner(cmd, args)
+
+	w.Close()
+	os.Stdout = old
+
+	captured, _ := io.ReadAll(r)
+	if runErr != nil {
+		return runErr
+	}
+
+	text := strings.TrimSpace(string(captured))
+	if text == "" {
+		fmt.Println("{}")
+		return nil
+	}
+
+	out := struct {
+		AdditionalContext string `json:"additionalContext"`
+	}{AdditionalContext: text}
+	data, _ := json.Marshal(out)
+	fmt.Println(string(data))
+	return nil
+}
+
+func runSessionEndInner(cmd *cobra.Command, args []string) error {
 	root := mustFindRoot()
 
 	mm := core.NewMoteManager(root)

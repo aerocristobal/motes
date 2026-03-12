@@ -844,6 +844,8 @@ func desiredHooks() []hookSpec {
 		{"PreCompact", "", "mote prime --hook --mode=compact"},
 		// UserPromptSubmit for per-prompt context
 		{"UserPromptSubmit", "", "mote prompt-context"},
+		// Stop hook for guaranteed session-end
+		{"Stop", "", "mote session-end --hook"},
 	}
 }
 
@@ -1041,6 +1043,7 @@ func ensureMoteSkills(homeDir string, dryRun bool) error {
 	defs := []skillDef{
 		{"mote-capture", skills.MoteCapture},
 		{"mote-retrieve", skills.MoteRetrieve},
+		{"mote-subagent", skills.MoteSubagent},
 	}
 
 	for _, s := range defs {

@@ -29,6 +29,7 @@ var (
 	addAccept []string
 	addSize   string
 	addRefs   []string
+	addStatus string
 )
 
 func init() {
@@ -42,6 +43,7 @@ func init() {
 	addCmd.Flags().StringArrayVar(&addAccept, "accept", nil, "Acceptance criterion (repeatable)")
 	addCmd.Flags().StringVar(&addSize, "size", "", "Effort size (xs|s|m|l|xl)")
 	addCmd.Flags().StringArrayVar(&addRefs, "ref", nil, "External reference (format: provider:id[:url], repeatable)")
+	addCmd.Flags().StringVar(&addStatus, "status", "", "Initial status (active|completed|archived|deprecated)")
 	_ = addCmd.MarkFlagRequired("type")
 	_ = addCmd.MarkFlagRequired("title")
 	rootCmd.AddCommand(addCmd)
@@ -97,6 +99,13 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		validSizes := []string{"xs", "s", "m", "l", "xl"}
 		if err := security.ValidateEnum(addSize, validSizes, "size"); err != nil {
 			return fmt.Errorf("invalid size: %w", err)
+		}
+	}
+
+	if addStatus != "" {
+		validStatuses := []string{"active", "completed", "archived", "deprecated"}
+		if err := security.ValidateEnum(addStatus, validStatuses, "status"); err != nil {
+			return fmt.Errorf("invalid status: %w", err)
 		}
 	}
 
@@ -175,9 +184,14 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("create mote: %w", err)
 	}
 
-	// Set external refs if provided
+	// Apply post-create overrides
+	if addStatus != "" {
+		m.Status = addStatus
+	}
 	if len(refs) > 0 {
 		m.ExternalRefs = refs
+	}
+	if addStatus != "" || len(refs) > 0 {
 		data, serErr := core.SerializeMote(m)
 		if serErr == nil {
 			path, _ := mm.MoteFilePath(m.ID)
