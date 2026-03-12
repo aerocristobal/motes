@@ -6,6 +6,8 @@ This project uses motes for all planning, memory, and task tracking. Knowledge i
 
 **Do NOT use** markdown files, TodoWrite, TaskCreate, or external issue trackers for tracking work.
 
+**MANDATORY: Before any code change**, create a task mote: `mote add --type=task --title="..." --tag=topic --body "What and why"`. **After completing it**: `mote update <id> --status=completed`. No exceptions.
+
 ### Session Start
 
 ***Run `mote prime` at the start of every session for scored, relevant context.***
