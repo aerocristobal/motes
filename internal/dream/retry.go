@@ -1,0 +1,78 @@
+package dream
+
+import (
+	"strings"
+	"time"
+)
+
+// RetryPolicy defines retry behavior with exponential backoff.
+type RetryPolicy struct {
+	MaxAttempts int
+	BaseDelay   time.Duration
+	MaxDelay    time.Duration
+	Retryable   func(err error) bool
+}
+
+// DefaultRetryPolicy returns a policy for transient LLM/API errors.
+func DefaultRetryPolicy() *RetryPolicy {
+	return &RetryPolicy{
+		MaxAttempts: 3,
+		BaseDelay:   1 * time.Second,
+		MaxDelay:    4 * time.Second,
+		Retryable:   IsTransientError,
+	}
+}
+
+// Do executes fn with retries according to the policy.
+func (rp *RetryPolicy) Do(fn func() (string, error)) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < rp.MaxAttempts; attempt++ {
+		result, err := fn()
+		if err == nil {
+			return result, nil
+		}
+		lastErr = err
+		if !rp.Retryable(err) {
+			return "", err
+		}
+		if attempt < rp.MaxAttempts-1 {
+			delay := rp.backoff(attempt)
+			time.Sleep(delay)
+		}
+	}
+	return "", lastErr
+}
+
+func (rp *RetryPolicy) backoff(attempt int) time.Duration {
+	delay := rp.BaseDelay
+	for i := 0; i < attempt; i++ {
+		delay *= 2
+	}
+	if delay > rp.MaxDelay {
+		delay = rp.MaxDelay
+	}
+	return delay
+}
+
+// transientIndicators are substrings in error messages that indicate retryable failures.
+var transientIndicators = []string{"429", "500", "502", "503", "rate limit", "timeout"}
+
+// nonRetryableIndicators are substrings that indicate permanent failures.
+var nonRetryableIndicators = []string{"400", "401", "403", "404"}
+
+// IsTransientError returns true if the error looks like a transient API failure.
+func IsTransientError(err error) bool {
+	msg := strings.ToLower(err.Error())
+	for _, ind := range nonRetryableIndicators {
+		if strings.Contains(msg, ind) {
+			return false
+		}
+	}
+	for _, ind := range transientIndicators {
+		if strings.Contains(msg, ind) {
+			return true
+		}
+	}
+	// Default: don't retry unknown errors
+	return false
+}

@@ -81,6 +81,7 @@ type DreamConfig struct {
 type DreamProvider struct {
 	Batch          ProviderEntry `yaml:"batch"`
 	Reconciliation ProviderEntry `yaml:"reconciliation"`
+	RateLimitRPM   int           `yaml:"rate_limit_rpm"` // 0 = unlimited
 }
 
 type ProviderEntry struct {

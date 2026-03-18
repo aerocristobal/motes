@@ -29,9 +29,11 @@ func filterEnv(names ...string) []string {
 
 // ClaudeInvoker shells out to the claude CLI for LLM operations.
 type ClaudeInvoker struct {
-	batchModel string
-	reconModel string
-	timeout    time.Duration
+	batchModel  string
+	reconModel  string
+	timeout     time.Duration
+	retryPolicy *RetryPolicy
+	limiter     *RateLimiter
 }
 
 // NewClaudeInvoker creates an invoker with models from config.
@@ -45,9 +47,11 @@ func NewClaudeInvoker(cfg core.DreamProvider) *ClaudeInvoker {
 		reconModel = "claude-opus-4-20250514"
 	}
 	return &ClaudeInvoker{
-		batchModel: batchModel,
-		reconModel: reconModel,
-		timeout:    5 * time.Minute,
+		batchModel:  batchModel,
+		reconModel:  reconModel,
+		timeout:     5 * time.Minute,
+		retryPolicy: DefaultRetryPolicy(),
+		limiter:     NewRateLimiter(cfg.RateLimitRPM),
 	}
 }
 
@@ -58,6 +62,17 @@ func (ci *ClaudeInvoker) Invoke(prompt string, model string) (string, error) {
 		modelName = ci.reconModel
 	}
 
+	// Rate limit before invoking
+	if err := ci.limiter.Wait(context.Background()); err != nil {
+		return "", fmt.Errorf("rate limiter: %w", err)
+	}
+
+	return ci.retryPolicy.Do(func() (string, error) {
+		return ci.invoke(prompt, modelName)
+	})
+}
+
+func (ci *ClaudeInvoker) invoke(prompt string, modelName string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ci.timeout)
 	defer cancel()
 

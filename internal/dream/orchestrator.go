@@ -150,11 +150,6 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 				visions, updates, err := do.parser.ParseBatchResponse(response)
 				if err != nil && strings.Contains(err.Error(), "no JSON found") {
 					do.logFailedResponse(i+1, response)
-					fmt.Fprintf(os.Stderr, "  warning: batch %d no JSON, retrying...\n", i+1)
-					response, err = do.invoker.Invoke(prompt, "sonnet")
-					if err == nil {
-						visions, updates, err = do.parser.ParseBatchResponse(response)
-					}
 				}
 				do.logger.Log(LogEntry{
 					Level:       "info",
@@ -186,10 +181,6 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 						visions, updates, err := do.parser.ParseBatchResponse(response)
 						if err != nil && strings.Contains(err.Error(), "no JSON found") {
 							do.logFailedResponse(i+1, response)
-							response, err = do.invoker.Invoke(prompt, "sonnet")
-							if err == nil {
-								visions, updates, err = do.parser.ParseBatchResponse(response)
-							}
 						}
 						runResults[r] = runResult{visions: visions, updates: updates, err: err}
 					}(r)
