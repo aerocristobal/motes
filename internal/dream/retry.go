@@ -24,7 +24,8 @@ func DefaultRetryPolicy() *RetryPolicy {
 }
 
 // Do executes fn with retries according to the policy.
-func (rp *RetryPolicy) Do(fn func() (string, error)) (string, error) {
+func Do[T any](rp *RetryPolicy, fn func() (T, error)) (T, error) {
+	var zero T
 	var lastErr error
 	for attempt := 0; attempt < rp.MaxAttempts; attempt++ {
 		result, err := fn()
@@ -33,14 +34,14 @@ func (rp *RetryPolicy) Do(fn func() (string, error)) (string, error) {
 		}
 		lastErr = err
 		if !rp.Retryable(err) {
-			return "", err
+			return zero, err
 		}
 		if attempt < rp.MaxAttempts-1 {
 			delay := rp.backoff(attempt)
 			time.Sleep(delay)
 		}
 	}
-	return "", lastErr
+	return zero, lastErr
 }
 
 func (rp *RetryPolicy) backoff(attempt int) time.Duration {

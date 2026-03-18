@@ -90,10 +90,12 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 
 	// Stage 2: Batch reasoning (Claude Sonnet, parallel)
 	type batchResult struct {
-		index   int
-		visions []Vision
-		updates LucidLogUpdates
-		err     error
+		index        int
+		visions      []Vision
+		updates      LucidLogUpdates
+		inputTokens  int
+		outputTokens int
+		err          error
 	}
 
 	results := make([]batchResult, len(batches))
@@ -122,11 +124,11 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 			fmt.Println(")...")
 
 			do.logger.Log(LogEntry{
-				Level:     "info",
-				Phase:     batch.Phase,
+				Level:      "info",
+				Phase:      batch.Phase,
 				BatchIndex: i + 1,
-				Message:   "batch start",
-				MoteCount: len(batch.MoteIDs),
+				Message:    "batch start",
+				MoteCount:  len(batch.MoteIDs),
 			})
 
 			batchStart := time.Now()
@@ -134,7 +136,7 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 
 			if scRuns == 1 {
 				// Single run (no voting)
-				response, err := do.invoker.Invoke(prompt, "sonnet")
+				ir, err := do.invoker.Invoke(prompt, "sonnet")
 				if err != nil {
 					do.logger.Log(LogEntry{
 						Level:      "error",
@@ -147,25 +149,29 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 					results[i] = batchResult{index: i, err: err}
 					return
 				}
-				visions, updates, err := do.parser.ParseBatchResponse(response)
+				visions, updates, err := do.parser.ParseBatchResponse(ir.Response)
 				if err != nil && strings.Contains(err.Error(), "no JSON found") {
-					do.logFailedResponse(i+1, response)
+					do.logFailedResponse(i+1, ir.Response)
 				}
 				do.logger.Log(LogEntry{
-					Level:       "info",
-					Phase:       batch.Phase,
-					BatchIndex:  i + 1,
-					Message:     "batch complete",
-					VisionCount: len(visions),
-					DurationMs:  time.Since(batchStart).Milliseconds(),
+					Level:        "info",
+					Phase:        batch.Phase,
+					BatchIndex:   i + 1,
+					Message:      "batch complete",
+					VisionCount:  len(visions),
+					DurationMs:   time.Since(batchStart).Milliseconds(),
+					InputTokens:  ir.InputTokens,
+					OutputTokens: ir.OutputTokens,
 				})
-				results[i] = batchResult{index: i, visions: visions, updates: updates, err: err}
+				results[i] = batchResult{index: i, visions: visions, updates: updates, inputTokens: ir.InputTokens, outputTokens: ir.OutputTokens, err: err}
 			} else {
 				// Self-consistency: invoke N times, vote on results
 				type runResult struct {
-					visions []Vision
-					updates LucidLogUpdates
-					err     error
+					visions      []Vision
+					updates      LucidLogUpdates
+					inputTokens  int
+					outputTokens int
+					err          error
 				}
 				runResults := make([]runResult, scRuns)
 				var runWg sync.WaitGroup
@@ -173,16 +179,16 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 					runWg.Add(1)
 					go func(r int) {
 						defer runWg.Done()
-						response, err := do.invoker.Invoke(prompt, "sonnet")
+						ir, err := do.invoker.Invoke(prompt, "sonnet")
 						if err != nil {
 							runResults[r] = runResult{err: err}
 							return
 						}
-						visions, updates, err := do.parser.ParseBatchResponse(response)
+						visions, updates, err := do.parser.ParseBatchResponse(ir.Response)
 						if err != nil && strings.Contains(err.Error(), "no JSON found") {
-							do.logFailedResponse(i+1, response)
+							do.logFailedResponse(i+1, ir.Response)
 						}
-						runResults[r] = runResult{visions: visions, updates: updates, err: err}
+						runResults[r] = runResult{visions: visions, updates: updates, inputTokens: ir.InputTokens, outputTokens: ir.OutputTokens, err: err}
 					}(r)
 				}
 				runWg.Wait()
@@ -190,11 +196,14 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 				// Collect successful vision lists for voting
 				var candidates [][]Vision
 				var mergedUpdates LucidLogUpdates
+				var batchInputTokens, batchOutputTokens int
 				for _, rr := range runResults {
 					if rr.err != nil {
 						continue
 					}
 					candidates = append(candidates, rr.visions)
+					batchInputTokens += rr.inputTokens
+					batchOutputTokens += rr.outputTokens
 					// Merge lucid log updates from all runs
 					mergedUpdates.ObservedPatterns = append(mergedUpdates.ObservedPatterns, rr.updates.ObservedPatterns...)
 					mergedUpdates.Tensions = append(mergedUpdates.Tensions, rr.updates.Tensions...)
@@ -210,20 +219,23 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 
 				voted := VoteVisions(candidates, 0.5)
 				do.logger.Log(LogEntry{
-					Level:       "info",
-					Phase:       batch.Phase,
-					BatchIndex:  i + 1,
-					Message:     "batch complete",
-					VisionCount: len(voted),
-					DurationMs:  time.Since(batchStart).Milliseconds(),
+					Level:        "info",
+					Phase:        batch.Phase,
+					BatchIndex:   i + 1,
+					Message:      "batch complete",
+					VisionCount:  len(voted),
+					DurationMs:   time.Since(batchStart).Milliseconds(),
+					InputTokens:  batchInputTokens,
+					OutputTokens: batchOutputTokens,
 				})
-				results[i] = batchResult{index: i, visions: voted, updates: mergedUpdates}
+				results[i] = batchResult{index: i, visions: voted, updates: mergedUpdates, inputTokens: batchInputTokens, outputTokens: batchOutputTokens}
 			}
 		}(i, batch)
 	}
 	wg.Wait()
 
 	// Merge results sequentially
+	var totalInput, totalOutput int
 	for _, r := range results {
 		if r.err != nil {
 			fmt.Fprintf(os.Stderr, "  warning: batch %d failed: %v\n", r.index+1, r.err)
@@ -234,6 +246,8 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 			fmt.Fprintf(os.Stderr, "  warning: failed to write draft visions: %v\n", err)
 		}
 		do.lucidLog.Update(r.updates)
+		totalInput += r.inputTokens
+		totalOutput += r.outputTokens
 		fmt.Printf("  Batch %d: %d visions\n", r.index+1, len(r.visions))
 	}
 
@@ -244,9 +258,11 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 		do.logger.Log(LogEntry{Level: "info", Phase: "reconcile", Message: "reconciliation start"})
 		reconStart := time.Now()
 		reconPrompt := do.prompts.BuildReconciliationPrompt(do.lucidLog)
-		reconResponse, err := do.invoker.Invoke(reconPrompt, "opus")
+		reconResult, err := do.invoker.Invoke(reconPrompt, "opus")
 		if err == nil {
-			finalVisions, _ = do.parser.ParseReconciliationResponse(reconResponse)
+			finalVisions, _ = do.parser.ParseReconciliationResponse(reconResult.Response)
+			totalInput += reconResult.InputTokens
+			totalOutput += reconResult.OutputTokens
 		} else {
 			do.logger.Log(LogEntry{Level: "error", Phase: "reconcile", Message: "reconciliation failed", Error: err.Error()})
 		}
@@ -273,10 +289,16 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 	llPath := filepath.Join(dreamDir, "lucid_log.json")
 	_ = do.lucidLog.Save(llPath)
 
+	// Estimate cost using batch model pricing (dominant cost; recon is a single call)
+	estimatedCost := EstimateCost(do.invoker.batchModel, totalInput, totalOutput)
+
 	result := &DreamResult{
-		Status:  "complete",
-		Batches: len(batches),
-		Visions: len(finalVisions),
+		Status:        "complete",
+		Batches:       len(batches),
+		Visions:       len(finalVisions),
+		InputTokens:   totalInput,
+		OutputTokens:  totalOutput,
+		EstimatedCost: estimatedCost,
 	}
 	do.writeRunLog(result, time.Since(start))
 	return result, nil
@@ -398,11 +420,14 @@ func (do *DreamOrchestrator) logFailedResponse(batch int, raw string) {
 func (do *DreamOrchestrator) writeRunLog(result *DreamResult, elapsed time.Duration) {
 	logPath := filepath.Join(do.root, "dream", "log.jsonl")
 	entry := RunLogEntry{
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Status:    result.Status,
-		Batches:   result.Batches,
-		Visions:   result.Visions,
-		DurationS: elapsed.Seconds(),
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		Status:        result.Status,
+		Batches:       result.Batches,
+		Visions:       result.Visions,
+		DurationS:     elapsed.Seconds(),
+		InputTokens:   result.InputTokens,
+		OutputTokens:  result.OutputTokens,
+		EstimatedCost: result.EstimatedCost,
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {

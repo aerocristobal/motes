@@ -9,7 +9,7 @@ import (
 func TestRetryPolicy_SucceedsFirstAttempt(t *testing.T) {
 	rp := &RetryPolicy{MaxAttempts: 3, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond, Retryable: IsTransientError}
 	calls := 0
-	result, err := rp.Do(func() (string, error) {
+	result, err := Do(rp, func() (string, error) {
 		calls++
 		return "ok", nil
 	})
@@ -27,7 +27,7 @@ func TestRetryPolicy_SucceedsFirstAttempt(t *testing.T) {
 func TestRetryPolicy_RetriesTransientThenSucceeds(t *testing.T) {
 	rp := &RetryPolicy{MaxAttempts: 3, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond, Retryable: IsTransientError}
 	calls := 0
-	result, err := rp.Do(func() (string, error) {
+	result, err := Do(rp, func() (string, error) {
 		calls++
 		if calls < 3 {
 			return "", fmt.Errorf("claude invocation failed: 429 rate limited")
@@ -48,7 +48,7 @@ func TestRetryPolicy_RetriesTransientThenSucceeds(t *testing.T) {
 func TestRetryPolicy_NonRetryableFailsImmediately(t *testing.T) {
 	rp := &RetryPolicy{MaxAttempts: 3, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond, Retryable: IsTransientError}
 	calls := 0
-	_, err := rp.Do(func() (string, error) {
+	_, err := Do(rp, func() (string, error) {
 		calls++
 		return "", fmt.Errorf("claude invocation failed: 401 unauthorized")
 	})
@@ -63,7 +63,7 @@ func TestRetryPolicy_NonRetryableFailsImmediately(t *testing.T) {
 func TestRetryPolicy_ExhaustsAttempts(t *testing.T) {
 	rp := &RetryPolicy{MaxAttempts: 3, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond, Retryable: IsTransientError}
 	calls := 0
-	_, err := rp.Do(func() (string, error) {
+	_, err := Do(rp, func() (string, error) {
 		calls++
 		return "", fmt.Errorf("claude invocation failed: 503 service unavailable")
 	})

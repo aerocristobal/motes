@@ -154,17 +154,64 @@ func runTagsAudit(cmd *cobra.Command, args []string) error {
 			e.Tag, e.Count, e.Specificity, e.Status)
 	}
 
-	// Co-occurrence suggestions for overloaded tags
+	tagToMotes := buildTagToMotes(motes)
+
+	// Check for overloaded and orphaned tags
 	overloaded := findOverloadedTags(idx.TagStats, tagOverloadThreshold)
+	orphaned := findOrphanedTags(tagToMotes, motes)
+
+	// Mark orphaned tags in entries
+	orphanedSet := make(map[string]bool, len(orphaned))
+	for _, tag := range orphaned {
+		orphanedSet[tag] = true
+	}
+	for i := range entries {
+		if orphanedSet[entries[i].Tag] {
+			entries[i].Status = "orphaned"
+		}
+	}
+
+	// Clean health report: if no issues, print OK and return
+	if len(overloaded) == 0 && len(orphaned) == 0 {
+		fmt.Println("\nTag health: OK")
+		return nil
+	}
+
+	// Co-occurrence suggestions for overloaded tags with split suggestions
 	if len(overloaded) > 0 {
 		fmt.Println()
 		fmt.Println("Co-occurrence suggestions for overloaded tags:")
-		tagToMotes := buildTagToMotes(motes)
 		for _, tag := range overloaded {
-			cooccur := findCooccurrences(tag, tagToMotes)
-			if len(cooccur) > 0 {
-				fmt.Printf("  %s often co-occurs with: %s\n", tag, strings.Join(cooccur, ", "))
+			cooccur := findCooccurrencesWithCounts(tag, tagToMotes)
+			if len(cooccur) == 0 {
+				continue
 			}
+			// Format co-occurrence counts
+			parts := make([]string, len(cooccur))
+			for j, c := range cooccur {
+				parts[j] = fmt.Sprintf("%s (%d)", c.Tag, c.Count)
+			}
+			fmt.Printf("  %s (%d motes): co-occurs with %s\n", tag, idx.TagStats[tag], strings.Join(parts, ", "))
+			// Split suggestion using top 2
+			if len(cooccur) >= 2 {
+				fmt.Printf("    Split suggestion: %s-%s, %s-%s\n", tag, cooccur[0].Tag, tag, cooccur[1].Tag)
+			} else if len(cooccur) == 1 {
+				fmt.Printf("    Split suggestion: %s-%s\n", tag, cooccur[0].Tag)
+			}
+		}
+	}
+
+	// Orphaned tags section
+	if len(orphaned) > 0 {
+		fmt.Println()
+		fmt.Println("Orphaned tags (only on deprecated/archived motes):")
+		for _, tag := range orphaned {
+			count := len(tagToMotes[tag])
+			fmt.Printf("  %-20s (%d mote", tag, count)
+			if count != 1 {
+				fmt.Print("s")
+			}
+			fmt.Println(", all deprecated/archived)")
 		}
 	}
 
@@ -196,15 +243,48 @@ func buildTagToMotes(motes []*core.Mote) map[string][]string {
 	return m
 }
 
-// findCooccurrences finds the top 3 tags that co-occur with the given tag.
-func findCooccurrences(tag string, tagToMotes map[string][]string) []string {
+// findOrphanedTags returns tags where ALL motes carrying them are deprecated or archived.
+func findOrphanedTags(tagToMotes map[string][]string, motes []*core.Mote) []string {
+	moteMap := make(map[string]*core.Mote, len(motes))
+	for _, m := range motes {
+		moteMap[m.ID] = m
+	}
+
+	var orphaned []string
+	for tag, moteIDs := range tagToMotes {
+		allInactive := true
+		for _, id := range moteIDs {
+			m, ok := moteMap[id]
+			if !ok {
+				continue
+			}
+			if m.Status != "deprecated" && m.Status != "archived" {
+				allInactive = false
+				break
+			}
+		}
+		if allInactive {
+			orphaned = append(orphaned, tag)
+		}
+	}
+	sort.Strings(orphaned)
+	return orphaned
+}
+
+// CooccurEntry pairs a tag with its co-occurrence count.
+type CooccurEntry struct {
+	Tag   string
+	Count int
+}
+
+// findCooccurrencesWithCounts finds the top 3 tags that co-occur with the given tag, with counts.
+func findCooccurrencesWithCounts(tag string, tagToMotes map[string][]string) []CooccurEntry {
 	moteIDs := tagToMotes[tag]
 	moteSet := make(map[string]bool, len(moteIDs))
 	for _, id := range moteIDs {
 		moteSet[id] = true
 	}
 
-	// Count co-occurring tags
 	cooccur := map[string]int{}
 	for otherTag, otherMotes := range tagToMotes {
 		if otherTag == tag {
@@ -217,14 +297,9 @@ func findCooccurrences(tag string, tagToMotes map[string][]string) []string {
 		}
 	}
 
-	// Sort by count, take top 3
-	type kv struct {
-		Tag   string
-		Count int
-	}
-	var pairs []kv
+	var pairs []CooccurEntry
 	for t, c := range cooccur {
-		pairs = append(pairs, kv{t, c})
+		pairs = append(pairs, CooccurEntry{t, c})
 	}
 	sort.Slice(pairs, func(i, j int) bool {
 		return pairs[i].Count > pairs[j].Count
@@ -234,9 +309,6 @@ func findCooccurrences(tag string, tagToMotes map[string][]string) []string {
 	if len(pairs) < limit {
 		limit = len(pairs)
 	}
-	result := make([]string, limit)
-	for i := 0; i < limit; i++ {
-		result[i] = pairs[i].Tag
-	}
-	return result
+	return pairs[:limit]
 }
+

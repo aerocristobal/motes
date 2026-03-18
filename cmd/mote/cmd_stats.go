@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,23 +12,28 @@ import (
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/internal/dream"
 	"motes/internal/format"
 	"motes/internal/strata"
 )
 
 // StatsOutput is the JSON output structure for mote stats --json.
 type StatsOutput struct {
-	TotalMotes      int            `json:"total_motes"`
-	StatusCounts    map[string]int `json:"status_counts"`
-	Accessed7       int            `json:"accessed_7d"`
-	Accessed30      int            `json:"accessed_30d"`
-	Accessed90      int            `json:"accessed_90d"`
-	NeverAccessed   int            `json:"never_accessed"`
-	TotalTags       int            `json:"total_tags"`
-	OverloadedTags  int            `json:"overloaded_tags"`
-	SingletonTags   int            `json:"singleton_tags"`
-	Contradictions  int            `json:"contradictions"`
-	PendingVisions  int            `json:"pending_visions"`
+	TotalMotes         int            `json:"total_motes"`
+	StatusCounts       map[string]int `json:"status_counts"`
+	Accessed7          int            `json:"accessed_7d"`
+	Accessed30         int            `json:"accessed_30d"`
+	Accessed90         int            `json:"accessed_90d"`
+	NeverAccessed      int            `json:"never_accessed"`
+	TotalTags          int            `json:"total_tags"`
+	OverloadedTags     int            `json:"overloaded_tags"`
+	SingletonTags      int            `json:"singleton_tags"`
+	Contradictions     int            `json:"contradictions"`
+	PendingVisions     int            `json:"pending_visions"`
+	DreamRuns          int            `json:"dream_runs,omitempty"`
+	DreamInputTokens   int            `json:"dream_input_tokens,omitempty"`
+	DreamOutputTokens  int            `json:"dream_output_tokens,omitempty"`
+	DreamEstimatedCost float64        `json:"dream_estimated_cost,omitempty"`
 }
 
 var statsCmd = &cobra.Command{
@@ -123,19 +129,26 @@ func runStats(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Read cumulative dream cost data
+	dreamCost := readDreamCostStats(dreamDir)
+
 	if statsJSON {
 		out := StatsOutput{
-			TotalMotes:     len(motes),
-			StatusCounts:   statusCounts,
-			Accessed7:      accessed7,
-			Accessed30:     accessed30,
-			Accessed90:     accessed90,
-			NeverAccessed:  neverAccessed,
-			TotalTags:      len(idx.TagStats),
-			OverloadedTags: overloaded,
-			SingletonTags:  singletons,
-			Contradictions: contradictions,
-			PendingVisions: pendingVisions,
+			TotalMotes:         len(motes),
+			StatusCounts:       statusCounts,
+			Accessed7:          accessed7,
+			Accessed30:         accessed30,
+			Accessed90:         accessed90,
+			NeverAccessed:      neverAccessed,
+			TotalTags:          len(idx.TagStats),
+			OverloadedTags:     overloaded,
+			SingletonTags:      singletons,
+			Contradictions:     contradictions,
+			PendingVisions:     pendingVisions,
+			DreamRuns:          dreamCost.runs,
+			DreamInputTokens:   dreamCost.inputTokens,
+			DreamOutputTokens:  dreamCost.outputTokens,
+			DreamEstimatedCost: dreamCost.estimatedCost,
 		}
 		data, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
@@ -227,6 +240,17 @@ func runStats(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Pending visions: %d\n", pendingVisions)
 	}
 
+	// Cumulative dream cost
+	if dreamCost.runs > 0 {
+		fmt.Println()
+		fmt.Println(format.Header("Cumulative Dream Cost"))
+		fmt.Println()
+		fmt.Printf("  Total runs:      %d\n", dreamCost.runs)
+		fmt.Printf("  Input tokens:    %d\n", dreamCost.inputTokens)
+		fmt.Printf("  Output tokens:   %d\n", dreamCost.outputTokens)
+		fmt.Printf("  Estimated cost:  $%.4f\n", dreamCost.estimatedCost)
+	}
+
 	return nil
 }
 
@@ -276,6 +300,36 @@ func recencyFactor(lastAccessed *time.Time, cfg core.ScoringConfig) float64 {
 		}
 	}
 	return tiers[len(tiers)-1].Factor
+}
+
+type dreamCostStats struct {
+	runs          int
+	inputTokens   int
+	outputTokens  int
+	estimatedCost float64
+}
+
+func readDreamCostStats(dreamDir string) dreamCostStats {
+	var stats dreamCostStats
+	logPath := filepath.Join(dreamDir, "log.jsonl")
+	f, err := os.Open(logPath)
+	if err != nil {
+		return stats
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		var entry dream.RunLogEntry
+		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+			continue
+		}
+		stats.runs++
+		stats.inputTokens += entry.InputTokens
+		stats.outputTokens += entry.OutputTokens
+		stats.estimatedCost += entry.EstimatedCost
+	}
+	return stats
 }
 
 func countActiveContradictions(motes []*core.Mote) int {

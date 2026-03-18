@@ -109,7 +109,7 @@ func runDream(cmd *cobra.Command, args []string) error {
 	case "dry-run":
 		fmt.Printf("\nDry run complete. Would create %d batches.\n", result.Batches)
 	case "complete":
-		fmt.Printf("\nDream cycle complete: %d batches, %d visions.\n", result.Batches, result.Visions)
+		fmt.Printf("\nDream cycle complete: %d batches, %d visions (~$%.4f estimated).\n", result.Batches, result.Visions, result.EstimatedCost)
 		if result.Visions > 0 {
 			applied, failed, deferred, err := orch.AutoApply(cfg)
 			if err != nil {

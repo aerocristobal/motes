@@ -15,16 +15,18 @@ type DreamLogger struct {
 
 // LogEntry is a single structured log line emitted during a dream cycle.
 type LogEntry struct {
-	Timestamp   string `json:"ts"`
-	Level       string `json:"level"`
-	Phase       string `json:"phase"`
-	BatchIndex  int    `json:"batch_idx,omitempty"`
-	Message     string `json:"msg"`
-	VisionCount int    `json:"vision_count,omitempty"`
-	DurationMs  int64  `json:"duration_ms,omitempty"`
-	MoteCount   int    `json:"mote_count,omitempty"`
-	Error       string `json:"error,omitempty"`
-	PromptLen   int    `json:"prompt_len,omitempty"`
+	Timestamp    string `json:"ts"`
+	Level        string `json:"level"`
+	Phase        string `json:"phase"`
+	BatchIndex   int    `json:"batch_idx,omitempty"`
+	Message      string `json:"msg"`
+	VisionCount  int    `json:"vision_count,omitempty"`
+	DurationMs   int64  `json:"duration_ms,omitempty"`
+	MoteCount    int    `json:"mote_count,omitempty"`
+	Error        string `json:"error,omitempty"`
+	PromptLen    int    `json:"prompt_len,omitempty"`
+	InputTokens  int    `json:"input_tokens,omitempty"`
+	OutputTokens int    `json:"output_tokens,omitempty"`
 }
 
 // NewDreamLogger creates a logger that writes to w. If enabled is false, Log is a no-op.

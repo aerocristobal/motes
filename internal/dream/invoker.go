@@ -11,6 +11,14 @@ import (
 	"motes/internal/core"
 )
 
+// InvokeResult holds the response and estimated token usage from a Claude invocation.
+type InvokeResult struct {
+	Response     string
+	InputTokens  int
+	OutputTokens int
+	Model        string
+}
+
 // filterEnv returns os.Environ() with the named variables removed.
 func filterEnv(names ...string) []string {
 	skip := make(map[string]bool, len(names))
@@ -56,7 +64,7 @@ func NewClaudeInvoker(cfg core.DreamProvider) *ClaudeInvoker {
 }
 
 // Invoke runs the claude CLI with the given prompt and model tier.
-func (ci *ClaudeInvoker) Invoke(prompt string, model string) (string, error) {
+func (ci *ClaudeInvoker) Invoke(prompt string, model string) (InvokeResult, error) {
 	modelName := ci.batchModel
 	if model == "opus" {
 		modelName = ci.reconModel
@@ -64,15 +72,15 @@ func (ci *ClaudeInvoker) Invoke(prompt string, model string) (string, error) {
 
 	// Rate limit before invoking
 	if err := ci.limiter.Wait(context.Background()); err != nil {
-		return "", fmt.Errorf("rate limiter: %w", err)
+		return InvokeResult{}, fmt.Errorf("rate limiter: %w", err)
 	}
 
-	return ci.retryPolicy.Do(func() (string, error) {
+	return Do(ci.retryPolicy, func() (InvokeResult, error) {
 		return ci.invoke(prompt, modelName)
 	})
 }
 
-func (ci *ClaudeInvoker) invoke(prompt string, modelName string) (string, error) {
+func (ci *ClaudeInvoker) invoke(prompt string, modelName string) (InvokeResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ci.timeout)
 	defer cancel()
 
@@ -92,13 +100,20 @@ func (ci *ClaudeInvoker) invoke(prompt string, modelName string) (string, error)
 	output, err := cmd.Output()
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("claude timed out after %v", ci.timeout)
+			return InvokeResult{}, fmt.Errorf("claude timed out after %v", ci.timeout)
 		}
 		errMsg := stderr.String()
 		if errMsg != "" {
-			return "", fmt.Errorf("claude invocation failed: %w: %s", err, errMsg)
+			return InvokeResult{}, fmt.Errorf("claude invocation failed: %w: %s", err, errMsg)
 		}
-		return "", fmt.Errorf("claude invocation failed: %w", err)
+		return InvokeResult{}, fmt.Errorf("claude invocation failed: %w", err)
 	}
-	return string(output), nil
+
+	response := string(output)
+	return InvokeResult{
+		Response:     response,
+		InputTokens:  EstimateTokens(prompt),
+		OutputTokens: EstimateTokens(response),
+		Model:        modelName,
+	}, nil
 }

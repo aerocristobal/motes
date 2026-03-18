@@ -21,9 +21,12 @@ type Vision struct {
 
 // DreamResult is the summary returned after a dream run.
 type DreamResult struct {
-	Status  string `json:"status"` // clean, dry-run, complete, error
-	Batches int    `json:"batches"`
-	Visions int    `json:"visions"`
+	Status        string  `json:"status"` // clean, dry-run, complete, error
+	Batches       int     `json:"batches"`
+	Visions       int     `json:"visions"`
+	InputTokens   int     `json:"input_tokens,omitempty"`
+	OutputTokens  int     `json:"output_tokens,omitempty"`
+	EstimatedCost float64 `json:"estimated_cost,omitempty"`
 }
 
 // MotePair identifies two motes for link/contradiction analysis.
@@ -116,11 +119,14 @@ type Batch struct {
 
 // RunLogEntry records a single dream execution in the log.
 type RunLogEntry struct {
-	Timestamp string `json:"timestamp"`
-	Status    string `json:"status"`
-	Batches   int    `json:"batches"`
-	Visions   int    `json:"visions"`
-	DurationS float64 `json:"duration_s"`
+	Timestamp     string  `json:"timestamp"`
+	Status        string  `json:"status"`
+	Batches       int     `json:"batches"`
+	Visions       int     `json:"visions"`
+	DurationS     float64 `json:"duration_s"`
+	InputTokens   int     `json:"input_tokens,omitempty"`
+	OutputTokens  int     `json:"output_tokens,omitempty"`
+	EstimatedCost float64 `json:"estimated_cost,omitempty"`
 }
 
 // ReviewResult summarizes interactive vision review.
