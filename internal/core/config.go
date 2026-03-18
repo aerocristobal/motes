@@ -170,7 +170,9 @@ func DefaultConfig() *Config {
 				"supersedes":  0.3,
 				"caused_by":   0.2,
 				"informed_by": 0.2,
-				"relates_to":  0.1,
+				"relates_to":    0.1,
+				"body_ref":      0.2,
+				"built_by_ref":  0.15,
 			},
 			StatusPenalties: map[string]float64{
 				"deprecated": -0.5,

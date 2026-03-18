@@ -67,8 +67,7 @@ func parseExternalRef(s string) (core.ExternalRef, error) {
 
 func runAdd(cmd *cobra.Command, args []string) error {
 	// Validate input parameters
-	validTypes := []string{"task", "decision", "lesson", "context", "question", "constellation", "anchor", "explore"}
-	if err := security.ValidateEnum(addType, validTypes, "type"); err != nil {
+	if err := security.ValidateEnum(addType, core.ValidTypes, "type"); err != nil {
 		return fmt.Errorf("invalid type: %w", err)
 	}
 
@@ -96,21 +95,18 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	if addSize != "" {
-		validSizes := []string{"xs", "s", "m", "l", "xl"}
-		if err := security.ValidateEnum(addSize, validSizes, "size"); err != nil {
+		if err := security.ValidateEnum(addSize, core.ValidSizes, "size"); err != nil {
 			return fmt.Errorf("invalid size: %w", err)
 		}
 	}
 
 	if addStatus != "" {
-		validStatuses := []string{"active", "completed", "archived", "deprecated"}
-		if err := security.ValidateEnum(addStatus, validStatuses, "status"); err != nil {
+		if err := security.ValidateEnum(addStatus, core.ValidStatuses, "status"); err != nil {
 			return fmt.Errorf("invalid status: %w", err)
 		}
 	}
 
-	validOrigins := []string{"normal", "failure", "revert", "hotfix", "discovery"}
-	if err := security.ValidateEnum(addOrigin, validOrigins, "origin"); err != nil {
+	if err := security.ValidateEnum(addOrigin, core.ValidOrigins, "origin"); err != nil {
 		return fmt.Errorf("invalid origin: %w", err)
 	}
 

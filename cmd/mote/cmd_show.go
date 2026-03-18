@@ -37,6 +37,14 @@ type ShowOutput struct {
 	Acceptance    []string           `json:"acceptance,omitempty"`
 	AcceptanceMet []bool             `json:"acceptance_met,omitempty"`
 	Body          string             `json:"body"`
+	BodyLinks     []BodyLinkEntry    `json:"body_links,omitempty"`
+}
+
+// BodyLinkEntry represents a resolved wiki-link target.
+type BodyLinkEntry struct {
+	ID    string `json:"id"`
+	Type  string `json:"type,omitempty"`
+	Title string `json:"title,omitempty"`
 }
 
 var showJSON bool
@@ -95,6 +103,15 @@ func runShow(cmd *cobra.Command, args []string) error {
 		if m.LastAccessed != nil {
 			out.LastAccessed = m.LastAccessed.Format(time.RFC3339)
 		}
+		bodyLinkIDs := core.ExtractBodyLinks(m.Body, m.ID)
+		for _, blID := range bodyLinkIDs {
+			entry := BodyLinkEntry{ID: blID}
+			if linked, err := mm.Read(blID); err == nil {
+				entry.Type = linked.Type
+				entry.Title = linked.Title
+			}
+			out.BodyLinks = append(out.BodyLinks, entry)
+		}
 		data, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
 			return fmt.Errorf("marshal json: %w", err)
@@ -150,6 +167,18 @@ func runShow(cmd *cobra.Command, args []string) error {
 		printLinks(mm, "supersedes", m.Supersedes)
 		printLinks(mm, "caused_by", m.CausedBy)
 		printLinks(mm, "informed_by", m.InformedBy)
+	}
+
+	bodyLinkIDs := core.ExtractBodyLinks(m.Body, m.ID)
+	if len(bodyLinkIDs) > 0 {
+		fmt.Println("\n--- body links ---")
+		for _, blID := range bodyLinkIDs {
+			if linked, err := mm.Read(blID); err == nil {
+				fmt.Printf("  -> %s (%s) %s\n", blID, linked.Type, linked.Title)
+			} else {
+				fmt.Printf("  -> %s (unresolved)\n", blID)
+			}
+		}
 	}
 
 	children, _ := mm.Children(m.ID)

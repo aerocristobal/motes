@@ -69,7 +69,7 @@ func runContext(cmd *cobra.Command, args []string) error {
 	}
 
 	// Seed selection
-	ss := core.NewSeedSelector(motes, idx.TagStats, cfg.Priming.Signals)
+	ss := core.NewSeedSelector(motes, idx.TagStats, cfg.Priming.Signals, loadTextSearcher(root))
 	seeds := ss.SelectSeeds(topic, nil)
 	if len(seeds) == 0 {
 		fmt.Println("No matching motes found.")

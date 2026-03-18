@@ -53,8 +53,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	// Validate input parameters
 	if cmd.Flags().Changed("status") {
-		validStatuses := []string{"active", "completed", "archived", "deprecated"}
-		if err := security.ValidateEnum(updateStatus, validStatuses, "status"); err != nil {
+		if err := security.ValidateEnum(updateStatus, core.ValidStatuses, "status"); err != nil {
 			return fmt.Errorf("invalid status: %w", err)
 		}
 	}
@@ -89,8 +88,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	if cmd.Flags().Changed("size") {
-		validSizes := []string{"xs", "s", "m", "l", "xl"}
-		if err := security.ValidateEnum(updateSize, validSizes, "size"); err != nil {
+		if err := security.ValidateEnum(updateSize, core.ValidSizes, "size"); err != nil {
 			return fmt.Errorf("invalid size: %w", err)
 		}
 	}

@@ -193,7 +193,7 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 
 	// Build scoring/traversal
 	scorer := core.NewScoreEngine(cfg.Scoring, idx.TagStats)
-	ss := core.NewSeedSelector(motes, idx.TagStats, cfg.Priming.Signals)
+	ss := core.NewSeedSelector(motes, idx.TagStats, cfg.Priming.Signals, loadTextSearcher(root))
 
 	var allResults []core.ScoredMote
 	seen := make(map[string]bool)

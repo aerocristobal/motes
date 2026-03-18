@@ -10,7 +10,7 @@ func TestSelectSeeds_TagMatch(t *testing.T) {
 		{ID: "m2", Tags: []string{"docker", "ci"}},
 		{ID: "m3", Tags: []string{"oauth", "auth"}},
 	}
-	ss := NewSeedSelector(motes, nil, nil)
+	ss := NewSeedSelector(motes, nil, nil, nil)
 	seeds := ss.SelectSeeds("oauth", nil)
 
 	ids := make(map[string]bool)
@@ -31,7 +31,7 @@ func TestSelectSeeds_MultipleKeywords(t *testing.T) {
 		{ID: "m2", Tags: []string{"api"}},
 		{ID: "m3", Tags: []string{"oauth", "api"}},
 	}
-	ss := NewSeedSelector(motes, nil, nil)
+	ss := NewSeedSelector(motes, nil, nil, nil)
 	seeds := ss.SelectSeeds("oauth api", nil)
 
 	// m3 has both tags → ranked highest
@@ -48,7 +48,7 @@ func TestSelectSeeds_TitleFallback(t *testing.T) {
 		{ID: "m1", Tags: []string{"ci"}, Title: "OAuth implementation plan"},
 		{ID: "m2", Tags: []string{"docker"}, Title: "Docker setup"},
 	}
-	ss := NewSeedSelector(motes, nil, nil)
+	ss := NewSeedSelector(motes, nil, nil, nil)
 	seeds := ss.SelectSeeds("oauth", nil)
 
 	ids := make(map[string]bool)
@@ -71,7 +71,7 @@ func TestSelectSeeds_AmbientGitBranch(t *testing.T) {
 	signals := []SignalConfig{
 		{Name: "git_branch", Type: "built_in"},
 	}
-	ss := NewSeedSelector(motes, nil, signals)
+	ss := NewSeedSelector(motes, nil, signals, nil)
 
 	ambient := &AmbientContext{GitBranch: "feature/oauth-flow"}
 	seeds := ss.SelectSeeds("", ambient)
@@ -89,7 +89,7 @@ func TestSelectSeeds_NoMatches(t *testing.T) {
 	motes := []*Mote{
 		{ID: "m1", Tags: []string{"docker"}},
 	}
-	ss := NewSeedSelector(motes, nil, nil)
+	ss := NewSeedSelector(motes, nil, nil, nil)
 	seeds := ss.SelectSeeds("nonexistent", nil)
 
 	if len(seeds) != 0 {
@@ -113,7 +113,7 @@ func TestSelectSeeds_CoAccessSignal(t *testing.T) {
 			BoostAmount: 0.5,
 		},
 	}
-	ss := NewSeedSelector(motes, nil, signals)
+	ss := NewSeedSelector(motes, nil, signals, nil)
 	// Search for "oauth" — m1 matches via tag, triggering co_access signal
 	// which boosts all motes with "auth" tag (m1 and m2)
 	seeds := ss.SelectSeeds("oauth", &AmbientContext{})
@@ -139,7 +139,7 @@ func TestSelectSeeds_BodyTextMatching(t *testing.T) {
 		{ID: "m2", Title: "Also unrelated", Tags: []string{"misc"}, Body: "Nothing relevant here."},
 	}
 
-	ss := NewSeedSelector(motes, nil, nil)
+	ss := NewSeedSelector(motes, nil, nil, nil)
 	seeds := ss.SelectSeeds("scoring retrieval", nil)
 
 	if len(seeds) == 0 {
@@ -156,7 +156,7 @@ func TestSelectSeeds_TagMatchHigherThanBodyMatch(t *testing.T) {
 		{ID: "tag-match", Title: "Bar", Tags: []string{"scoring"}, Body: "No relevant body content."},
 	}
 
-	ss := NewSeedSelector(motes, nil, nil)
+	ss := NewSeedSelector(motes, nil, nil, nil)
 	seeds := ss.SelectSeeds("scoring", nil)
 
 	if len(seeds) < 2 {
@@ -174,7 +174,7 @@ func TestSelectSeeds_BodyMatchAdditive(t *testing.T) {
 		{ID: "tag-only", Title: "Scoring", Tags: []string{"scoring"}, Body: "No keywords here."},
 	}
 
-	ss := NewSeedSelector(motes, nil, nil)
+	ss := NewSeedSelector(motes, nil, nil, nil)
 	seeds := ss.SelectSeeds("scoring", nil)
 
 	if len(seeds) < 2 {
@@ -208,6 +208,54 @@ func TestKeywordOverlap(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("keywordOverlap(%v, %v) = %d, want %d", tt.query, tt.target, got, tt.want)
 		}
+	}
+}
+
+// mockSearcher implements TextSearcher for testing.
+type mockSearcher struct {
+	results []TextSearchResult
+}
+
+func (ms *mockSearcher) Search(query string, topK int) []TextSearchResult {
+	return ms.results
+}
+
+func TestBM25SeedBoost(t *testing.T) {
+	// m1 has no tags, no title match — only discoverable via BM25
+	motes := []*Mote{
+		{ID: "m1", Title: "Unrelated title", Tags: []string{"other"}, Body: "Details about scoring algorithms."},
+		{ID: "m2", Title: "Docker setup", Tags: []string{"docker"}, Body: "Container configuration."},
+	}
+
+	searcher := &mockSearcher{
+		results: []TextSearchResult{
+			{ID: "m1", Score: 5.0},
+		},
+	}
+
+	ss := NewSeedSelector(motes, nil, nil, searcher)
+	seeds := ss.SelectSeeds("scoring", nil)
+
+	found := false
+	for _, s := range seeds {
+		if s.ID == "m1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected BM25 to boost m1 into seeds")
+	}
+}
+
+func TestBM25SeedBoost_NilSearcher(t *testing.T) {
+	motes := []*Mote{
+		{ID: "m1", Tags: []string{"scoring"}},
+	}
+	ss := NewSeedSelector(motes, nil, nil, nil)
+	seeds := ss.SelectSeeds("scoring", nil)
+	if len(seeds) == 0 {
+		t.Error("nil searcher should not prevent tag-based seeds")
 	}
 }
 

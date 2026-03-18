@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -277,5 +278,128 @@ func TestIndexManager_FileCreated(t *testing.T) {
 	path := filepath.Join(dir, "index.jsonl")
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Error("index.jsonl should exist after Rebuild")
+	}
+}
+
+func TestAddEdgeAppendsLine(t *testing.T) {
+	dir := t.TempDir()
+	im := NewIndexManager(dir)
+	im.Rebuild(nil) // creates empty index
+
+	edge := Edge{Source: "p-A", Target: "p-B", EdgeType: "relates_to"}
+	if err := im.AddEdge(edge); err != nil {
+		t.Fatal(err)
+	}
+
+	// Read raw file — should have the edge line (Rebuild writes clean, AddEdge appends)
+	data, err := os.ReadFile(filepath.Join(dir, "index.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	// After Rebuild(nil) + AddEdge: rebuild writes empty file (or just newline), then append adds 1 line
+	// The last line should contain our edge
+	lastLine := lines[len(lines)-1]
+	if !strings.Contains(lastLine, `"p-A"`) || !strings.Contains(lastLine, `"p-B"`) {
+		t.Errorf("last line should contain edge, got: %s", lastLine)
+	}
+	if strings.Contains(lastLine, `"deleted"`) {
+		t.Error("added edge should not have deleted field")
+	}
+}
+
+func TestRemoveEdgeAppendsTombstone(t *testing.T) {
+	dir := t.TempDir()
+	im := NewIndexManager(dir)
+	im.Rebuild(nil)
+	im.AddEdge(Edge{Source: "p-A", Target: "p-B", EdgeType: "relates_to"})
+
+	if err := im.RemoveEdge("p-A", "p-B", "relates_to"); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "index.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	lastLine := lines[len(lines)-1]
+	if !strings.Contains(lastLine, `"deleted":true`) {
+		t.Errorf("last line should be tombstone, got: %s", lastLine)
+	}
+}
+
+func TestLoadFiltersTombstones(t *testing.T) {
+	dir := t.TempDir()
+	im := NewIndexManager(dir)
+	im.Rebuild(nil)
+	im.AddEdge(Edge{Source: "p-A", Target: "p-B", EdgeType: "relates_to"})
+	im.AddEdge(Edge{Source: "p-A", Target: "p-C", EdgeType: "depends_on"})
+	im.RemoveEdge("p-A", "p-B", "relates_to")
+
+	// Fresh load from disk
+	im2 := NewIndexManager(dir)
+	idx, err := im2.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.Edges) != 1 {
+		t.Errorf("expected 1 edge after filtering tombstones, got %d", len(idx.Edges))
+	}
+	if idx.Edges[0].Target != "p-C" {
+		t.Errorf("remaining edge should be p-C, got %s", idx.Edges[0].Target)
+	}
+}
+
+func TestCompactRemovesTombstones(t *testing.T) {
+	dir := t.TempDir()
+	im := NewIndexManager(dir)
+	im.Rebuild(nil)
+	im.AddEdge(Edge{Source: "p-A", Target: "p-B", EdgeType: "relates_to"})
+	im.AddEdge(Edge{Source: "p-A", Target: "p-C", EdgeType: "depends_on"})
+	im.RemoveEdge("p-A", "p-B", "relates_to")
+
+	if err := im.Compact(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Raw file should have no tombstones
+	data, err := os.ReadFile(filepath.Join(dir, "index.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), `"deleted"`) {
+		t.Error("compacted file should not contain tombstones")
+	}
+
+	// Verify data integrity
+	im2 := NewIndexManager(dir)
+	idx, err := im2.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.Edges) != 1 {
+		t.Errorf("expected 1 edge after compact, got %d", len(idx.Edges))
+	}
+}
+
+func TestBackwardCompatLegacyFooter(t *testing.T) {
+	dir := t.TempDir()
+	// Write old-format index file with tag_stats footer
+	content := `{"source":"p-A","target":"p-B","edge_type":"relates_to"}
+{"tag_stats":{"oauth":5,"api":3}}
+`
+	os.WriteFile(filepath.Join(dir, "index.jsonl"), []byte(content), 0644)
+
+	im := NewIndexManager(dir)
+	idx, err := im.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(idx.Edges) != 1 {
+		t.Errorf("expected 1 edge, got %d", len(idx.Edges))
+	}
+	if idx.TagStats["oauth"] != 5 {
+		t.Errorf("expected oauth=5, got %d", idx.TagStats["oauth"])
 	}
 }

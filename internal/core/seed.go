@@ -44,11 +44,23 @@ func ClearSessionState(root string) {
 	os.Remove(filepath.Join(root, ".session"))
 }
 
+// TextSearchResult holds a single text search hit.
+type TextSearchResult struct {
+	ID    string
+	Score float64
+}
+
+// TextSearcher is a minimal interface for text-based search (e.g., BM25).
+type TextSearcher interface {
+	Search(query string, topK int) []TextSearchResult
+}
+
 // SeedSelector finds initial seed motes from topic keywords and ambient signals.
 type SeedSelector struct {
 	motes    []*Mote
 	tagStats map[string]int
 	signals  []SignalConfig
+	searcher TextSearcher
 }
 
 // AmbientContext holds signals collected from the environment.
@@ -59,9 +71,9 @@ type AmbientContext struct {
 	ContextHint string
 }
 
-// NewSeedSelector creates a SeedSelector.
-func NewSeedSelector(motes []*Mote, tagStats map[string]int, signals []SignalConfig) *SeedSelector {
-	return &SeedSelector{motes: motes, tagStats: tagStats, signals: signals}
+// NewSeedSelector creates a SeedSelector. searcher may be nil to disable BM25.
+func NewSeedSelector(motes []*Mote, tagStats map[string]int, signals []SignalConfig, searcher TextSearcher) *SeedSelector {
+	return &SeedSelector{motes: motes, tagStats: tagStats, signals: signals, searcher: searcher}
 }
 
 // SelectSeeds returns seed motes matching the topic and ambient signals.
@@ -97,6 +109,25 @@ func (ss *SeedSelector) SelectSeeds(topic string, ambient *AmbientContext) []*Mo
 			overlap := keywordOverlap(keywords, bodyKeywords)
 			if overlap > 0 {
 				candidates[m.ID] += float64(overlap) * 0.3
+			}
+		}
+	}
+
+	// BM25 peer signal
+	if ss.searcher != nil && len(keywords) > 0 {
+		results := ss.searcher.Search(topic, 20)
+		if len(results) > 0 {
+			// Normalize by max score to get 0-1 range
+			maxScore := results[0].Score
+			for _, r := range results {
+				if r.Score > maxScore {
+					maxScore = r.Score
+				}
+			}
+			if maxScore > 0 {
+				for _, r := range results {
+					candidates[r.ID] += (r.Score / maxScore) * 0.5
+				}
 			}
 		}
 	}

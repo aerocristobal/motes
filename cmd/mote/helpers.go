@@ -84,6 +84,29 @@ func loadMoteBM25(root string) (*strata.BM25Index, error) {
 	return &idx, nil
 }
 
+// bm25TextSearcher adapts *strata.BM25Index to core.TextSearcher.
+type bm25TextSearcher struct {
+	idx *strata.BM25Index
+}
+
+func (b *bm25TextSearcher) Search(query string, topK int) []core.TextSearchResult {
+	results := b.idx.Search(query, topK)
+	out := make([]core.TextSearchResult, len(results))
+	for i, r := range results {
+		out[i] = core.TextSearchResult{ID: r.Chunk.ID, Score: r.Score}
+	}
+	return out
+}
+
+// loadTextSearcher loads BM25 and wraps it as a core.TextSearcher. Returns nil on error.
+func loadTextSearcher(root string) core.TextSearcher {
+	idx, err := loadMoteBM25(root)
+	if err != nil || idx == nil {
+		return nil
+	}
+	return &bm25TextSearcher{idx: idx}
+}
+
 // rebuildMoteBM25 builds a BM25 index from motes and saves it to disk.
 func rebuildMoteBM25(root string, motes []*core.Mote) error {
 	chunks := make([]strata.Chunk, len(motes))

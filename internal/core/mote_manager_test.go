@@ -376,6 +376,122 @@ func TestMoteManager_ScopeDerivation(t *testing.T) {
 	}
 }
 
+func TestCreate_InvalidType(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	_, err := mm.Create("bogus", "title", CreateOpts{})
+	if err == nil {
+		t.Fatal("expected error for invalid type")
+	}
+}
+
+func TestCreate_EmptyTitle(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	_, err := mm.Create("task", "", CreateOpts{})
+	if err == nil {
+		t.Fatal("expected error for empty title")
+	}
+}
+
+func TestCreate_WhitespaceTitle(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	_, err := mm.Create("task", "   ", CreateOpts{})
+	if err == nil {
+		t.Fatal("expected error for whitespace-only title")
+	}
+}
+
+func TestCreate_InvalidTag(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	_, err := mm.Create("task", "title", CreateOpts{Tags: []string{"valid", "has spaces"}})
+	if err == nil {
+		t.Fatal("expected error for invalid tag")
+	}
+}
+
+func TestCreate_InvalidWeight(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	_, err := mm.Create("task", "title", CreateOpts{Weight: 5.0})
+	if err == nil {
+		t.Fatal("expected error for invalid weight")
+	}
+}
+
+func TestCreate_InvalidOrigin(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	_, err := mm.Create("task", "title", CreateOpts{Origin: "bogus"})
+	if err == nil {
+		t.Fatal("expected error for invalid origin")
+	}
+}
+
+func TestCreate_InvalidSize(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	_, err := mm.Create("task", "title", CreateOpts{Size: "xxl"})
+	if err == nil {
+		t.Fatal("expected error for invalid size")
+	}
+}
+
+func TestUpdate_InvalidStatus(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	m, err := mm.Create("task", "title", CreateOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = mm.Update(m.ID, map[string]interface{}{"status": "bogus"})
+	if err == nil {
+		t.Fatal("expected error for invalid status")
+	}
+}
+
+func TestUpdate_InvalidWeight(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	m, err := mm.Create("task", "title", CreateOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = mm.Update(m.ID, map[string]interface{}{"weight": 2.0})
+	if err == nil {
+		t.Fatal("expected error for invalid weight")
+	}
+}
+
+func TestUpdate_EmptyTitle(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	m, err := mm.Create("task", "title", CreateOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = mm.Update(m.ID, map[string]interface{}{"title": ""})
+	if err == nil {
+		t.Fatal("expected error for empty title")
+	}
+}
+
+func TestUpdate_InvalidTag(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	m, err := mm.Create("task", "title", CreateOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = mm.Update(m.ID, map[string]interface{}{"tags": []string{"has spaces"}})
+	if err == nil {
+		t.Fatal("expected error for invalid tag")
+	}
+}
+
+func TestUpdate_InvalidSize(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	m, err := mm.Create("task", "title", CreateOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = mm.Update(m.ID, map[string]interface{}{"size": "xxl"})
+	if err == nil {
+		t.Fatal("expected error for invalid size")
+	}
+}
+
 func TestMoteManager_CreateSetsFilePath(t *testing.T) {
 	_, mm := setupTestMemory(t)
 

@@ -218,3 +218,20 @@ func TestScore_FullFormula(t *testing.T) {
 		t.Errorf("expected ~%f, got %f", expected, score)
 	}
 }
+
+func TestScore_BodyRefEdgeBonus(t *testing.T) {
+	se := defaultScoreEngine()
+	recent := time.Now().Add(-1 * time.Hour)
+	m := &Mote{Weight: 0.5, Origin: "normal", LastAccessed: &recent}
+
+	bodyRef := se.Score(m, ScoringContext{EdgeType: "body_ref"})
+	builtByRef := se.Score(m, ScoringContext{EdgeType: "built_by_ref"})
+	noEdge := se.Score(m, ScoringContext{EdgeType: "seed"})
+
+	if bodyRef <= noEdge {
+		t.Errorf("body_ref (%f) should score higher than seed (%f)", bodyRef, noEdge)
+	}
+	if builtByRef <= noEdge {
+		t.Errorf("built_by_ref (%f) should score higher than seed (%f)", builtByRef, noEdge)
+	}
+}

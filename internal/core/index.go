@@ -12,6 +12,7 @@ type Edge struct {
 	Source   string `json:"source"`
 	Target   string `json:"target"`
 	EdgeType string `json:"edge_type"`
+	Deleted  bool   `json:"deleted,omitempty"`
 }
 
 type EdgeIndex struct {
@@ -51,13 +52,15 @@ func (idx *EdgeIndex) HasEdges(moteID string) bool {
 }
 
 type IndexManager struct {
-	path  string
-	index *EdgeIndex
+	path         string
+	tagStatsPath string
+	index        *EdgeIndex
 }
 
 func NewIndexManager(root string) *IndexManager {
 	return &IndexManager{
-		path: filepath.Join(root, "index.jsonl"),
+		path:         filepath.Join(root, "index.jsonl"),
+		tagStatsPath: filepath.Join(root, "tag_stats.json"),
 	}
 }
 
@@ -78,16 +81,24 @@ func (im *IndexManager) Load() (*EdgeIndex, error) {
 	data, err := os.ReadFile(im.path)
 	if os.IsNotExist(err) {
 		im.index = idx
+		// Try loading tag_stats from separate file
+		im.loadTagStats(idx)
 		return idx, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("load index: %w", err)
 	}
 
+	// Track tombstones: source|target|edge_type -> bool
+	type edgeKey struct{ source, target, edgeType string }
+	tombstones := map[edgeKey]bool{}
+	var allEdges []Edge
+
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 		if line == "" {
 			continue
 		}
+		// Legacy format: tag_stats footer line
 		if strings.Contains(line, `"tag_stats"`) {
 			var footer struct {
 				TagStats map[string]int `json:"tag_stats"`
@@ -101,8 +112,24 @@ func (im *IndexManager) Load() (*EdgeIndex, error) {
 		if err := json.Unmarshal([]byte(line), &edge); err != nil {
 			continue
 		}
-		idx.Edges = append(idx.Edges, edge)
+		key := edgeKey{edge.Source, edge.Target, edge.EdgeType}
+		if edge.Deleted {
+			tombstones[key] = true
+		} else {
+			allEdges = append(allEdges, edge)
+		}
 	}
+
+	// Filter out tombstoned edges
+	for _, e := range allEdges {
+		key := edgeKey{e.Source, e.Target, e.EdgeType}
+		if !tombstones[key] {
+			idx.Edges = append(idx.Edges, e)
+		}
+	}
+
+	// Load tag_stats from separate file (may override legacy footer)
+	im.loadTagStats(idx)
 
 	im.buildDerived(idx)
 	im.index = idx
@@ -119,6 +146,45 @@ func (im *IndexManager) buildDerived(idx *EdgeIndex) {
 		idx.MoteIDs[e.Source] = true
 		idx.MoteIDs[e.Target] = true
 	}
+}
+
+func (im *IndexManager) loadTagStats(idx *EdgeIndex) {
+	data, err := os.ReadFile(im.tagStatsPath)
+	if err != nil {
+		return // Not found is fine, keep whatever was loaded from legacy footer
+	}
+	var stats map[string]int
+	if err := json.Unmarshal(data, &stats); err == nil && stats != nil {
+		idx.TagStats = stats
+	}
+}
+
+func (im *IndexManager) writeTagStats() error {
+	if im.index == nil {
+		return nil
+	}
+	data, err := json.Marshal(im.index.TagStats)
+	if err != nil {
+		return fmt.Errorf("marshal tag stats: %w", err)
+	}
+	return AtomicWrite(im.tagStatsPath, data, 0644)
+}
+
+func (im *IndexManager) appendEdgeLine(edge Edge) error {
+	line, err := json.Marshal(edge)
+	if err != nil {
+		return fmt.Errorf("marshal edge: %w", err)
+	}
+	line = append(line, '\n')
+
+	f, err := os.OpenFile(im.path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open index for append: %w", err)
+	}
+	defer f.Close()
+
+	_, err = f.Write(line)
+	return err
 }
 
 // Rebuild reconstructs the index from mote frontmatter link fields.
@@ -186,7 +252,7 @@ func (im *IndexManager) AddEdge(edge Edge) error {
 	im.index.incoming[edge.Target] = append(im.index.incoming[edge.Target], edge)
 	im.index.MoteIDs[edge.Source] = true
 	im.index.MoteIDs[edge.Target] = true
-	return im.writeIndex()
+	return im.appendEdgeLine(edge)
 }
 
 // RemoveEdge removes a specific edge from the index.
@@ -197,14 +263,20 @@ func (im *IndexManager) RemoveEdge(source, target, edgeType string) error {
 		}
 	}
 	filtered := im.index.Edges[:0]
+	found := false
 	for _, e := range im.index.Edges {
-		if !(e.Source == source && e.Target == target && e.EdgeType == edgeType) {
+		if e.Source == source && e.Target == target && e.EdgeType == edgeType {
+			found = true
+		} else {
 			filtered = append(filtered, e)
 		}
 	}
+	if !found {
+		return nil
+	}
 	im.index.Edges = filtered
 	im.buildDerived(im.index)
-	return im.writeIndex()
+	return im.appendEdgeLine(Edge{Source: source, Target: target, EdgeType: edgeType, Deleted: true})
 }
 
 // MoteBM25Manager manages a persistent BM25 index over mote content.
@@ -250,13 +322,18 @@ func (im *IndexManager) writeIndex() error {
 		buf.Write(line)
 		buf.WriteByte('\n')
 	}
-	footer, err := json.Marshal(struct {
-		TagStats map[string]int `json:"tag_stats"`
-	}{TagStats: im.index.TagStats})
-	if err != nil {
-		return fmt.Errorf("marshal tag stats: %w", err)
+	if err := AtomicWrite(im.path, []byte(buf.String()), 0644); err != nil {
+		return err
 	}
-	buf.Write(footer)
-	buf.WriteByte('\n')
-	return AtomicWrite(im.path, []byte(buf.String()), 0644)
+	return im.writeTagStats()
+}
+
+// Compact rewrites the index file without tombstones and updates tag_stats.
+func (im *IndexManager) Compact() error {
+	if im.index == nil {
+		if _, err := im.Load(); err != nil {
+			return err
+		}
+	}
+	return im.writeIndex()
 }

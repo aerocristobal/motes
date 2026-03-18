@@ -123,6 +123,39 @@ func scopeFromRoot(root string) string {
 
 // Create makes a new mote file and returns the mote.
 func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, error) {
+	// Validate inputs
+	if err := security.ValidateEnum(moteType, ValidTypes, "type"); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(title) == "" {
+		return nil, fmt.Errorf("title cannot be empty")
+	}
+	for _, tag := range opts.Tags {
+		if err := security.ValidateTag(tag); err != nil {
+			return nil, fmt.Errorf("invalid tag: %w", err)
+		}
+	}
+	if opts.Weight != 0 {
+		if err := security.ValidateWeight(opts.Weight); err != nil {
+			return nil, err
+		}
+	}
+	if opts.Origin != "" {
+		if err := security.ValidateEnum(opts.Origin, ValidOrigins, "origin"); err != nil {
+			return nil, err
+		}
+	}
+	if opts.Size != "" {
+		if err := security.ValidateEnum(opts.Size, ValidSizes, "size"); err != nil {
+			return nil, err
+		}
+	}
+	if opts.Body != "" {
+		if err := security.ValidateBodySize(opts.Body); err != nil {
+			return nil, err
+		}
+	}
+
 	scope := scopeFromRoot(mm.root)
 	id := GenerateID(scope, moteType)
 
@@ -203,20 +236,42 @@ func (mm *MoteManager) updateUnlocked(moteID string, fields map[string]interface
 	for k, v := range fields {
 		switch k {
 		case "status":
-			m.Status = v.(string)
+			s := v.(string)
+			if err := security.ValidateEnum(s, ValidStatuses, "status"); err != nil {
+				return err
+			}
+			m.Status = s
 		case "title":
-			m.Title = v.(string)
+			s := v.(string)
+			if strings.TrimSpace(s) == "" {
+				return fmt.Errorf("title cannot be empty")
+			}
+			m.Title = s
 		case "weight":
-			m.Weight = v.(float64)
+			w := v.(float64)
+			if err := security.ValidateWeight(w); err != nil {
+				return err
+			}
+			m.Weight = w
 		case "tags":
-			m.Tags = v.([]string)
+			tags := v.([]string)
+			for _, tag := range tags {
+				if err := security.ValidateTag(tag); err != nil {
+					return fmt.Errorf("invalid tag: %w", err)
+				}
+			}
+			m.Tags = tags
 		case "last_accessed":
 			t := v.(time.Time)
 			m.LastAccessed = &t
 		case "access_count":
 			m.AccessCount = v.(int)
 		case "body":
-			m.Body = v.(string)
+			s := v.(string)
+			if err := security.ValidateBodySize(s); err != nil {
+				return err
+			}
+			m.Body = s
 		case "deprecated_by":
 			m.DeprecatedBy = v.(string)
 		case "parent":
@@ -226,7 +281,13 @@ func (mm *MoteManager) updateUnlocked(moteID string, fields map[string]interface
 		case "acceptance_met":
 			m.AcceptanceMet = v.([]bool)
 		case "size":
-			m.Size = v.(string)
+			s := v.(string)
+			if s != "" {
+				if err := security.ValidateEnum(s, ValidSizes, "size"); err != nil {
+					return err
+				}
+			}
+			m.Size = s
 		}
 	}
 	m.ModifiedBy = ResolveAgentID()
