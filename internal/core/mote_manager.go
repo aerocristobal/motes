@@ -14,6 +14,7 @@ import (
 
 type MoteManager struct {
 	root           string
+	cache          *ReadCache
 	accessBatchMux sync.Mutex // Protects access batch operations
 }
 
@@ -45,7 +46,7 @@ type AccessBatchEntry struct {
 }
 
 func NewMoteManager(root string) *MoteManager {
-	return &MoteManager{root: root}
+	return &MoteManager{root: root, cache: NewReadCache()}
 }
 
 // Root returns the .memory root path.
@@ -205,13 +206,21 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 	return m, nil
 }
 
-// Read loads a mote by ID.
+// Read loads a mote by ID, using the in-memory cache when the file is unchanged.
 func (mm *MoteManager) Read(moteID string) (*Mote, error) {
 	path, err := mm.moteFilePath(moteID)
 	if err != nil {
 		return nil, fmt.Errorf("get file path: %w", err)
 	}
-	return ParseMote(path)
+	if m, ok := mm.cache.Get(moteID, path); ok {
+		return m, nil
+	}
+	m, err := ParseMote(path)
+	if err != nil {
+		return nil, err
+	}
+	mm.cache.Put(moteID, path, m)
+	return m, nil
 }
 
 // Update applies field changes to a mote and persists them.
@@ -475,7 +484,15 @@ func (mm *MoteManager) ReadAllParallel() ([]*Mote, error) {
 		go func(idx int, name string) {
 			defer wg.Done()
 			path := filepath.Join(mm.nodesDir(), name)
+			moteID := strings.TrimSuffix(name, ".md")
+			if m, ok := mm.cache.Get(moteID, path); ok {
+				results[idx] = result{mote: m, name: name}
+				return
+			}
 			m, parseErr := ParseMote(path)
+			if parseErr == nil {
+				mm.cache.Put(moteID, path, m)
+			}
 			results[idx] = result{mote: m, err: parseErr, name: name}
 		}(i, entry.Name())
 	}

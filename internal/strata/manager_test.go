@@ -192,6 +192,43 @@ func TestRemoveCorpus_NotFound(t *testing.T) {
 	}
 }
 
+func TestQueryAllSorting(t *testing.T) {
+	_, sm, _ := setupStrataTest(t)
+
+	dir := t.TempDir()
+	// Create two corpora with content that will produce different BM25 scores for "oauth"
+	writeTestFile(t, dir, "auth.md", "# OAuth\n\nOAuth is an authorization protocol. OAuth tokens. OAuth flow.\n")
+	writeTestFile(t, dir, "misc.md", "# Misc\n\nSome misc content about APIs and servers.\n\n# OAuth note\n\nBrief mention of oauth.\n")
+
+	sm.AddCorpus("auth-corpus", []string{filepath.Join(dir, "auth.md")}, false, nil)
+	sm.AddCorpus("misc-corpus", []string{filepath.Join(dir, "misc.md")}, false, nil)
+
+	results, err := sm.QueryAll("oauth", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) < 2 {
+		t.Fatalf("expected at least 2 results, got %d", len(results))
+	}
+
+	// Verify descending score order
+	for i := 1; i < len(results); i++ {
+		if results[i].Score > results[i-1].Score {
+			t.Errorf("results not in descending order: index %d score %f > index %d score %f",
+				i, results[i].Score, i-1, results[i-1].Score)
+		}
+	}
+
+	// Verify topK cap
+	results2, err := sm.QueryAll("oauth", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results2) > 1 {
+		t.Errorf("topK=1 should cap results to 1, got %d", len(results2))
+	}
+}
+
 func TestQuery_NoCorpora(t *testing.T) {
 	_, sm, _ := setupStrataTest(t)
 	results, err := sm.QueryAll("anything", 5)

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -248,14 +249,10 @@ func (sm *StrataManager) QueryAll(topic string, topK int) ([]ChunkResult, error)
 		allResults = append(allResults, results...)
 	}
 
-	// Sort by score, cap at topK
-	for i := range allResults {
-		for j := i + 1; j < len(allResults); j++ {
-			if allResults[j].Score > allResults[i].Score {
-				allResults[i], allResults[j] = allResults[j], allResults[i]
-			}
-		}
-	}
+	// Sort by score descending, cap at topK
+	sort.Slice(allResults, func(i, j int) bool {
+		return allResults[i].Score > allResults[j].Score
+	})
 	if len(allResults) > topK {
 		allResults = allResults[:topK]
 	}
