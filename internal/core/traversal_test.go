@@ -22,7 +22,7 @@ func TestTraverse_SingleSeed(t *testing.T) {
 
 	a, _ := mm.Create("task", "Seed", CreateOpts{Weight: 0.8, Tags: []string{"auth"}})
 	recent := time.Now().Add(-1 * time.Hour)
-	mm.Update(a.ID, map[string]interface{}{"last_accessed": recent})
+	mm.Update(a.ID, UpdateOpts{LastAccessed: &recent})
 
 	// Rebuild index to get tag stats
 	motes, _ := mm.ReadAllParallel()
@@ -51,8 +51,8 @@ func TestTraverse_OneHop(t *testing.T) {
 	b, _ := mm.Create("decision", "Related", CreateOpts{Weight: 0.6, Tags: []string{"auth"}})
 
 	recent := time.Now().Add(-1 * time.Hour)
-	mm.Update(a.ID, map[string]interface{}{"last_accessed": recent})
-	mm.Update(b.ID, map[string]interface{}{"last_accessed": recent})
+	mm.Update(a.ID, UpdateOpts{LastAccessed: &recent})
+	mm.Update(b.ID, UpdateOpts{LastAccessed: &recent})
 
 	mm.Link(a.ID, "relates_to", b.ID, im)
 
@@ -82,7 +82,7 @@ func TestTraverse_TwoHopLimit(t *testing.T) {
 
 	recent := time.Now().Add(-1 * time.Hour)
 	for _, id := range []string{a.ID, b.ID, c.ID, d.ID} {
-		mm.Update(id, map[string]interface{}{"last_accessed": recent})
+		mm.Update(id, UpdateOpts{LastAccessed: &recent})
 	}
 
 	mm.Link(a.ID, "relates_to", b.ID, im)
@@ -122,7 +122,7 @@ func TestTraverse_ThresholdFiltering(t *testing.T) {
 	// b never accessed → recency factor 0.4
 	// score ≈ 0.05 × 0.4 = 0.02, well below 0.25 threshold
 	recent := time.Now().Add(-1 * time.Hour)
-	mm.Update(a.ID, map[string]interface{}{"last_accessed": recent})
+	mm.Update(a.ID, UpdateOpts{LastAccessed: &recent})
 
 	mm.Link(a.ID, "relates_to", b.ID, im)
 
@@ -151,11 +151,11 @@ func TestTraverse_MaxResults(t *testing.T) {
 
 	// Create 15 motes, all linked from a seed
 	seed, _ := mm.Create("task", "Seed", CreateOpts{Weight: 0.9})
-	mm.Update(seed.ID, map[string]interface{}{"last_accessed": recent})
+	mm.Update(seed.ID, UpdateOpts{LastAccessed: &recent})
 
 	for i := 0; i < 14; i++ {
 		m, _ := mm.Create("task", "Target", CreateOpts{Weight: 0.5})
-		mm.Update(m.ID, map[string]interface{}{"last_accessed": recent})
+		mm.Update(m.ID, UpdateOpts{LastAccessed: &recent})
 		mm.Link(seed.ID, "relates_to", m.ID, im)
 	}
 
@@ -184,9 +184,9 @@ func TestTraverse_ContradictionPenalty(t *testing.T) {
 	b, _ := mm.Create("decision", "Decision B", CreateOpts{Weight: 0.7})
 	c, _ := mm.Create("decision", "Contradicts B", CreateOpts{Weight: 0.7})
 
-	mm.Update(a.ID, map[string]interface{}{"last_accessed": recent})
-	mm.Update(b.ID, map[string]interface{}{"last_accessed": recent})
-	mm.Update(c.ID, map[string]interface{}{"last_accessed": recent})
+	mm.Update(a.ID, UpdateOpts{LastAccessed: &recent})
+	mm.Update(b.ID, UpdateOpts{LastAccessed: &recent})
+	mm.Update(c.ID, UpdateOpts{LastAccessed: &recent})
 
 	mm.Link(a.ID, "relates_to", b.ID, im)
 	mm.Link(a.ID, "relates_to", c.ID, im)
@@ -217,8 +217,8 @@ func TestTraverse_SortedByScore(t *testing.T) {
 	a, _ := mm.Create("task", "High", CreateOpts{Weight: 0.9})
 	b, _ := mm.Create("task", "Low", CreateOpts{Weight: 0.3})
 
-	mm.Update(a.ID, map[string]interface{}{"last_accessed": recent})
-	mm.Update(b.ID, map[string]interface{}{"last_accessed": recent})
+	mm.Update(a.ID, UpdateOpts{LastAccessed: &recent})
+	mm.Update(b.ID, UpdateOpts{LastAccessed: &recent})
 
 	motes, _ := mm.ReadAllParallel()
 	im.Rebuild(motes)

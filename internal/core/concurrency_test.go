@@ -155,7 +155,7 @@ func TestAgentIdentity_CreateUpdate(t *testing.T) {
 
 	// Update with different agent
 	t.Setenv("MOTE_AGENT_ID", "test-agent-2")
-	if err := mm.Update(m.ID, map[string]interface{}{"title": "Updated"}); err != nil {
+	if err := mm.Update(m.ID, UpdateOpts{Title: StringPtr("Updated")}); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 

@@ -118,9 +118,9 @@ func TestMoteManager_Update(t *testing.T) {
 
 	m, _ := mm.Create("task", "Original", CreateOpts{})
 
-	err := mm.Update(m.ID, map[string]interface{}{
-		"status": "completed",
-		"weight": 0.9,
+	err := mm.Update(m.ID, UpdateOpts{
+		Status: StringPtr("completed"),
+		Weight: Float64Ptr(0.9),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -206,7 +206,7 @@ func TestMoteManager_ListByStatus(t *testing.T) {
 	m1, _ := mm.Create("task", "Active", CreateOpts{})
 	m2, _ := mm.Create("task", "Deprecated", CreateOpts{})
 	_ = m1
-	mm.Update(m2.ID, map[string]interface{}{"status": "deprecated"})
+	mm.Update(m2.ID, UpdateOpts{Status: StringPtr("deprecated")})
 
 	motes, err := mm.List(ListFilters{Status: "active"})
 	if err != nil {
@@ -223,15 +223,15 @@ func TestMoteManager_ListStale(t *testing.T) {
 	// Stale: accessed 91 days ago
 	m1, _ := mm.Create("task", "Stale", CreateOpts{})
 	old := time.Now().Add(-91 * 24 * time.Hour)
-	mm.Update(m1.ID, map[string]interface{}{
-		"last_accessed": old,
+	mm.Update(m1.ID, UpdateOpts{
+		LastAccessed: &old,
 	})
 
 	// Fresh: accessed 10 days ago
 	m2, _ := mm.Create("task", "Fresh", CreateOpts{})
 	recent := time.Now().Add(-10 * 24 * time.Hour)
-	mm.Update(m2.ID, map[string]interface{}{
-		"last_accessed": recent,
+	mm.Update(m2.ID, UpdateOpts{
+		LastAccessed: &recent,
 	})
 
 	// Never accessed (nil) = stale
@@ -438,7 +438,7 @@ func TestUpdate_InvalidStatus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = mm.Update(m.ID, map[string]interface{}{"status": "bogus"})
+	err = mm.Update(m.ID, UpdateOpts{Status: StringPtr("bogus")})
 	if err == nil {
 		t.Fatal("expected error for invalid status")
 	}
@@ -450,7 +450,7 @@ func TestUpdate_InvalidWeight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = mm.Update(m.ID, map[string]interface{}{"weight": 2.0})
+	err = mm.Update(m.ID, UpdateOpts{Weight: Float64Ptr(2.0)})
 	if err == nil {
 		t.Fatal("expected error for invalid weight")
 	}
@@ -462,7 +462,7 @@ func TestUpdate_EmptyTitle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = mm.Update(m.ID, map[string]interface{}{"title": ""})
+	err = mm.Update(m.ID, UpdateOpts{Title: StringPtr("")})
 	if err == nil {
 		t.Fatal("expected error for empty title")
 	}
@@ -474,7 +474,7 @@ func TestUpdate_InvalidTag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = mm.Update(m.ID, map[string]interface{}{"tags": []string{"has spaces"}})
+	err = mm.Update(m.ID, UpdateOpts{Tags: []string{"has spaces"}})
 	if err == nil {
 		t.Fatal("expected error for invalid tag")
 	}
@@ -486,7 +486,7 @@ func TestUpdate_InvalidSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = mm.Update(m.ID, map[string]interface{}{"size": "xxl"})
+	err = mm.Update(m.ID, UpdateOpts{Size: StringPtr("xxl")})
 	if err == nil {
 		t.Fatal("expected error for invalid size")
 	}

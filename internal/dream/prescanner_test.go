@@ -49,15 +49,15 @@ func TestPreScanner_StaleMotes(t *testing.T) {
 	// Create mote with old last_accessed
 	m := createTestMote(t, mm, "context", "Old context", []string{"stale"})
 	old := time.Now().Add(-200 * 24 * time.Hour)
-	mm.Update(m.ID, map[string]interface{}{
-		"last_accessed": old,
+	mm.Update(m.ID, core.UpdateOpts{
+		LastAccessed: &old,
 	})
 
 	// Create recent mote
 	recent := createTestMote(t, mm, "task", "Fresh task", []string{"active"})
 	now := time.Now()
-	mm.Update(recent.ID, map[string]interface{}{
-		"last_accessed": now,
+	mm.Update(recent.ID, core.UpdateOpts{
+		LastAccessed: &now,
 	})
 
 	ps := NewPreScanner(root, mm, im, core.DefaultConfig().Dream)
@@ -126,7 +126,7 @@ func TestPreScanner_UncrystallizedIssues(t *testing.T) {
 
 	// Create a completed mote without crystallized counterpart
 	m := createTestMote(t, mm, "task", "Done task", []string{"done"})
-	mm.Update(m.ID, map[string]interface{}{"status": "completed"})
+	mm.Update(m.ID, core.UpdateOpts{Status: core.StringPtr("completed")})
 
 	ps := NewPreScanner(root, mm, im, core.DefaultConfig().Dream)
 	result, err := ps.Scan()
@@ -262,8 +262,8 @@ func TestPreScanner_ContentLinkCandidates_ExcludesLinked(t *testing.T) {
 	m1 := createTestMote(t, mm, "decision", "OAuth flow", []string{"auth", "oauth", "security"})
 	m2 := createTestMote(t, mm, "lesson", "OAuth patterns", []string{"auth", "oauth", "security"})
 	// Give them overlapping body content
-	mm.Update(m1.ID, map[string]interface{}{"body": "OAuth token refresh authentication"})
-	mm.Update(m2.ID, map[string]interface{}{"body": "OAuth authentication token validation"})
+	mm.Update(m1.ID, core.UpdateOpts{Body: core.StringPtr("OAuth token refresh authentication")})
+	mm.Update(m2.ID, core.UpdateOpts{Body: core.StringPtr("OAuth authentication token validation")})
 
 	motes, _ := mm.ReadAllParallel()
 	im.Rebuild(motes)

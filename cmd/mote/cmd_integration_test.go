@@ -79,7 +79,7 @@ func seedMotes(t *testing.T, root string, specs []moteSpec) {
 			t.Fatalf("seed mote %q: %v", s.Title, err)
 		}
 		if s.Status != "" && s.Status != "active" {
-			mm.Update(m.ID, map[string]interface{}{"status": s.Status})
+			mm.Update(m.ID, core.UpdateOpts{Status: core.StringPtr(s.Status)})
 		}
 	}
 

@@ -54,8 +54,8 @@ func runCheck(cmd *cobra.Command, args []string) error {
 		for i := range m.AcceptanceMet {
 			m.AcceptanceMet[i] = true
 		}
-		if err := mm.Update(moteID, map[string]interface{}{
-			"acceptance_met": m.AcceptanceMet,
+		if err := mm.Update(moteID, core.UpdateOpts{
+			AcceptanceMet: m.AcceptanceMet,
 		}); err != nil {
 			return err
 		}
@@ -73,8 +73,8 @@ func runCheck(cmd *cobra.Command, args []string) error {
 	}
 
 	m.AcceptanceMet[idx-1] = !m.AcceptanceMet[idx-1]
-	if err := mm.Update(moteID, map[string]interface{}{
-		"acceptance_met": m.AcceptanceMet,
+	if err := mm.Update(moteID, core.UpdateOpts{
+		AcceptanceMet: m.AcceptanceMet,
 	}); err != nil {
 		return err
 	}

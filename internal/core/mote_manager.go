@@ -223,81 +223,110 @@ func (mm *MoteManager) Read(moteID string) (*Mote, error) {
 	return m, nil
 }
 
+// UpdateOpts specifies which fields to update on a mote.
+// Pointer fields: nil means "leave unchanged".
+// Slice fields: nil means "leave unchanged", non-nil (even empty) means "replace".
+type UpdateOpts struct {
+	Status        *string
+	Title         *string
+	Weight        *float64
+	Tags          []string   // nil = no change, non-nil = replace
+	Body          *string
+	DeprecatedBy  *string
+	Parent        *string
+	Acceptance    []string   // nil = no change, non-nil = replace
+	AcceptanceMet []bool     // nil = no change, non-nil = replace
+	Size          *string
+	LastAccessed  *time.Time
+	AccessCount   *int
+}
+
+// StringPtr returns a pointer to the given string. Useful for building UpdateOpts
+// from string literals.
+func StringPtr(s string) *string { return &s }
+
+// Float64Ptr returns a pointer to the given float64.
+func Float64Ptr(f float64) *float64 { return &f }
+
+// IntPtr returns a pointer to the given int.
+func IntPtr(i int) *int { return &i }
+
 // Update applies field changes to a mote and persists them.
 // Acquires a per-mote lock to prevent lost updates from concurrent agents.
-func (mm *MoteManager) Update(moteID string, fields map[string]interface{}) error {
+func (mm *MoteManager) Update(moteID string, opts UpdateOpts) error {
 	lock, err := mm.LockMote(moteID)
 	if err != nil {
 		return err
 	}
 	defer lock.Unlock()
 
-	return mm.updateUnlocked(moteID, fields)
+	return mm.updateUnlocked(moteID, opts)
 }
 
 // updateUnlocked applies field changes without acquiring the per-mote lock.
 // Caller must hold the lock (or ops lock) before calling.
-func (mm *MoteManager) updateUnlocked(moteID string, fields map[string]interface{}) error {
+func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 	m, err := mm.Read(moteID)
 	if err != nil {
 		return err
 	}
-	for k, v := range fields {
-		switch k {
-		case "status":
-			s := v.(string)
-			if err := security.ValidateEnum(s, ValidStatuses, "status"); err != nil {
-				return err
-			}
-			m.Status = s
-		case "title":
-			s := v.(string)
-			if strings.TrimSpace(s) == "" {
-				return fmt.Errorf("title cannot be empty")
-			}
-			m.Title = s
-		case "weight":
-			w := v.(float64)
-			if err := security.ValidateWeight(w); err != nil {
-				return err
-			}
-			m.Weight = w
-		case "tags":
-			tags := v.([]string)
-			for _, tag := range tags {
-				if err := security.ValidateTag(tag); err != nil {
-					return fmt.Errorf("invalid tag: %w", err)
-				}
-			}
-			m.Tags = tags
-		case "last_accessed":
-			t := v.(time.Time)
-			m.LastAccessed = &t
-		case "access_count":
-			m.AccessCount = v.(int)
-		case "body":
-			s := v.(string)
-			if err := security.ValidateBodySize(s); err != nil {
-				return err
-			}
-			m.Body = s
-		case "deprecated_by":
-			m.DeprecatedBy = v.(string)
-		case "parent":
-			m.Parent = v.(string)
-		case "acceptance":
-			m.Acceptance = v.([]string)
-		case "acceptance_met":
-			m.AcceptanceMet = v.([]bool)
-		case "size":
-			s := v.(string)
-			if s != "" {
-				if err := security.ValidateEnum(s, ValidSizes, "size"); err != nil {
-					return err
-				}
-			}
-			m.Size = s
+	if opts.Status != nil {
+		if err := security.ValidateEnum(*opts.Status, ValidStatuses, "status"); err != nil {
+			return err
 		}
+		m.Status = *opts.Status
+	}
+	if opts.Title != nil {
+		if strings.TrimSpace(*opts.Title) == "" {
+			return fmt.Errorf("title cannot be empty")
+		}
+		m.Title = *opts.Title
+	}
+	if opts.Weight != nil {
+		if err := security.ValidateWeight(*opts.Weight); err != nil {
+			return err
+		}
+		m.Weight = *opts.Weight
+	}
+	if opts.Tags != nil {
+		for _, tag := range opts.Tags {
+			if err := security.ValidateTag(tag); err != nil {
+				return fmt.Errorf("invalid tag: %w", err)
+			}
+		}
+		m.Tags = opts.Tags
+	}
+	if opts.LastAccessed != nil {
+		m.LastAccessed = opts.LastAccessed
+	}
+	if opts.AccessCount != nil {
+		m.AccessCount = *opts.AccessCount
+	}
+	if opts.Body != nil {
+		if err := security.ValidateBodySize(*opts.Body); err != nil {
+			return err
+		}
+		m.Body = *opts.Body
+	}
+	if opts.DeprecatedBy != nil {
+		m.DeprecatedBy = *opts.DeprecatedBy
+	}
+	if opts.Parent != nil {
+		m.Parent = *opts.Parent
+	}
+	if opts.Acceptance != nil {
+		m.Acceptance = opts.Acceptance
+	}
+	if opts.AcceptanceMet != nil {
+		m.AcceptanceMet = opts.AcceptanceMet
+	}
+	if opts.Size != nil {
+		if *opts.Size != "" {
+			if err := security.ValidateEnum(*opts.Size, ValidSizes, "size"); err != nil {
+				return err
+			}
+		}
+		m.Size = *opts.Size
 	}
 	m.ModifiedBy = ResolveAgentID()
 	data, err := SerializeMote(m)
@@ -423,9 +452,9 @@ func hasTag(m *Mote, tag string) bool {
 
 // Deprecate sets a mote's status to deprecated and records who deprecated it.
 func (mm *MoteManager) Deprecate(moteID, supersededBy string) error {
-	return mm.Update(moteID, map[string]interface{}{
-		"status":        "deprecated",
-		"deprecated_by": supersededBy,
+	return mm.Update(moteID, UpdateOpts{
+		Status:       StringPtr("deprecated"),
+		DeprecatedBy: &supersededBy,
 	})
 }
 

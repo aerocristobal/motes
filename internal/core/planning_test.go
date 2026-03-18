@@ -88,8 +88,8 @@ func TestCheckAcceptance(t *testing.T) {
 
 	// Toggle criterion 2
 	met := []bool{false, true, false}
-	err := mm.Update(m.ID, map[string]interface{}{
-		"acceptance_met": met,
+	err := mm.Update(m.ID, UpdateOpts{
+		AcceptanceMet: met,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -127,8 +127,8 @@ func TestUpdateParent(t *testing.T) {
 	parent, _ := mm.Create("task", "Parent", CreateOpts{})
 	child, _ := mm.Create("task", "Child", CreateOpts{})
 
-	err := mm.Update(child.ID, map[string]interface{}{
-		"parent": parent.ID,
+	err := mm.Update(child.ID, UpdateOpts{
+		Parent: StringPtr(parent.ID),
 	})
 	if err != nil {
 		t.Fatal(err)

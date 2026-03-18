@@ -108,16 +108,20 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 	mm := core.NewMoteManager(root)
 
-	fields := map[string]interface{}{}
+	var opts core.UpdateOpts
+	var parts []string
 
 	if cmd.Flags().Changed("status") {
-		fields["status"] = updateStatus
+		opts.Status = &updateStatus
+		parts = append(parts, fmt.Sprintf("status=%s", updateStatus))
 	}
 	if cmd.Flags().Changed("title") {
-		fields["title"] = updateTitle
+		opts.Title = &updateTitle
+		parts = append(parts, fmt.Sprintf("title=%s", updateTitle))
 	}
 	if cmd.Flags().Changed("weight") {
-		fields["weight"] = updateWeight
+		opts.Weight = &updateWeight
+		parts = append(parts, fmt.Sprintf("weight=%v", updateWeight))
 	}
 	if cmd.Flags().Changed("add-tag") {
 		m, err := mm.Read(moteID)
@@ -128,10 +132,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		for _, t := range updateAddTag {
 			tags = append(tags, t)
 		}
-		fields["tags"] = tags
+		opts.Tags = tags
+		parts = append(parts, fmt.Sprintf("tags=%v", tags))
 	}
 	if cmd.Flags().Changed("body") {
-		fields["body"] = updateBody
+		opts.Body = &updateBody
+		parts = append(parts, fmt.Sprintf("body=%s", updateBody))
 	}
 	if cmd.Flags().Changed("accept") {
 		m, err := mm.Read(moteID)
@@ -144,29 +150,24 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			acceptance = append(acceptance, a)
 			acceptanceMet = append(acceptanceMet, false)
 		}
-		fields["acceptance"] = acceptance
-		fields["acceptance_met"] = acceptanceMet
+		opts.Acceptance = acceptance
+		opts.AcceptanceMet = acceptanceMet
+		parts = append(parts, fmt.Sprintf("acceptance=%v", acceptance))
 	}
 	if cmd.Flags().Changed("size") {
-		fields["size"] = updateSize
+		opts.Size = &updateSize
+		parts = append(parts, fmt.Sprintf("size=%s", updateSize))
 	}
 	if cmd.Flags().Changed("parent") {
-		fields["parent"] = updateParent
+		opts.Parent = &updateParent
+		parts = append(parts, fmt.Sprintf("parent=%s", updateParent))
 	}
 
-	if err := mm.Update(moteID, fields); err != nil {
+	if err := mm.Update(moteID, opts); err != nil {
 		return fmt.Errorf("update mote: %w", err)
 	}
 
 	// Print confirmation
-	var parts []string
-	for k, v := range fields {
-		if k == "tags" {
-			parts = append(parts, fmt.Sprintf("tags=%v", v))
-		} else {
-			parts = append(parts, fmt.Sprintf("%s=%v", k, v))
-		}
-	}
 	fmt.Fprintf(os.Stdout, "Updated %s:", moteID)
 	for _, p := range parts {
 		fmt.Fprintf(os.Stdout, " %s", p)

@@ -350,8 +350,8 @@ func TestListReady_AllBlockersCompleted(t *testing.T) {
 
 	mm.Link(a.ID, "depends_on", b.ID, im)
 	mm.Link(a.ID, "depends_on", c.ID, im)
-	mm.Update(b.ID, map[string]interface{}{"status": "completed"})
-	mm.Update(c.ID, map[string]interface{}{"status": "completed"})
+	mm.Update(b.ID, UpdateOpts{Status: StringPtr("completed")})
+	mm.Update(c.ID, UpdateOpts{Status: StringPtr("completed")})
 
 	motes, err := mm.List(ListFilters{Ready: true})
 	if err != nil {
@@ -374,7 +374,7 @@ func TestListReady_SomeBlockersActive(t *testing.T) {
 
 	mm.Link(a.ID, "depends_on", b.ID, im)
 	mm.Link(a.ID, "depends_on", c.ID, im)
-	mm.Update(b.ID, map[string]interface{}{"status": "completed"})
+	mm.Update(b.ID, UpdateOpts{Status: StringPtr("completed")})
 	// c remains active
 
 	motes, err := mm.List(ListFilters{Ready: true})
@@ -393,7 +393,7 @@ func TestListReady_OnlyActiveTasks(t *testing.T) {
 	_, mm, _ := setupTestLink(t)
 
 	a, _ := mm.Create("task", "Completed task", CreateOpts{})
-	mm.Update(a.ID, map[string]interface{}{"status": "completed"})
+	mm.Update(a.ID, UpdateOpts{Status: StringPtr("completed")})
 	mm.Create("decision", "Not a task", CreateOpts{})
 
 	motes, err := mm.List(ListFilters{Ready: true})

@@ -512,7 +512,7 @@ func runOnboardGlobal() error {
 			}
 
 			if issue.Status == "closed" {
-				_ = mm.Update(m.ID, map[string]interface{}{"status": "completed"})
+				_ = mm.Update(m.ID, core.UpdateOpts{Status: core.StringPtr("completed")})
 			}
 
 			totalCreated++

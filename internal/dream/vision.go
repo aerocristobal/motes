@@ -403,7 +403,7 @@ func ApplyVision(v Vision, mm *core.MoteManager, im *core.IndexManager, root str
 		for _, srcID := range v.SourceMotes {
 			_ = mm.Link(hub.ID, "builds_on", srcID, im)
 			// Archive source mote
-			_ = mm.Update(srcID, map[string]interface{}{"status": "archived"})
+			_ = mm.Update(srcID, core.UpdateOpts{Status: core.StringPtr("archived")})
 		}
 		fmt.Printf("  -> Summarized %d motes into %s\n", len(v.SourceMotes), hub.ID)
 	case "signal":

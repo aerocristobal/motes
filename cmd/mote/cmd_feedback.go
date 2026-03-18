@@ -62,8 +62,8 @@ func runFeedback(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if err := mm.Update(moteID, map[string]interface{}{
-		"weight": newWeight,
+	if err := mm.Update(moteID, core.UpdateOpts{
+		Weight: &newWeight,
 	}); err != nil {
 		return fmt.Errorf("update weight: %w", err)
 	}
