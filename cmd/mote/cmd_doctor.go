@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -49,7 +50,31 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		moteMap[m.ID] = m
 	}
 
+	issues := runDoctorChecks(mm, im, idx, moteMap, cfg)
+
+	if len(issues) == 0 {
+		fmt.Println("No issues found. Graph is healthy.")
+		return nil
+	}
+
+	fmt.Printf("%-16s  %-26s  %s\n", "ISSUE", "MOTE", "DETAIL")
+	fmt.Println(strings.Repeat("-", 80))
+	for _, iss := range issues {
+		fmt.Printf("%-16s  %-26s  %s\n", iss.Category, iss.MoteID, iss.Detail)
+	}
+	fmt.Printf("\n%d issue(s) found.\n", len(issues))
+	os.Exit(1)
+	return nil
+}
+
+func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.EdgeIndex, moteMap map[string]*core.Mote, cfg *core.Config) []doctorIssue {
 	var issues []doctorIssue
+
+	// Collect motes as a slice for ordered iteration
+	var motes []*core.Mote
+	for _, m := range moteMap {
+		motes = append(motes, m)
+	}
 
 	for _, m := range motes {
 		// Broken links
@@ -151,19 +176,138 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if len(issues) == 0 {
-		fmt.Println("No issues found. Graph is healthy.")
-		return nil
+	// Orphaned edges: edges pointing to motes not in the active graph
+	trashedSet := make(map[string]bool)
+	if trashed, err := mm.ListTrash(); err == nil {
+		for _, m := range trashed {
+			trashedSet[m.ID] = true
+		}
+	}
+	for _, e := range idx.Edges {
+		for _, id := range []string{e.Source, e.Target} {
+			if _, ok := moteMap[id]; ok {
+				continue
+			}
+			detail := fmt.Sprintf("edge %s->%s (%s): %s", e.Source, e.Target, e.EdgeType, id)
+			if trashedSet[id] {
+				detail += " is in trash"
+			} else {
+				detail += " not found"
+			}
+			detail += " (run: mote index rebuild)"
+			issues = append(issues, doctorIssue{
+				Category: "orphaned_edge",
+				MoteID:   e.Source + "->" + e.Target,
+				Detail:   detail,
+			})
+		}
 	}
 
-	fmt.Printf("%-16s  %-26s  %s\n", "ISSUE", "MOTE", "DETAIL")
-	fmt.Println(strings.Repeat("-", 80))
-	for _, iss := range issues {
-		fmt.Printf("%-16s  %-26s  %s\n", iss.Category, iss.MoteID, iss.Detail)
+	// Circular dependency detection
+	for _, cycle := range detectDependsCycles(idx) {
+		issues = append(issues, doctorIssue{
+			Category: "circular_dep",
+			MoteID:   cycle[0],
+			Detail:   strings.Join(cycle, " -> ") + " -> " + cycle[0],
+		})
 	}
-	fmt.Printf("\n%d issue(s) found.\n", len(issues))
-	os.Exit(1)
-	return nil
+
+	return issues
+}
+
+// detectDependsCycles finds cycles in depends_on edges using three-color DFS.
+// Returns deduplicated cycles, each normalized by rotation to smallest ID.
+func detectDependsCycles(idx *core.EdgeIndex) [][]string {
+	// Build adjacency list from depends_on edges only
+	adj := make(map[string][]string)
+	nodes := make(map[string]bool)
+	for _, e := range idx.Edges {
+		if e.EdgeType != "depends_on" {
+			continue
+		}
+		adj[e.Source] = append(adj[e.Source], e.Target)
+		nodes[e.Source] = true
+		nodes[e.Target] = true
+	}
+
+	const (
+		white = 0 // unvisited
+		gray  = 1 // in current DFS path
+		black = 2 // fully processed
+	)
+
+	color := make(map[string]int)
+	parent := make(map[string]string)
+	var cycles [][]string
+	seen := make(map[string]bool) // normalized cycle keys for dedup
+
+	var dfs func(node string)
+	dfs = func(node string) {
+		color[node] = gray
+		for _, next := range adj[node] {
+			switch color[next] {
+			case white:
+				parent[next] = node
+				dfs(next)
+			case gray:
+				// Back edge found — reconstruct cycle
+				cycle := []string{next}
+				cur := node
+				for cur != next {
+					cycle = append(cycle, cur)
+					cur = parent[cur]
+				}
+				// Reverse so cycle reads in dependency order
+				for i, j := 0, len(cycle)-1; i < j; i, j = i+1, j-1 {
+					cycle[i], cycle[j] = cycle[j], cycle[i]
+				}
+				// Normalize: rotate so smallest ID is first
+				cycle = normalizeCycle(cycle)
+				key := strings.Join(cycle, "|")
+				if !seen[key] {
+					seen[key] = true
+					cycles = append(cycles, cycle)
+				}
+			}
+			// black: already fully processed, skip (diamond dep is safe)
+		}
+		color[node] = black
+	}
+
+	// Sort nodes for deterministic output
+	sortedNodes := make([]string, 0, len(nodes))
+	for n := range nodes {
+		sortedNodes = append(sortedNodes, n)
+	}
+	sort.Strings(sortedNodes)
+
+	for _, n := range sortedNodes {
+		if color[n] == white {
+			dfs(n)
+		}
+	}
+
+	return cycles
+}
+
+// normalizeCycle rotates a cycle so the smallest ID is first.
+func normalizeCycle(cycle []string) []string {
+	if len(cycle) == 0 {
+		return cycle
+	}
+	minIdx := 0
+	for i, id := range cycle {
+		if id < cycle[minIdx] {
+			minIdx = i
+		}
+	}
+	if minIdx == 0 {
+		return cycle
+	}
+	rotated := make([]string, len(cycle))
+	copy(rotated, cycle[minIdx:])
+	copy(rotated[len(cycle)-minIdx:], cycle[:minIdx])
+	return rotated
 }
 
 func collectAllLinks(m *core.Mote) map[string][]string {
