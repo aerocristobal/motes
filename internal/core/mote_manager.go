@@ -545,43 +545,69 @@ func (mm *MoteManager) AppendAccessBatch(moteID string) error {
 // FlushAccessBatch reads the access batch, updates mote files, and removes the batch.
 // Uses flock + atomic rename to prevent TOCTOU races with concurrent appends.
 func (mm *MoteManager) FlushAccessBatch() error {
+	processingPath, err := mm.prepareBatchForProcessing()
+	if err != nil {
+		return err
+	}
+	if processingPath == "" {
+		return nil
+	}
+	mm.processAndApplyBatch(processingPath)
+	return nil
+}
+
+// FlushAccessBatchStats flushes the batch and returns stats (access count, mote count).
+// Uses flock + atomic rename to prevent TOCTOU races.
+func (mm *MoteManager) FlushAccessBatchStats() (accessCount, moteCount int, err error) {
+	processingPath, err := mm.prepareBatchForProcessing()
+	if err != nil {
+		return 0, 0, err
+	}
+	if processingPath == "" {
+		return 0, 0, nil
+	}
+	ac, mc := mm.processAndApplyBatch(processingPath)
+	return ac, mc, nil
+}
+
+// prepareBatchForProcessing handles the lock/rename preamble shared by both flush methods.
+// Returns the processing file path, or "" if there's nothing to process.
+func (mm *MoteManager) prepareBatchForProcessing() (string, error) {
 	batchPath := filepath.Join(mm.root, ".access_batch.jsonl")
 	processingPath := batchPath + ".processing"
 
 	// Process any leftover .processing file from a previous crash
-	mm.processAccessBatchFile(processingPath)
+	mm.processAndApplyBatch(processingPath)
 
 	// Acquire batch lock, rename to .processing, release lock
 	batchLock, err := mm.LockBatch()
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	// Check if batch file exists
 	if _, statErr := os.Stat(batchPath); os.IsNotExist(statErr) {
 		batchLock.Unlock()
-		return nil
+		return "", nil
 	}
 
 	if err := os.Rename(batchPath, processingPath); err != nil {
 		batchLock.Unlock()
 		if os.IsNotExist(err) {
-			return nil
+			return "", nil
 		}
-		return err
+		return "", err
 	}
 	batchLock.Unlock() // New appends go to fresh file
 
-	// Process the renamed file without holding the batch lock
-	mm.processAccessBatchFile(processingPath)
-	return nil
+	return processingPath, nil
 }
 
-// processAccessBatchFile processes a batch file and deletes it when done.
-func (mm *MoteManager) processAccessBatchFile(path string) {
+// processAndApplyBatch reads a batch file, groups entries by moteID, updates motes,
+// and removes the file. Returns (totalAccessCount, uniqueMoteCount).
+func (mm *MoteManager) processAndApplyBatch(path string) (int, int) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return
+		return 0, 0
 	}
 
 	type counts struct {
@@ -589,6 +615,7 @@ func (mm *MoteManager) processAccessBatchFile(path string) {
 		count        int
 	}
 	grouped := map[string]*counts{}
+	accessCount := 0
 
 	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
 		if line == "" {
@@ -602,6 +629,7 @@ func (mm *MoteManager) processAccessBatchFile(path string) {
 		if err != nil {
 			continue
 		}
+		accessCount++
 		if g, ok := grouped[entry.MoteID]; ok {
 			g.count++
 			if t.After(g.lastAccessed) {
@@ -624,96 +652,13 @@ func (mm *MoteManager) processAccessBatchFile(path string) {
 		if err != nil {
 			continue
 		}
-		if path, pathErr := mm.moteFilePath(moteID); pathErr == nil {
-			_ = AtomicWrite(path, out, 0644)
+		if filePath, pathErr := mm.moteFilePath(moteID); pathErr == nil {
+			_ = AtomicWrite(filePath, out, 0644)
 		}
 	}
 
 	os.Remove(path)
-}
-
-// FlushAccessBatchStats flushes the batch and returns stats (access count, mote count).
-// Uses flock + atomic rename to prevent TOCTOU races.
-func (mm *MoteManager) FlushAccessBatchStats() (accessCount, moteCount int, err error) {
-	batchPath := filepath.Join(mm.root, ".access_batch.jsonl")
-	processingPath := batchPath + ".processing"
-
-	// Process any leftover .processing file from a previous crash
-	mm.processAccessBatchFile(processingPath)
-
-	// Acquire batch lock, rename to .processing, release lock
-	batchLock, lockErr := mm.LockBatch()
-	if lockErr != nil {
-		return 0, 0, lockErr
-	}
-
-	if _, statErr := os.Stat(batchPath); os.IsNotExist(statErr) {
-		batchLock.Unlock()
-		return 0, 0, nil
-	}
-
-	if err := os.Rename(batchPath, processingPath); err != nil {
-		batchLock.Unlock()
-		if os.IsNotExist(err) {
-			return 0, 0, nil
-		}
-		return 0, 0, err
-	}
-	batchLock.Unlock()
-
-	// Process the renamed file
-	data, err := os.ReadFile(processingPath)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	type counts struct {
-		lastAccessed time.Time
-		count        int
-	}
-	grouped := map[string]*counts{}
-
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		if line == "" {
-			continue
-		}
-		var entry AccessBatchEntry
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			continue
-		}
-		t, parseErr := time.Parse(time.RFC3339, entry.AccessedAt)
-		if parseErr != nil {
-			continue
-		}
-		accessCount++
-		if g, ok := grouped[entry.MoteID]; ok {
-			g.count++
-			if t.After(g.lastAccessed) {
-				g.lastAccessed = t
-			}
-		} else {
-			grouped[entry.MoteID] = &counts{lastAccessed: t, count: 1}
-		}
-	}
-
-	for moteID, g := range grouped {
-		m, readErr := mm.Read(moteID)
-		if readErr != nil {
-			continue
-		}
-		m.LastAccessed = &g.lastAccessed
-		m.AccessCount += g.count
-		out, serErr := SerializeMote(m)
-		if serErr != nil {
-			continue
-		}
-		if path, pathErr := mm.moteFilePath(moteID); pathErr == nil {
-			_ = AtomicWrite(path, out, 0644)
-		}
-	}
-
-	moteCount = len(grouped)
-	return accessCount, moteCount, os.Remove(processingPath)
+	return accessCount, len(grouped)
 }
 
 // Link creates a link from sourceID to targetID with the given type.

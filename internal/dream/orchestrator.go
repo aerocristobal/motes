@@ -23,6 +23,7 @@ type DreamOrchestrator struct {
 	parser   *ResponseParser
 	lucidLog *LucidLog
 	visions  *VisionWriter
+	logger   *DreamLogger
 }
 
 // NewDreamOrchestrator creates an orchestrator with all components wired.
@@ -45,6 +46,14 @@ func NewDreamOrchestrator(root string, cfg *core.Config) *DreamOrchestrator {
 		parser:   NewResponseParser(),
 		lucidLog: NewLucidLog(cfg.Dream.Journal.MaxTokens),
 		visions:  NewVisionWriter(dreamDir),
+		logger:   NewDreamLogger(nil, false),
+	}
+}
+
+// SetLogger configures the structured logger for machine-parseable output.
+func (do *DreamOrchestrator) SetLogger(logger *DreamLogger) {
+	if logger != nil {
+		do.logger = logger
 	}
 }
 
@@ -112,12 +121,29 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 			}
 			fmt.Println(")...")
 
+			do.logger.Log(LogEntry{
+				Level:     "info",
+				Phase:     batch.Phase,
+				BatchIndex: i + 1,
+				Message:   "batch start",
+				MoteCount: len(batch.MoteIDs),
+			})
+
+			batchStart := time.Now()
 			prompt := do.prompts.BuildBatchPrompt(batch, do.lucidLog)
 
 			if scRuns == 1 {
 				// Single run (no voting)
 				response, err := do.invoker.Invoke(prompt, "sonnet")
 				if err != nil {
+					do.logger.Log(LogEntry{
+						Level:      "error",
+						Phase:      batch.Phase,
+						BatchIndex: i + 1,
+						Message:    "batch invoke failed",
+						Error:      err.Error(),
+						PromptLen:  len(prompt),
+					})
 					results[i] = batchResult{index: i, err: err}
 					return
 				}
@@ -130,6 +156,14 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 						visions, updates, err = do.parser.ParseBatchResponse(response)
 					}
 				}
+				do.logger.Log(LogEntry{
+					Level:       "info",
+					Phase:       batch.Phase,
+					BatchIndex:  i + 1,
+					Message:     "batch complete",
+					VisionCount: len(visions),
+					DurationMs:  time.Since(batchStart).Milliseconds(),
+				})
 				results[i] = batchResult{index: i, visions: visions, updates: updates, err: err}
 			} else {
 				// Self-consistency: invoke N times, vote on results
@@ -184,6 +218,14 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 				}
 
 				voted := VoteVisions(candidates, 0.5)
+				do.logger.Log(LogEntry{
+					Level:       "info",
+					Phase:       batch.Phase,
+					BatchIndex:  i + 1,
+					Message:     "batch complete",
+					VisionCount: len(voted),
+					DurationMs:  time.Since(batchStart).Milliseconds(),
+				})
 				results[i] = batchResult{index: i, visions: voted, updates: mergedUpdates}
 			}
 		}(i, batch)
@@ -208,14 +250,25 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 	var finalVisions []Vision
 	if do.config.Reconciliation.Enabled {
 		fmt.Println("  Reconciliation...")
+		do.logger.Log(LogEntry{Level: "info", Phase: "reconcile", Message: "reconciliation start"})
+		reconStart := time.Now()
 		reconPrompt := do.prompts.BuildReconciliationPrompt(do.lucidLog)
 		reconResponse, err := do.invoker.Invoke(reconPrompt, "opus")
 		if err == nil {
 			finalVisions, _ = do.parser.ParseReconciliationResponse(reconResponse)
+		} else {
+			do.logger.Log(LogEntry{Level: "error", Phase: "reconcile", Message: "reconciliation failed", Error: err.Error()})
 		}
 		if finalVisions == nil {
 			finalVisions = do.visions.ReadDrafts()
 		}
+		do.logger.Log(LogEntry{
+			Level:       "info",
+			Phase:       "reconcile",
+			Message:     "reconciliation complete",
+			VisionCount: len(finalVisions),
+			DurationMs:  time.Since(reconStart).Milliseconds(),
+		})
 	} else {
 		finalVisions = do.visions.ReadDrafts()
 	}

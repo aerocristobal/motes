@@ -23,11 +23,12 @@ var dreamCmd = &cobra.Command{
 }
 
 var (
-	dreamDryRun bool
-	dreamReview bool
-	dreamManual bool
-	dreamStats  bool
-	dreamJSON   bool
+	dreamDryRun        bool
+	dreamReview        bool
+	dreamManual        bool
+	dreamStats         bool
+	dreamJSON          bool
+	dreamStructuredLog bool
 )
 
 func init() {
@@ -36,6 +37,7 @@ func init() {
 	dreamCmd.Flags().BoolVar(&dreamManual, "manual", false, "Enter manual review mode instead of auto-applying")
 	dreamCmd.Flags().BoolVar(&dreamStats, "stats", false, "Show feedback statistics for auto-applied visions")
 	dreamCmd.Flags().BoolVar(&dreamJSON, "json", false, "Output pending visions in JSON format (use with --review)")
+	dreamCmd.Flags().BoolVar(&dreamStructuredLog, "structured-log", false, "Emit JSON log lines to stderr for machine parsing")
 	rootCmd.AddCommand(dreamCmd)
 }
 
@@ -93,6 +95,9 @@ func runDream(cmd *cobra.Command, args []string) error {
 	dream.CheckFeedback(root, mm, im, cfg)
 
 	orch := dream.NewDreamOrchestrator(root, cfg)
+	if dreamStructuredLog {
+		orch.SetLogger(dream.NewDreamLogger(os.Stderr, true))
+	}
 	result, err := orch.Run(dreamDryRun)
 	if err != nil {
 		return fmt.Errorf("dream cycle: %w", err)
