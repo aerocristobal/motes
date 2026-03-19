@@ -36,6 +36,31 @@ func ExtractBodyLinks(body, selfID string) []string {
 	return result
 }
 
+// ExtractBodyLinksClassified classifies wiki-links as resolved (target is a known mote ID)
+// or concept (target is an unresolved term like "authentication").
+func ExtractBodyLinksClassified(body, selfID string, moteIDs map[string]bool) (resolved, concepts []string) {
+	matches := wikiLinkRe.FindAllStringSubmatch(body, -1)
+	seen := map[string]bool{}
+	for _, m := range matches {
+		target := m[1]
+		if target == selfID || seen[target] {
+			continue
+		}
+		seen[target] = true
+		if moteIDs[target] {
+			resolved = append(resolved, target)
+		} else {
+			concepts = append(concepts, target)
+		}
+	}
+	return
+}
+
+// CountConcepts returns the number of concept terms associated with a mote (tags + unresolved wiki-links).
+func CountConcepts(m *Mote) int {
+	return len(m.Tags) + len(ExtractBodyLinks(m.Body, m.ID))
+}
+
 // Mote is the atomic unit of knowledge in the nebula.
 type Mote struct {
 	// Identity

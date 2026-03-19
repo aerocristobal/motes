@@ -219,8 +219,10 @@ func TestRebuild_BodyWikiLinks(t *testing.T) {
 	dir := t.TempDir()
 	im := NewIndexManager(dir)
 
+	// p-B exists as a mote → body_ref (resolved)
 	motes := []*Mote{
 		{ID: "p-A", Body: "References [[p-B]] in body."},
+		{ID: "p-B"},
 	}
 	if err := im.Rebuild(motes); err != nil {
 		t.Fatal(err)
@@ -238,12 +240,70 @@ func TestRebuild_BodyWikiLinks(t *testing.T) {
 	}
 }
 
+func TestRebuild_BodyWikiLinks_ConceptRef(t *testing.T) {
+	dir := t.TempDir()
+	im := NewIndexManager(dir)
+
+	// "authentication" is not a mote ID → concept_ref
+	motes := []*Mote{
+		{ID: "p-A", Body: "Uses [[authentication]] for access control."},
+	}
+	if err := im.Rebuild(motes); err != nil {
+		t.Fatal(err)
+	}
+	idx, _ := im.Load()
+
+	found := false
+	for _, e := range idx.Edges {
+		if e.Source == "p-A" && e.Target == "authentication" && e.EdgeType == "concept_ref" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected concept_ref edge from p-A to 'authentication'")
+	}
+
+	// "authentication" should NOT be in MoteIDs
+	if idx.MoteIDs["authentication"] {
+		t.Error("concept term 'authentication' should not be in MoteIDs")
+	}
+
+	// ConceptStats should include it
+	if idx.ConceptStats["authentication"] != 1 {
+		t.Errorf("ConceptStats[authentication]: got %d, want 1", idx.ConceptStats["authentication"])
+	}
+}
+
+func TestRebuild_ConceptStatsMergesTagsAndConcepts(t *testing.T) {
+	dir := t.TempDir()
+	im := NewIndexManager(dir)
+
+	motes := []*Mote{
+		{ID: "p-A", Tags: []string{"oauth"}, Body: "Uses [[oauth]] protocol."},
+		{ID: "p-B", Tags: []string{"oauth"}},
+	}
+	if err := im.Rebuild(motes); err != nil {
+		t.Fatal(err)
+	}
+	idx, _ := im.Load()
+
+	// TagStats: oauth=2
+	if idx.TagStats["oauth"] != 2 {
+		t.Errorf("TagStats[oauth]: got %d, want 2", idx.TagStats["oauth"])
+	}
+	// ConceptStats: oauth = 2 (tags) + 1 (concept) = 3
+	if idx.ConceptStats["oauth"] != 3 {
+		t.Errorf("ConceptStats[oauth]: got %d, want 3", idx.ConceptStats["oauth"])
+	}
+}
+
 func TestRebuild_BodyWikiLinks_CoexistsWithFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	im := NewIndexManager(dir)
 
 	motes := []*Mote{
 		{ID: "p-A", RelatesTo: []string{"p-B"}, Body: "Also see [[p-B]] in text."},
+		{ID: "p-B"},
 	}
 	if err := im.Rebuild(motes); err != nil {
 		t.Fatal(err)
@@ -380,6 +440,46 @@ func TestCompactRemovesTombstones(t *testing.T) {
 	}
 	if len(idx.Edges) != 1 {
 		t.Errorf("expected 1 edge after compact, got %d", len(idx.Edges))
+	}
+}
+
+func TestExtractBodyLinksClassified(t *testing.T) {
+	moteIDs := map[string]bool{"motes-A": true, "motes-B": true}
+
+	resolved, concepts := ExtractBodyLinksClassified(
+		"See [[motes-A]] and [[authentication]] and [[motes-B]].", "self", moteIDs)
+
+	if len(resolved) != 2 || resolved[0] != "motes-A" || resolved[1] != "motes-B" {
+		t.Errorf("resolved: got %v, want [motes-A motes-B]", resolved)
+	}
+	if len(concepts) != 1 || concepts[0] != "authentication" {
+		t.Errorf("concepts: got %v, want [authentication]", concepts)
+	}
+
+	// Self-exclusion
+	resolved2, concepts2 := ExtractBodyLinksClassified("[[self]] [[oauth]]", "self", moteIDs)
+	if len(resolved2) != 0 {
+		t.Errorf("self-exclusion resolved: got %v", resolved2)
+	}
+	if len(concepts2) != 1 || concepts2[0] != "oauth" {
+		t.Errorf("self-exclusion concepts: got %v, want [oauth]", concepts2)
+	}
+}
+
+func TestConceptStatsLoadFallback(t *testing.T) {
+	dir := t.TempDir()
+	// Write only tag_stats.json, no concept_stats.json
+	os.WriteFile(filepath.Join(dir, "tag_stats.json"), []byte(`{"oauth":3}`), 0644)
+	os.WriteFile(filepath.Join(dir, "index.jsonl"), []byte(""), 0644)
+
+	im := NewIndexManager(dir)
+	idx, err := im.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// ConceptStats should fall back to TagStats
+	if idx.ConceptStats["oauth"] != 3 {
+		t.Errorf("ConceptStats fallback: got %d, want 3", idx.ConceptStats["oauth"])
 	}
 }
 

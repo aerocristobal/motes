@@ -16,9 +16,10 @@ type Edge struct {
 }
 
 type EdgeIndex struct {
-	Edges    []Edge
-	TagStats map[string]int
-	MoteIDs  map[string]bool
+	Edges        []Edge
+	TagStats     map[string]int
+	ConceptStats map[string]int // merged tag + concept term frequencies for IDF
+	MoteIDs      map[string]bool
 
 	outgoing map[string][]Edge
 	incoming map[string][]Edge
@@ -52,25 +53,28 @@ func (idx *EdgeIndex) HasEdges(moteID string) bool {
 }
 
 type IndexManager struct {
-	path         string
-	tagStatsPath string
-	index        *EdgeIndex
+	path             string
+	tagStatsPath     string
+	conceptStatsPath string
+	index            *EdgeIndex
 }
 
 func NewIndexManager(root string) *IndexManager {
 	return &IndexManager{
-		path:         filepath.Join(root, "index.jsonl"),
-		tagStatsPath: filepath.Join(root, "tag_stats.json"),
+		path:             filepath.Join(root, "index.jsonl"),
+		tagStatsPath:     filepath.Join(root, "tag_stats.json"),
+		conceptStatsPath: filepath.Join(root, "concept_stats.json"),
 	}
 }
 
 func emptyIndex() *EdgeIndex {
 	return &EdgeIndex{
-		Edges:    []Edge{},
-		TagStats: map[string]int{},
-		MoteIDs:  map[string]bool{},
-		outgoing: map[string][]Edge{},
-		incoming: map[string][]Edge{},
+		Edges:        []Edge{},
+		TagStats:     map[string]int{},
+		ConceptStats: map[string]int{},
+		MoteIDs:      map[string]bool{},
+		outgoing:     map[string][]Edge{},
+		incoming:     map[string][]Edge{},
 	}
 }
 
@@ -81,8 +85,9 @@ func (im *IndexManager) Load() (*EdgeIndex, error) {
 	data, err := os.ReadFile(im.path)
 	if os.IsNotExist(err) {
 		im.index = idx
-		// Try loading tag_stats from separate file
+		// Try loading stats from separate files
 		im.loadTagStats(idx)
+		im.loadConceptStats(idx)
 		return idx, nil
 	}
 	if err != nil {
@@ -128,8 +133,9 @@ func (im *IndexManager) Load() (*EdgeIndex, error) {
 		}
 	}
 
-	// Load tag_stats from separate file (may override legacy footer)
+	// Load stats from separate files (may override legacy footer)
 	im.loadTagStats(idx)
+	im.loadConceptStats(idx)
 
 	im.buildDerived(idx)
 	im.index = idx
@@ -144,7 +150,10 @@ func (im *IndexManager) buildDerived(idx *EdgeIndex) {
 		idx.outgoing[e.Source] = append(idx.outgoing[e.Source], e)
 		idx.incoming[e.Target] = append(idx.incoming[e.Target], e)
 		idx.MoteIDs[e.Source] = true
-		idx.MoteIDs[e.Target] = true
+		// concept_ref targets are terms, not mote IDs — exclude from MoteIDs
+		if e.EdgeType != "concept_ref" {
+			idx.MoteIDs[e.Target] = true
+		}
 	}
 }
 
@@ -157,6 +166,35 @@ func (im *IndexManager) loadTagStats(idx *EdgeIndex) {
 	if err := json.Unmarshal(data, &stats); err == nil && stats != nil {
 		idx.TagStats = stats
 	}
+}
+
+func (im *IndexManager) loadConceptStats(idx *EdgeIndex) {
+	data, err := os.ReadFile(im.conceptStatsPath)
+	if err != nil {
+		// Fallback: if no concept_stats.json, use TagStats
+		if idx.ConceptStats == nil || len(idx.ConceptStats) == 0 {
+			idx.ConceptStats = make(map[string]int, len(idx.TagStats))
+			for k, v := range idx.TagStats {
+				idx.ConceptStats[k] = v
+			}
+		}
+		return
+	}
+	var stats map[string]int
+	if err := json.Unmarshal(data, &stats); err == nil && stats != nil {
+		idx.ConceptStats = stats
+	}
+}
+
+func (im *IndexManager) writeConceptStats() error {
+	if im.index == nil {
+		return nil
+	}
+	data, err := json.Marshal(im.index.ConceptStats)
+	if err != nil {
+		return fmt.Errorf("marshal concept stats: %w", err)
+	}
+	return AtomicWrite(im.conceptStatsPath, data, 0644)
 }
 
 func (im *IndexManager) writeTagStats() error {
@@ -191,6 +229,13 @@ func (im *IndexManager) appendEdgeLine(edge Edge) error {
 func (im *IndexManager) Rebuild(motes []*Mote) error {
 	var edges []Edge
 	tagStats := map[string]int{}
+	conceptTermStats := map[string]int{} // concept terms from unresolved wiki-links
+
+	// Build mote ID set for classifying wiki-links
+	moteIDSet := make(map[string]bool, len(motes))
+	for _, m := range motes {
+		moteIDSet[m.ID] = true
+	}
 
 	for _, m := range motes {
 		for _, tag := range m.Tags {
@@ -216,13 +261,27 @@ func (im *IndexManager) Rebuild(motes []*Mote) error {
 			edges = append(edges, Edge{Source: m.Parent, Target: m.ID, EdgeType: "parent_of"})
 		}
 
-		// Index-only edges for body wiki-links
-		for _, target := range ExtractBodyLinks(m.Body, m.ID) {
+		// Classify body wiki-links as resolved (body_ref) or concept (concept_ref)
+		resolved, concepts := ExtractBodyLinksClassified(m.Body, m.ID, moteIDSet)
+		for _, target := range resolved {
 			edges = append(edges, Edge{Source: m.ID, Target: target, EdgeType: "body_ref"})
+		}
+		for _, term := range concepts {
+			edges = append(edges, Edge{Source: m.ID, Target: term, EdgeType: "concept_ref"})
+			conceptTermStats[term]++
 		}
 	}
 
-	idx := &EdgeIndex{Edges: edges, TagStats: tagStats}
+	// ConceptStats = tags + concept terms merged
+	conceptStats := make(map[string]int, len(tagStats)+len(conceptTermStats))
+	for k, v := range tagStats {
+		conceptStats[k] = v
+	}
+	for k, v := range conceptTermStats {
+		conceptStats[k] += v
+	}
+
+	idx := &EdgeIndex{Edges: edges, TagStats: tagStats, ConceptStats: conceptStats}
 	im.buildDerived(idx)
 	im.index = idx
 	return im.writeIndex()
@@ -325,7 +384,10 @@ func (im *IndexManager) writeIndex() error {
 	if err := AtomicWrite(im.path, []byte(buf.String()), 0644); err != nil {
 		return err
 	}
-	return im.writeTagStats()
+	if err := im.writeTagStats(); err != nil {
+		return err
+	}
+	return im.writeConceptStats()
 }
 
 // Compact rewrites the index file without tombstones and updates tag_stats.

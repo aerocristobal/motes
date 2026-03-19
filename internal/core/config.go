@@ -174,6 +174,7 @@ func DefaultConfig() *Config {
 				"relates_to":    0.1,
 				"body_ref":      0.2,
 				"built_by_ref":  0.15,
+				"concept_ref":   0.2,
 			},
 			StatusPenalties: map[string]float64{
 				"deprecated": -0.5,

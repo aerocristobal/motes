@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/internal/security"
 	"motes/internal/strata"
 )
 
@@ -248,6 +249,90 @@ func runSessionEndInner(cmd *cobra.Command, args []string) error {
 						}
 						fmt.Printf("  %s <-> %s  (shared: %s)\n",
 							s.a, s.b, strings.Join(s.sharedTags, ", "))
+					}
+				}
+				hadOutput = true
+			}
+		}
+	}
+
+	// Concept auto-enrichment: suggest wiki-links for under-linked motes accessed this session
+	if len(sessionMoteIDs) > 0 && allMotes != nil {
+		bm25Idx, _ := loadMoteBM25(root)
+		if bm25Idx != nil && bm25Idx.DocCount > 0 {
+			moteMap := map[string]*core.Mote{}
+			for _, m := range allMotes {
+				moteMap[m.ID] = m
+			}
+
+			var enriched int
+			for _, id := range sessionMoteIDs {
+				m, ok := moteMap[id]
+				if !ok || m.Status != "active" {
+					continue
+				}
+				if core.CountConcepts(m) >= 2 {
+					continue
+				}
+				terms := bm25Idx.DistinctiveTerms(id, 3)
+				if len(terms) == 0 {
+					continue
+				}
+				// Filter: valid tag chars, not already a tag or wiki-link
+				existingTags := map[string]bool{}
+				for _, tag := range m.Tags {
+					existingTags[tag] = true
+				}
+				existingLinks := map[string]bool{}
+				for _, link := range core.ExtractBodyLinks(m.Body, m.ID) {
+					existingLinks[link] = true
+				}
+				var validTerms []string
+				for _, term := range terms {
+					if existingTags[term] || existingLinks[term] {
+						continue
+					}
+					if security.ValidateTag(term) != nil {
+						continue
+					}
+					validTerms = append(validTerms, term)
+				}
+				if len(validTerms) == 0 {
+					continue
+				}
+
+				if sessionEndDryRun {
+					wikiLinks := ""
+					for _, t := range validTerms {
+						wikiLinks += " [[" + t + "]]"
+					}
+					fmt.Printf("  Enrich %s:%s\n", id, wikiLinks)
+				} else {
+					wikiLinks := "\n\n"
+					for i, t := range validTerms {
+						if i > 0 {
+							wikiLinks += " "
+						}
+						wikiLinks += "[[" + t + "]]"
+					}
+					m.Body += wikiLinks
+					data, err := core.SerializeMote(m)
+					if err == nil {
+						_ = os.WriteFile(m.FilePath, data, 0644)
+					}
+				}
+				enriched++
+			}
+
+			if enriched > 0 {
+				if sessionEndDryRun {
+					fmt.Printf("\nConcept enrichment suggestions: %d motes\n", enriched)
+				} else {
+					fmt.Printf("\nEnriched %d motes with concept wiki-links\n", enriched)
+					// Rebuild index to update concept_ref edges
+					rebuildMotes, _ := mm.ReadAllParallel()
+					if rebuildMotes != nil {
+						_ = im.Rebuild(rebuildMotes)
 					}
 				}
 				hadOutput = true

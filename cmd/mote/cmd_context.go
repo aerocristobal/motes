@@ -70,6 +70,7 @@ func runContext(cmd *cobra.Command, args []string) error {
 
 	// Seed selection
 	ss := core.NewSeedSelector(motes, idx.TagStats, cfg.Priming.Signals, loadTextSearcher(root))
+	ss.SetConceptIndex(core.BuildConceptIndex(idx))
 	seeds := ss.SelectSeeds(topic, nil)
 	if len(seeds) == 0 {
 		fmt.Println("No matching motes found.")
@@ -80,7 +81,7 @@ func runContext(cmd *cobra.Command, args []string) error {
 	matchedTags := core.ExtractKeywords(topic)
 
 	// Score and traverse
-	scorer := core.NewScoreEngine(cfg.Scoring, idx.TagStats)
+	scorer := core.NewScoreEngine(cfg.Scoring, idx.ConceptStats)
 	traverser := core.NewGraphTraverser(idx, scorer, cfg.Scoring)
 	results := traverser.Traverse(seeds, matchedTags, func(id string) (*core.Mote, error) {
 		return mm.Read(id)

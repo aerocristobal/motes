@@ -317,6 +317,17 @@ func (idx *BM25Index) FindSimilar(docID string, topK int, minScore float64, maxT
 	return results
 }
 
+// DistinctiveTerms returns the top N distinctive terms from a document identified by ChunkID.
+// Returns nil if the document is not found.
+func (idx *BM25Index) DistinctiveTerms(docID string, n int) []string {
+	for i := range idx.Docs {
+		if idx.Docs[i].ChunkID == docID {
+			return idx.distinctiveTerms(&idx.Docs[i], n)
+		}
+	}
+	return nil
+}
+
 // distinctiveTerms returns the top N terms from a document ranked by TF × IDF.
 func (idx *BM25Index) distinctiveTerms(doc *BM25Doc, n int) []string {
 	type termScore struct {

@@ -73,7 +73,7 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	go func() { defer wg.Done(); sr.ContradictionCandidates = ps.findContradictionCandidates(motes) }()
 	go func() { defer wg.Done(); sr.OverloadedTags = ps.findOverloadedTags(idx.TagStats) }()
 	go func() { defer wg.Done(); sr.StaleMotes = ps.findStaleMotes(candidateMotes) }()
-	go func() { defer wg.Done(); sr.ConstellationEvolution = ps.findConstellationCandidates(motes) }()
+	go func() { defer wg.Done(); sr.ConstellationEvolution = ps.findConstellationCandidates(motes, idx) }()
 	go func() { defer wg.Done(); sr.CompressionCandidates = ps.findCompressionCandidates(candidateMotes) }()
 	go func() { defer wg.Done(); sr.UncrystallizedIssues = ps.findUncrystallized(candidateMotes) }()
 	go func() { defer wg.Done(); sr.StrataCrystallization = ps.findStrataCandidates() }()
@@ -85,14 +85,14 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	return &sr, nil
 }
 
-// findLinkCandidates finds pairs of motes with shared tags but no direct link.
+// findLinkCandidates finds pairs of motes with shared terms (tags + concepts) but no direct link.
 func (ps *PreScanner) findLinkCandidates(motes []*core.Mote, idx *core.EdgeIndex) []MotePair {
 	minShared := ps.config.PreScan.LinkCandidateMinSharedTags
 	if minShared <= 0 {
 		minShared = 3
 	}
 
-	// Build tag->mote mapping
+	// Build unified term->mote mapping from tags AND concept_ref edges
 	tagMotes := map[string][]string{}
 	for _, m := range motes {
 		if m.Status == "deprecated" {
@@ -100,6 +100,12 @@ func (ps *PreScanner) findLinkCandidates(motes []*core.Mote, idx *core.EdgeIndex
 		}
 		for _, tag := range m.Tags {
 			tagMotes[tag] = append(tagMotes[tag], m.ID)
+		}
+	}
+	// Merge concept_ref edges: source mote references concept term
+	for _, e := range idx.Edges {
+		if e.EdgeType == "concept_ref" {
+			tagMotes[e.Target] = append(tagMotes[e.Target], e.Source)
 		}
 	}
 
@@ -226,8 +232,8 @@ type constellationRecord struct {
 
 // findConstellationCandidates checks existing constellations for membership growth.
 // A constellation is flagged if its tag's current mote count has grown >= ThemeGrowthThresholdPct
-// beyond the recorded member count.
-func (ps *PreScanner) findConstellationCandidates(motes []*core.Mote) []ConstellationEvolution {
+// beyond the recorded member count. Uses ConceptStats (tags + concepts merged) for counts.
+func (ps *PreScanner) findConstellationCandidates(motes []*core.Mote, idx *core.EdgeIndex) []ConstellationEvolution {
 	// Read constellations.jsonl for recorded member counts
 	cPath := filepath.Join(ps.root, "constellations.jsonl")
 	data, err := os.ReadFile(cPath)
@@ -251,16 +257,8 @@ func (ps *PreScanner) findConstellationCandidates(motes []*core.Mote) []Constell
 		return nil
 	}
 
-	// Build current tag counts (non-deprecated motes only)
-	tagCounts := map[string]int{}
-	for _, m := range motes {
-		if m.Status == "deprecated" {
-			continue
-		}
-		for _, tag := range m.Tags {
-			tagCounts[tag]++
-		}
-	}
+	// Use ConceptStats (tags + concepts merged) for current counts
+	tagCounts := idx.ConceptStats
 
 	growthPct := ps.config.PreScan.ThemeGrowthThresholdPct
 	if growthPct <= 0 {

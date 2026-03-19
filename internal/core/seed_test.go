@@ -259,6 +259,56 @@ func TestBM25SeedBoost_NilSearcher(t *testing.T) {
 	}
 }
 
+func TestSelectSeeds_ConceptIndex(t *testing.T) {
+	motes := []*Mote{
+		{ID: "m1", Tags: []string{"other"}, Body: "Uses [[authentication]] for access."},
+		{ID: "m2", Tags: []string{"docker"}},
+	}
+	conceptIndex := map[string][]string{
+		"authentication": {"m1"},
+	}
+
+	ss := NewSeedSelector(motes, nil, nil, nil)
+	ss.SetConceptIndex(conceptIndex)
+	seeds := ss.SelectSeeds("authentication", nil)
+
+	ids := make(map[string]bool)
+	for _, s := range seeds {
+		ids[s.ID] = true
+	}
+	if !ids["m1"] {
+		t.Error("m1 should match via concept index for 'authentication'")
+	}
+	if ids["m2"] {
+		t.Error("m2 should not match")
+	}
+}
+
+func TestSelectSeeds_ConceptAdditiveWithTags(t *testing.T) {
+	motes := []*Mote{
+		{ID: "concept-only", Tags: []string{"other"}, Body: "Uses [[scoring]] internally."},
+		{ID: "tag-only", Tags: []string{"scoring"}},
+		{ID: "both", Tags: []string{"scoring"}, Body: "See [[scoring]] details."},
+	}
+	conceptIndex := map[string][]string{
+		"scoring": {"concept-only", "both"},
+	}
+
+	ss := NewSeedSelector(motes, nil, nil, nil)
+	ss.SetConceptIndex(conceptIndex)
+	seeds := ss.SelectSeeds("scoring", nil)
+
+	if len(seeds) < 3 {
+		t.Fatalf("expected 3 seeds, got %d", len(seeds))
+	}
+	// "both" has tag (1.0) + concept (1.0) + body (0.3) = 2.3
+	// "tag-only" has tag (1.0) = 1.0
+	// "concept-only" has concept (1.0) + body (0.3) = 1.3
+	if seeds[0].ID != "both" {
+		t.Errorf("expected 'both' to rank first, got %s", seeds[0].ID)
+	}
+}
+
 func TestExtractKeywords(t *testing.T) {
 	tests := []struct {
 		input    string

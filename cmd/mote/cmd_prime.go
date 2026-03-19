@@ -192,8 +192,9 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 	ambient := core.CollectAmbientContext()
 
 	// Build scoring/traversal
-	scorer := core.NewScoreEngine(cfg.Scoring, idx.TagStats)
+	scorer := core.NewScoreEngine(cfg.Scoring, idx.ConceptStats)
 	ss := core.NewSeedSelector(motes, idx.TagStats, cfg.Priming.Signals, loadTextSearcher(root))
+	ss.SetConceptIndex(core.BuildConceptIndex(idx))
 
 	var allResults []core.ScoredMote
 	seen := make(map[string]bool)
@@ -205,6 +206,15 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  [%.2f] %s — %s\n", task.Weight, task.ID, task.Title)
 		if len(task.Tags) > 0 {
 			fmt.Printf("         tags: %s\n", format.TagList(task.Tags))
+		}
+		// Show concept terms from concept_ref edges
+		conceptEdges := idx.Neighbors(task.ID, map[string]bool{"concept_ref": true})
+		if len(conceptEdges) > 0 {
+			var terms []string
+			for _, e := range conceptEdges {
+				terms = append(terms, "[["+e.Target+"]]")
+			}
+			fmt.Printf("         concepts: %s\n", strings.Join(terms, " "))
 		}
 
 		if len(args) == 0 {

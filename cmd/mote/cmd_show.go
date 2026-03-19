@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"time"
 
@@ -38,6 +39,7 @@ type ShowOutput struct {
 	AcceptanceMet []bool             `json:"acceptance_met,omitempty"`
 	Body          string             `json:"body"`
 	BodyLinks     []BodyLinkEntry    `json:"body_links,omitempty"`
+	Concepts      []ConceptEntry     `json:"concepts,omitempty"`
 }
 
 // BodyLinkEntry represents a resolved wiki-link target.
@@ -45,6 +47,14 @@ type BodyLinkEntry struct {
 	ID    string `json:"id"`
 	Type  string `json:"type,omitempty"`
 	Title string `json:"title,omitempty"`
+}
+
+// ConceptEntry represents a concept term associated with a mote.
+type ConceptEntry struct {
+	Term        string  `json:"term"`
+	Frequency   int     `json:"frequency"`
+	IDF         float64 `json:"idf"`
+	Distinctive bool    `json:"distinctive"`
 }
 
 var showJSON bool
@@ -61,6 +71,32 @@ func init() {
 	rootCmd.AddCommand(showCmd)
 }
 
+func getConceptEntries(moteID string, idx *core.EdgeIndex) []ConceptEntry {
+	if idx == nil {
+		return nil
+	}
+	edges := idx.Neighbors(moteID, map[string]bool{"concept_ref": true})
+	if len(edges) == 0 {
+		return nil
+	}
+	var entries []ConceptEntry
+	for _, e := range edges {
+		term := e.Target
+		freq := idx.ConceptStats[term]
+		idf := 0.0
+		if freq > 0 {
+			idf = 1.0 / math.Log2(float64(freq)+2)
+		}
+		entries = append(entries, ConceptEntry{
+			Term:        term,
+			Frequency:   freq,
+			IDF:         idf,
+			Distinctive: idf > 0.6,
+		})
+	}
+	return entries
+}
+
 func runShow(cmd *cobra.Command, args []string) error {
 	root := mustFindRoot()
 	mm := core.NewMoteManager(root)
@@ -73,6 +109,10 @@ func runShow(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
+
+	// Load index for concept display
+	im := core.NewIndexManager(root)
+	idx, _ := im.Load()
 
 	if showJSON {
 		out := ShowOutput{
@@ -112,6 +152,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 			}
 			out.BodyLinks = append(out.BodyLinks, entry)
 		}
+		out.Concepts = getConceptEntries(m.ID, idx)
 		data, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
 			return fmt.Errorf("marshal json: %w", err)
@@ -178,6 +219,18 @@ func runShow(cmd *cobra.Command, args []string) error {
 			} else {
 				fmt.Printf("  -> %s (unresolved)\n", blID)
 			}
+		}
+	}
+
+	concepts := getConceptEntries(m.ID, idx)
+	if len(concepts) > 0 {
+		fmt.Println("\n--- concepts ---")
+		for _, c := range concepts {
+			distinctive := ""
+			if c.Distinctive {
+				distinctive = "  *distinctive*"
+			}
+			fmt.Printf("  [[%s]]  freq=%d  idf=%.2f%s\n", c.Term, c.Frequency, c.IDF, distinctive)
 		}
 	}
 

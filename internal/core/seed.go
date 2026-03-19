@@ -57,10 +57,11 @@ type TextSearcher interface {
 
 // SeedSelector finds initial seed motes from topic keywords and ambient signals.
 type SeedSelector struct {
-	motes    []*Mote
-	tagStats map[string]int
-	signals  []SignalConfig
-	searcher TextSearcher
+	motes        []*Mote
+	tagStats     map[string]int
+	signals      []SignalConfig
+	searcher     TextSearcher
+	conceptIndex map[string][]string // concept term → mote IDs
 }
 
 // AmbientContext holds signals collected from the environment.
@@ -76,11 +77,38 @@ func NewSeedSelector(motes []*Mote, tagStats map[string]int, signals []SignalCon
 	return &SeedSelector{motes: motes, tagStats: tagStats, signals: signals, searcher: searcher}
 }
 
+// SetConceptIndex sets the concept term → mote IDs mapping for concept-aware seed selection.
+func (ss *SeedSelector) SetConceptIndex(ci map[string][]string) {
+	ss.conceptIndex = ci
+}
+
+// BuildConceptIndex extracts a mapping of concept term → source mote IDs from concept_ref edges.
+func BuildConceptIndex(idx *EdgeIndex) map[string][]string {
+	ci := map[string][]string{}
+	for _, e := range idx.Edges {
+		if e.EdgeType == "concept_ref" {
+			ci[e.Target] = append(ci[e.Target], e.Source)
+		}
+	}
+	return ci
+}
+
 // SelectSeeds returns seed motes matching the topic and ambient signals.
 func (ss *SeedSelector) SelectSeeds(topic string, ambient *AmbientContext) []*Mote {
 	candidates := make(map[string]float64) // moteID -> signal strength
 
 	keywords := extractKeywords(topic)
+
+	// Concept matching: boost motes that reference matching concept terms
+	if ss.conceptIndex != nil {
+		for _, kw := range keywords {
+			if moteIDs, ok := ss.conceptIndex[kw]; ok {
+				for _, id := range moteIDs {
+					candidates[id] += 1.0
+				}
+			}
+		}
+	}
 
 	// Tag matching
 	for _, m := range ss.motes {
