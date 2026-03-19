@@ -8,6 +8,7 @@ Interactive knowledge capture. Use when you detect a capture-worthy moment durin
 - Something unexpected happened (gotcha, surprise) → `lesson`
 - Alternatives were researched or evaluated → `explore`
 - A quick thought worth preserving → `mote quick`
+- A completed task with reusable learnings → `mote crystallize`
 
 ## Current Tags
 !mote tags --compact
@@ -32,6 +33,14 @@ mote add --type=<type> --title="<title>" --tag=<tag1> --tag=<tag2> --body "<body
 ```bash
 mote link <new-id> relates_to <related-id>
 mote link <new-id> builds_on <prior-id>
+```
+
+7. **Extract learnings from completed tasks** (when a task has reusable insights):
+
+```bash
+mote crystallize <id>                    # Extract learnings from a completed task
+mote crystallize --candidates            # Find tasks with unextracted learnings
+mote crystallize <id> --origin=failure   # Tag the origin (failure/discovery/revert/hotfix)
 ```
 
 ## Tag Guidelines

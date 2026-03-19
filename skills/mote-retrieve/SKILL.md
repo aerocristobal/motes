@@ -42,6 +42,14 @@ mote context --planning <id>
 
 Shows the dependency chain for a task — what blocks it, what it blocks, and execution order.
 
+### "What changed on this mote?" → Change History
+
+```bash
+mote diff <id>
+```
+
+Shows the change history for a mote — edits, status transitions, and metadata updates.
+
 ## Follow-Up Actions
 
 After retrieving context:
@@ -50,6 +58,8 @@ After retrieving context:
 - **Mark as useful:** `mote feedback <id> useful` — boosts future scoring
 - **Mark as irrelevant:** `mote feedback <id> irrelevant` — suppresses future scoring
 - **Link motes together:** `mote link <id1> relates_to <id2>`
+- **Validate graph integrity:** `mote doctor` — check for broken links, orphans, inconsistencies
+- **View retrieval stats:** `mote stats` — graph metrics and health dashboard
 
 ## Quick Reference
 
@@ -60,4 +70,7 @@ After retrieving context:
 | Check reference docs | `mote strata query <topic>` |
 | See task dependencies | `mote context --planning <id>` |
 | Read full mote | `mote show <id>` |
+| See mote change history | `mote diff <id>` |
+| Check graph health | `mote doctor` |
+| View graph metrics | `mote stats` |
 | Give relevance feedback | `mote feedback <id> useful\|irrelevant` |

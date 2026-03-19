@@ -10,3 +10,6 @@ var MoteRetrieve []byte
 
 //go:embed mote-subagent/SKILL.md
 var MoteSubagent []byte
+
+//go:embed mote-plan/SKILL.md
+var MotePlan []byte

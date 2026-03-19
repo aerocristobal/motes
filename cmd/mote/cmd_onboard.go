@@ -840,6 +840,7 @@ func ensureMoteSkills(homeDir string, dryRun bool) error {
 		{"mote-capture", skills.MoteCapture},
 		{"mote-retrieve", skills.MoteRetrieve},
 		{"mote-subagent", skills.MoteSubagent},
+		{"mote-plan", skills.MotePlan},
 	}
 
 	for _, s := range defs {

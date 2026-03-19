@@ -1,120 +1,24 @@
-# CLAUDE.md
-
-## Motes
+# CLAUDE.md — Motes Project
 
 This project uses motes for all planning, memory, and task tracking. Knowledge is stored in `.memory/`.
 
-**Do NOT use** markdown files, TodoWrite, TaskCreate, or external issue trackers for tracking work.
-
-**MANDATORY: Before any code change**, create a task mote: `mote add --type=task --title="..." --tag=topic --body "What and why"`. **After completing it**: `mote update <id> --status=completed`. No exceptions.
-
-### Session Start
-
-***Run `mote prime` at the start of every session for scored, relevant context.***
-
-Prime outputs: active tasks, recent decisions, lessons, explores, echoes (previously useful motes), and contradiction alerts. It auto-parses your git branch as keywords.
-
-Focus priming on a topic: `mote prime <topic>`
-Inspect a surfaced mote: `mote show <id>`
-
-### Mid-Session Retrieval
-
-When you need context beyond what prime surfaced:
-
-| Need | Command | Example |
-|------|---------|---------|
-| Graph traversal — "What do we know about X?" | `mote context <topic>` | `mote context authentication` |
-| Full-text search — "Where did we mention Y?" | `mote search <query>` | `mote search "retry logic"` |
-| Reference docs — "What does the spec say about Z?" | `mote strata query <topic>` | `mote strata query scoring` |
-| Dependency chain view | `mote context --planning <id>` | `mote context --planning proj-t1abc` |
-
-Use `context` for thematic exploration, `search` for specific keywords, `strata query` for ingested reference docs.
-
-### Task Tracking & Planning
-
-Find available work:
-
-    mote ls --ready           # Tasks with no unfinished blockers
-    mote pulse                # Active tasks sorted by weight
-
-Create tasks with dependency links:
-
-    mote add --type=task --title="Summary" --tag=topic --body "What and why"
-    mote link <story-id> depends_on <epic-id>
-    mote update <id> --status=completed
-
-### Planning Workflow
-
-For multi-step work, use hierarchical task decomposition:
-
-    # 1. Create parent task
-    mote add --type=task --title="Goal" --size=l --tag=topic
-
-    # 2. Decompose into subtasks (inherits parent tags)
-    mote plan <parent-id> --child "Step 1" --child "Step 2" --sequential
-
-    # 3. Add acceptance criteria
-    mote update <child-id> --accept "criterion A" --accept "criterion B"
-
-    # 4. Check progress
-    mote progress <parent-id>
-
-    # 5. Find next ready work
-    mote ls --ready
-
-    # 6. Mark criteria met
-    mote check <id> <index>
-
-    # 7. Complete subtask
-    mote update <id> --status=completed
-
-### Capturing Knowledge
-
-Capture when you encounter:
-
-| Trigger | Type | Command |
-|---------|------|---------|
-| Non-obvious choice made | decision | `mote add --type=decision --title="Summary" --tag=topic --body "Rationale"` |
-| Gotcha or surprise discovered | lesson | `mote add --type=lesson --title="Summary" --tag=topic --body "Details"` |
-| Researched alternatives | explore | `mote add --type=explore --title="Summary" --tag=topic --body "Findings"` |
-| Quick thought | (auto) | `mote quick "your sentence here"` |
-| Task done with learnings | (meta) | `mote crystallize <id>` |
-
-**Always link after capturing.** Check motes already in context (primed, recently created, discussed this session) and link them: `mote link <id1> relates_to <id2>`. Use `[[mote-id]]` wikilinks in body text when referencing existing motes.
-Give feedback on surfaced motes: `mote feedback <id> useful` or `mote feedback <id> irrelevant`
-
-**Tag strategy:** Rare, specific tags beat generic ones. `bm25-scoring` > `search` > `code`.
-
-### Session End
-
-***Run `mote session-end` for access flush and maintenance suggestions.***
-
-Run `mote dream` periodically for automated maintenance. Review with `mote dream --review`.
+**See `~/.claude/CLAUDE.md` for the full motes workflow** (task tracking, retrieval, capture, maintenance). That is the canonical reference — do not duplicate workflow instructions here.
 
 ## Landing the Plane (Session Completion)
 
-**When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
+**When ending a work session**, complete ALL steps. Work is NOT complete until `git push` succeeds.
 
-**MANDATORY WORKFLOW:**
-
-1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
+1. **File issues** for remaining work
+2. **Run quality gates** (if code changed): `go test ./...`, `go vet ./...`
+3. **Update task status** — close finished work
+4. **Push to remote** (MANDATORY):
    ```bash
-   git pull --rebase
-   git push
-   git status  # MUST show "up to date with origin"
+   git pull --rebase && git push && git status
    ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+5. **Verify** — all changes committed AND pushed
+6. **Hand off** — provide context for next session
 
-**CRITICAL RULES:**
-- Work is NOT complete until `git push` succeeds
-- NEVER stop before pushing - that leaves work stranded locally
-- NEVER say "ready to push when you are" - YOU must push
-- If push fails, resolve and retry until it succeeds
+**CRITICAL:** Never stop before pushing. Never say "ready to push when you are" — YOU must push. If push fails, resolve and retry.
 
 ## Project Overview
 
@@ -142,3 +46,13 @@ go vet ./...                    # Lint
 ```
 
 See [docs/internals.md](docs/internals.md) for architecture, storage layout, and design decisions.
+
+## Motes
+
+This project uses motes for all planning, memory, and task tracking. Knowledge is stored in `.memory/`.
+
+Lifecycle hooks automate `mote prime` (session start/resume/compaction) and `mote session-end` (session stop) — do not run these manually.
+
+**See `~/.claude/CLAUDE.md` for the full motes workflow** (task tracking, retrieval, capture, maintenance).
+
+**Do NOT use** markdown files, TodoWrite, TaskCreate, or external issue trackers for tracking work.

@@ -389,14 +389,14 @@ func TestInit_InstallsHooksAndSkills(t *testing.T) {
 		}
 	}
 
-	// Verify CLAUDE.md has rich content
+	// Verify CLAUDE.md has motes section
 	claudeData, _ := os.ReadFile(filepath.Join(cwd, "CLAUDE.md"))
 	content := string(claudeData)
-	if !strings.Contains(content, "Mid-Session Retrieval") {
-		t.Error("expected rich CLAUDE.md with Mid-Session Retrieval table")
+	if !strings.Contains(content, "## Motes") {
+		t.Error("expected CLAUDE.md with ## Motes section")
 	}
-	if !strings.Contains(content, "Capturing Knowledge") {
-		t.Error("expected rich CLAUDE.md with Capturing Knowledge table")
+	if !strings.Contains(content, "~/.claude/CLAUDE.md") {
+		t.Error("expected CLAUDE.md to reference global CLAUDE.md for full workflow")
 	}
 }
 
