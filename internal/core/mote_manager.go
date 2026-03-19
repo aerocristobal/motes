@@ -18,6 +18,7 @@ type MoteManager struct {
 	root           string
 	cache          *ReadCache
 	accessBatchMux sync.Mutex // Protects access batch operations
+	audit          *AuditLogger
 }
 
 type CreateOpts struct {
@@ -48,7 +49,16 @@ type AccessBatchEntry struct {
 }
 
 func NewMoteManager(root string) *MoteManager {
-	return &MoteManager{root: root, cache: NewReadCache()}
+	return &MoteManager{root: root, cache: NewReadCache(), audit: NewAuditLogger(root)}
+}
+
+// auditLog is a best-effort helper to log an audit entry.
+func (mm *MoteManager) auditLog(op, moteID string, fieldsSet []string) {
+	mm.audit.Log(AuditEntry{
+		Operation: op,
+		MoteID:    moteID,
+		FieldsSet: fieldsSet,
+	})
 }
 
 // Root returns the .memory root path.
@@ -205,6 +215,7 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 		return nil, fmt.Errorf("write mote: %w", err)
 	}
 	m.FilePath = path
+	mm.auditLog("create", m.ID, nil)
 	return m, nil
 }
 
@@ -331,6 +342,40 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 		m.Size = *opts.Size
 	}
 	m.ModifiedBy = ResolveAgentID()
+
+	// Build changedFields from non-nil opts
+	var changedFields []string
+	if opts.Status != nil {
+		changedFields = append(changedFields, "status")
+	}
+	if opts.Title != nil {
+		changedFields = append(changedFields, "title")
+	}
+	if opts.Weight != nil {
+		changedFields = append(changedFields, "weight")
+	}
+	if opts.Tags != nil {
+		changedFields = append(changedFields, "tags")
+	}
+	if opts.Body != nil {
+		changedFields = append(changedFields, "body")
+	}
+	if opts.DeprecatedBy != nil {
+		changedFields = append(changedFields, "deprecated_by")
+	}
+	if opts.Parent != nil {
+		changedFields = append(changedFields, "parent")
+	}
+	if opts.Acceptance != nil {
+		changedFields = append(changedFields, "acceptance")
+	}
+	if opts.AcceptanceMet != nil {
+		changedFields = append(changedFields, "acceptance_met")
+	}
+	if opts.Size != nil {
+		changedFields = append(changedFields, "size")
+	}
+
 	data, err := SerializeMote(m)
 	if err != nil {
 		return err
@@ -339,7 +384,11 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 	if err != nil {
 		return fmt.Errorf("get file path: %w", err)
 	}
-	return AtomicWrite(path, data, 0644)
+	if err := AtomicWrite(path, data, 0644); err != nil {
+		return err
+	}
+	mm.auditLog("update", moteID, changedFields)
+	return nil
 }
 
 // List returns motes matching the given filters.
@@ -785,6 +834,7 @@ func (mm *MoteManager) Link(sourceID, linkType, targetID string, im *IndexManage
 		_ = im.AddEdge(Edge{Source: targetID, Target: sourceID, EdgeType: behavior.IndexReverse})
 	}
 
+	mm.auditLog("link", sourceID+">"+targetID, []string{linkType})
 	return nil
 }
 
@@ -946,6 +996,7 @@ func (mm *MoteManager) Unlink(sourceID, linkType, targetID string, im *IndexMana
 		_ = im.RemoveEdge(targetID, sourceID, behavior.IndexReverse)
 	}
 
+	mm.auditLog("unlink", sourceID+">"+targetID, []string{linkType})
 	return nil
 }
 
@@ -991,6 +1042,7 @@ func (mm *MoteManager) Delete(moteID string, im *IndexManager) error {
 	// Remove references to this mote from other motes' link slices
 	mm.removeReferencesFromOtherMotes(moteID)
 
+	mm.auditLog("delete", moteID, nil)
 	return nil
 }
 
