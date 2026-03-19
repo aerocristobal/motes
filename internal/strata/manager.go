@@ -474,6 +474,88 @@ func (sm *StrataManager) loadManifest(corpus string) (*CorpusManifest, error) {
 	return &m, nil
 }
 
+// CheckStaleness checks whether a corpus's source files have changed since last ingest.
+// Returns stale=true if any source file has a different SHA256 hash or no longer exists.
+func (sm *StrataManager) CheckStaleness(name string) (stale bool, changedFiles []string, missingFiles []string, err error) {
+	manifest, err := sm.loadManifest(name)
+	if err != nil {
+		return false, nil, nil, fmt.Errorf("load manifest for %s: %w", name, err)
+	}
+
+	for path, oldHash := range manifest.SourceHashes {
+		newHash, hashErr := fileHash(path)
+		if hashErr != nil {
+			missingFiles = append(missingFiles, path)
+			continue
+		}
+		if newHash != oldHash {
+			changedFiles = append(changedFiles, path)
+		}
+	}
+
+	stale = len(changedFiles) > 0 || len(missingFiles) > 0
+	return stale, changedFiles, missingFiles, nil
+}
+
+// FeedbackEntry records user relevance feedback on a strata query result.
+type FeedbackEntry struct {
+	Timestamp  string `json:"timestamp"`
+	ChunkID    string `json:"chunk_id"`
+	Corpus     string `json:"corpus"`
+	QueryTerms string `json:"query_terms"`
+	Useful     bool   `json:"useful"`
+}
+
+// RecordFeedback appends a relevance feedback entry to feedback.jsonl.
+func (sm *StrataManager) RecordFeedback(chunkID, corpus, queryTerms string, useful bool) error {
+	entry := FeedbackEntry{
+		Timestamp:  time.Now().UTC().Format(time.RFC3339),
+		ChunkID:    chunkID,
+		Corpus:     corpus,
+		QueryTerms: queryTerms,
+		Useful:     useful,
+	}
+	line, err := json.Marshal(entry)
+	if err != nil {
+		return fmt.Errorf("marshal feedback: %w", err)
+	}
+	line = append(line, '\n')
+
+	feedbackPath := filepath.Join(sm.strataDir(), "feedback.jsonl")
+	f, err := os.OpenFile(feedbackPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open feedback file: %w", err)
+	}
+	defer f.Close()
+	_, err = f.Write(line)
+	return err
+}
+
+// ReadFeedback reads all feedback entries from feedback.jsonl.
+func (sm *StrataManager) ReadFeedback() ([]FeedbackEntry, error) {
+	feedbackPath := filepath.Join(sm.strataDir(), "feedback.jsonl")
+	data, err := os.ReadFile(feedbackPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var entries []FeedbackEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var e FeedbackEntry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			continue
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
 func (sm *StrataManager) logQuery(topic, corpus string, results []ChunkResult) {
 	logPath := filepath.Join(sm.strataDir(), "query_log.jsonl")
 	entry := QueryLogEntry{

@@ -1,6 +1,8 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -675,6 +677,11 @@ func (mm *MoteManager) processAndApplyBatch(path string) (int, int) {
 			fmt.Fprintf(os.Stderr, "warning: flush batch: cannot read %s: %v\n", moteID, err)
 			continue
 		}
+		// Save snapshot before updating access metadata
+		snap := SnapshotMote(m)
+		if err := mm.SaveSnapshot(moteID, snap); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: save snapshot %s: %v\n", moteID, err)
+		}
 		m.LastAccessed = &g.lastAccessed
 		m.AccessCount += g.count
 		out, err := SerializeMote(m)
@@ -779,6 +786,99 @@ func (mm *MoteManager) Link(sourceID, linkType, targetID string, im *IndexManage
 	}
 
 	return nil
+}
+
+// LinkEffect describes a single side effect of a link operation.
+type LinkEffect struct {
+	Description string
+	MoteID      string
+	Field       string
+	OldValue    string
+	NewValue    string
+}
+
+// PreviewLink returns the side effects of linking sourceID to targetID without persisting.
+func (mm *MoteManager) PreviewLink(sourceID, linkType, targetID string) ([]LinkEffect, error) {
+	behavior, ok := ValidLinkTypes[linkType]
+	if !ok {
+		return nil, fmt.Errorf("unknown link type: %q", linkType)
+	}
+	if sourceID == targetID {
+		return nil, fmt.Errorf("cannot link a mote to itself")
+	}
+
+	source, err := mm.Read(sourceID)
+	if err != nil {
+		return nil, fmt.Errorf("read source %s: %w", sourceID, err)
+	}
+	target, err := mm.Read(targetID)
+	if err != nil {
+		return nil, fmt.Errorf("read target %s: %w", targetID, err)
+	}
+
+	var effects []LinkEffect
+
+	// Source link addition
+	if sliceContains(GetLinkSlice(source, linkType), targetID) {
+		effects = append(effects, LinkEffect{
+			Description: "already linked (no-op)",
+			MoteID:      sourceID,
+			Field:       linkType,
+			OldValue:    targetID,
+			NewValue:    targetID,
+		})
+	} else {
+		effects = append(effects, LinkEffect{
+			Description: "add link",
+			MoteID:      sourceID,
+			Field:       linkType,
+			NewValue:    targetID,
+		})
+	}
+
+	// Symmetric
+	if behavior.Symmetric {
+		if !sliceContains(GetLinkSlice(target, linkType), sourceID) {
+			effects = append(effects, LinkEffect{
+				Description: "add symmetric link",
+				MoteID:      targetID,
+				Field:       linkType,
+				NewValue:    sourceID,
+			})
+		}
+	}
+
+	// Inverse
+	if behavior.InverseType != "" {
+		if !sliceContains(GetLinkSlice(target, behavior.InverseType), sourceID) {
+			effects = append(effects, LinkEffect{
+				Description: "add inverse link",
+				MoteID:      targetID,
+				Field:       behavior.InverseType,
+				NewValue:    sourceID,
+			})
+		}
+	}
+
+	// Auto-deprecate
+	if behavior.AutoDeprecate {
+		effects = append(effects, LinkEffect{
+			Description: "auto-deprecate target",
+			MoteID:      targetID,
+			Field:       "status",
+			OldValue:    target.Status,
+			NewValue:    "deprecated",
+		})
+		effects = append(effects, LinkEffect{
+			Description: "set deprecated_by",
+			MoteID:      targetID,
+			Field:       "deprecated_by",
+			OldValue:    target.DeprecatedBy,
+			NewValue:    sourceID,
+		})
+	}
+
+	return effects, nil
 }
 
 // Unlink removes a link from sourceID to targetID.
@@ -1050,4 +1150,140 @@ func (mm *MoteManager) UnlinkLocked(sourceID, linkType, targetID string, im *Ind
 	defer opsLock.Unlock()
 
 	return mm.Unlink(sourceID, linkType, targetID, im)
+}
+
+// MoteSnapshot captures the state of a mote at a point in time.
+type MoteSnapshot struct {
+	SnapshotAt    string              `json:"snapshot_at"`
+	Status        string              `json:"status"`
+	Title         string              `json:"title"`
+	Tags          []string            `json:"tags"`
+	Weight        float64             `json:"weight"`
+	BodyHash      string              `json:"body_hash"`
+	Links         map[string][]string `json:"links"`
+	Acceptance    []string            `json:"acceptance,omitempty"`
+	AcceptanceMet []bool              `json:"acceptance_met,omitempty"`
+}
+
+// SnapshotMote creates a snapshot from a mote's current state.
+func SnapshotMote(m *Mote) MoteSnapshot {
+	h := sha256.Sum256([]byte(m.Body))
+	links := map[string][]string{}
+	for _, lt := range []string{"depends_on", "blocks", "relates_to", "builds_on", "contradicts", "supersedes", "caused_by", "informed_by"} {
+		if s := GetLinkSlice(m, lt); len(s) > 0 {
+			links[lt] = s
+		}
+	}
+	return MoteSnapshot{
+		SnapshotAt:    time.Now().UTC().Format(time.RFC3339),
+		Status:        m.Status,
+		Title:         m.Title,
+		Tags:          m.Tags,
+		Weight:        m.Weight,
+		BodyHash:      hex.EncodeToString(h[:]),
+		Links:         links,
+		Acceptance:    m.Acceptance,
+		AcceptanceMet: m.AcceptanceMet,
+	}
+}
+
+func (mm *MoteManager) snapshotsDir() string {
+	return filepath.Join(mm.root, ".snapshots")
+}
+
+// SaveSnapshot persists a snapshot for the given mote ID.
+func (mm *MoteManager) SaveSnapshot(id string, snap MoteSnapshot) error {
+	dir := mm.snapshotsDir()
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, id+".json"), data, 0644)
+}
+
+// LoadSnapshot loads a previously saved snapshot for the given mote ID.
+func (mm *MoteManager) LoadSnapshot(id string) (*MoteSnapshot, error) {
+	data, err := os.ReadFile(filepath.Join(mm.snapshotsDir(), id+".json"))
+	if err != nil {
+		return nil, err
+	}
+	var snap MoteSnapshot
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return nil, err
+	}
+	return &snap, nil
+}
+
+// DiffField describes a change in a single field between snapshot and current state.
+type DiffField struct {
+	Field    string
+	OldValue string
+	NewValue string
+}
+
+// DiffMote compares a mote's current state against a saved snapshot.
+func DiffMote(m *Mote, snap *MoteSnapshot) []DiffField {
+	var diffs []DiffField
+
+	if m.Status != snap.Status {
+		diffs = append(diffs, DiffField{Field: "status", OldValue: snap.Status, NewValue: m.Status})
+	}
+	if m.Title != snap.Title {
+		diffs = append(diffs, DiffField{Field: "title", OldValue: snap.Title, NewValue: m.Title})
+	}
+	if m.Weight != snap.Weight {
+		diffs = append(diffs, DiffField{
+			Field:    "weight",
+			OldValue: fmt.Sprintf("%.2f", snap.Weight),
+			NewValue: fmt.Sprintf("%.2f", m.Weight),
+		})
+	}
+
+	// Tags
+	oldTags := strings.Join(snap.Tags, ", ")
+	newTags := strings.Join(m.Tags, ", ")
+	if oldTags != newTags {
+		diffs = append(diffs, DiffField{Field: "tags", OldValue: oldTags, NewValue: newTags})
+	}
+
+	// Body hash
+	h := sha256.Sum256([]byte(m.Body))
+	currentHash := hex.EncodeToString(h[:])
+	if currentHash != snap.BodyHash {
+		diffs = append(diffs, DiffField{Field: "body", OldValue: "(changed)", NewValue: "(changed)"})
+	}
+
+	// Links
+	allLinkTypes := map[string]bool{}
+	for lt := range snap.Links {
+		allLinkTypes[lt] = true
+	}
+	for _, lt := range []string{"depends_on", "blocks", "relates_to", "builds_on", "contradicts", "supersedes", "caused_by", "informed_by"} {
+		if s := GetLinkSlice(m, lt); len(s) > 0 {
+			allLinkTypes[lt] = true
+		}
+	}
+	for lt := range allLinkTypes {
+		oldLinks := strings.Join(snap.Links[lt], ", ")
+		newLinks := strings.Join(GetLinkSlice(m, lt), ", ")
+		if oldLinks != newLinks {
+			diffs = append(diffs, DiffField{
+				Field:    "links." + lt,
+				OldValue: oldLinks,
+				NewValue: newLinks,
+			})
+		}
+	}
+
+	// Acceptance
+	oldAcc := strings.Join(snap.Acceptance, "; ")
+	newAcc := strings.Join(m.Acceptance, "; ")
+	if oldAcc != newAcc {
+		diffs = append(diffs, DiffField{Field: "acceptance", OldValue: oldAcc, NewValue: newAcc})
+	}
+
+	return diffs
 }

@@ -60,6 +60,13 @@ var strataRebuildCmd = &cobra.Command{
 	RunE:  runStrataRebuild,
 }
 
+var strataFeedbackCmd = &cobra.Command{
+	Use:   "feedback <chunk-id> useful|not-useful",
+	Short: "Record relevance feedback on a query result chunk",
+	Args:  cobra.ExactArgs(2),
+	RunE:  runStrataFeedback,
+}
+
 var strataStatsCmd = &cobra.Command{
 	Use:   "stats",
 	Short: "Show corpus statistics and query activity",
@@ -89,6 +96,7 @@ func init() {
 	strataCmd.AddCommand(strataRmCmd)
 	strataCmd.AddCommand(strataUpdateCmd)
 	strataCmd.AddCommand(strataRebuildCmd)
+	strataCmd.AddCommand(strataFeedbackCmd)
 	strataCmd.AddCommand(strataStatsCmd)
 	rootCmd.AddCommand(strataCmd)
 }
@@ -194,16 +202,26 @@ func runStrataLs(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("%-20s  %-8s  %-10s  %s\n", "NAME", "CHUNKS", "UPDATED", "SOURCES")
-	fmt.Println(strings.Repeat("-", 70))
+	fmt.Printf("%-20s  %-8s  %-10s  %-8s  %s\n", "NAME", "CHUNKS", "UPDATED", "STATUS", "SOURCES")
+	fmt.Println(strings.Repeat("-", 80))
 	for _, c := range corpora {
 		updated := c.Manifest.LastUpdated
 		if t, err := time.Parse(time.RFC3339, updated); err == nil {
 			updated = t.Format("2006-01-02")
 		}
 		sources := fmt.Sprintf("%d files", len(c.Manifest.SourcePaths))
-		fmt.Printf("%-20s  %-8d  %-10s  %s\n",
-			c.Manifest.Name, c.Manifest.ChunkCount, updated, sources)
+
+		status := ""
+		stale, _, _, sErr := sm.CheckStaleness(c.Manifest.Name)
+		if sErr == nil && stale {
+			status = "STALE"
+		}
+
+		fmt.Printf("%-20s  %-8d  %-10s  %-8s  %s\n",
+			c.Manifest.Name, c.Manifest.ChunkCount, updated, status, sources)
+		if status == "STALE" {
+			fmt.Printf("  (run: mote strata update %s)\n", c.Manifest.Name)
+		}
 	}
 	return nil
 }
@@ -402,6 +420,106 @@ func runStrataStats(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 	return nil
+}
+
+func runStrataFeedback(cmd *cobra.Command, args []string) error {
+	root := mustFindRoot()
+	cfg, err := core.LoadConfig(root)
+	if err != nil {
+		return err
+	}
+
+	chunkID := args[0]
+	sentiment := args[1]
+
+	var useful bool
+	switch sentiment {
+	case "useful":
+		useful = true
+	case "not-useful":
+		useful = false
+	default:
+		return fmt.Errorf("second argument must be 'useful' or 'not-useful', got %q", sentiment)
+	}
+
+	// Extract corpus from chunk ID by matching against known corpora
+	sm := strata.NewStrataManager(root, cfg.Strata)
+	corpus := extractCorpusFromChunkID(chunkID, sm)
+	if corpus == "" {
+		return fmt.Errorf("could not determine corpus from chunk ID %q", chunkID)
+	}
+
+	// Read recent query log to find matching query terms
+	queryTerms := findRecentQueryTerms(root, corpus)
+
+	if err := sm.RecordFeedback(chunkID, corpus, queryTerms, useful); err != nil {
+		return err
+	}
+
+	label := "useful"
+	if !useful {
+		label = "not-useful"
+	}
+	fmt.Printf("Recorded %s feedback for chunk %s\n", label, chunkID)
+	return nil
+}
+
+// extractCorpusFromChunkID parses the corpus name from a chunk ID.
+// Chunk IDs have the format: {corpus}-{filename}-{index}
+// It matches against known corpus names when a manager is provided.
+func extractCorpusFromChunkID(chunkID string, sm *strata.StrataManager) string {
+	// Try matching against known corpora (longest match wins)
+	if sm != nil {
+		corpora, err := sm.ListCorpora()
+		if err == nil {
+			bestMatch := ""
+			for _, c := range corpora {
+				name := c.Manifest.Name
+				if strings.HasPrefix(chunkID, name+"-") && len(name) > len(bestMatch) {
+					bestMatch = name
+				}
+			}
+			if bestMatch != "" {
+				return bestMatch
+			}
+		}
+	}
+
+	// Fallback: strip last two segments (index + filename)
+	parts := strings.Split(chunkID, "-")
+	if len(parts) >= 3 {
+		return strings.Join(parts[:len(parts)-2], "-")
+	}
+	return ""
+}
+
+// findRecentQueryTerms reads the query log and returns the most recent query for the given corpus.
+func findRecentQueryTerms(root, corpus string) string {
+	queryPath := filepath.Join(root, "strata", "query_log.jsonl")
+	data, err := os.ReadFile(queryPath)
+	if err != nil {
+		return ""
+	}
+
+	type queryEntry struct {
+		Corpus string `json:"corpus"`
+		Query  string `json:"query"`
+	}
+
+	var lastQuery string
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var e queryEntry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			continue
+		}
+		if e.Corpus == corpus {
+			lastQuery = e.Query
+		}
+	}
+	return lastQuery
 }
 
 func updateAnchorQueryCount(root, corpus string) {

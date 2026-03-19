@@ -239,3 +239,126 @@ func TestQuery_NoCorpora(t *testing.T) {
 		t.Errorf("expected 0 results from empty strata, got %d", len(results))
 	}
 }
+
+func TestCheckStaleness_Clean(t *testing.T) {
+	_, sm, _ := setupStrataTest(t)
+
+	dir := t.TempDir()
+	writeTestFile(t, dir, "doc.md", "# Clean\n\nUnchanged content.\n")
+	sm.AddCorpus("clean-test", []string{filepath.Join(dir, "doc.md")}, false, nil)
+
+	stale, changed, missing, err := sm.CheckStaleness("clean-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stale {
+		t.Error("expected not stale")
+	}
+	if len(changed) != 0 {
+		t.Errorf("expected no changed files, got %v", changed)
+	}
+	if len(missing) != 0 {
+		t.Errorf("expected no missing files, got %v", missing)
+	}
+}
+
+func TestCheckStaleness_Modified(t *testing.T) {
+	_, sm, _ := setupStrataTest(t)
+
+	dir := t.TempDir()
+	path := writeTestFile(t, dir, "doc.md", "# Original\n\nOriginal content.\n")
+	sm.AddCorpus("mod-test", []string{path}, false, nil)
+
+	// Modify the source file
+	os.WriteFile(path, []byte("# Modified\n\nDifferent content.\n"), 0644)
+
+	stale, changed, missing, err := sm.CheckStaleness("mod-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stale {
+		t.Error("expected stale after modification")
+	}
+	if len(changed) != 1 {
+		t.Errorf("expected 1 changed file, got %d", len(changed))
+	}
+	if len(missing) != 0 {
+		t.Errorf("expected no missing files, got %v", missing)
+	}
+}
+
+func TestCheckStaleness_MissingFile(t *testing.T) {
+	_, sm, _ := setupStrataTest(t)
+
+	dir := t.TempDir()
+	path := writeTestFile(t, dir, "doc.md", "# Temp\n\nWill be deleted.\n")
+	sm.AddCorpus("missing-test", []string{path}, false, nil)
+
+	// Delete the source file
+	os.Remove(path)
+
+	stale, changed, missing, err := sm.CheckStaleness("missing-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stale {
+		t.Error("expected stale after deletion")
+	}
+	if len(changed) != 0 {
+		t.Errorf("expected no changed files, got %v", changed)
+	}
+	if len(missing) != 1 {
+		t.Errorf("expected 1 missing file, got %d", len(missing))
+	}
+}
+
+func TestRecordFeedback(t *testing.T) {
+	_, sm, _ := setupStrataTest(t)
+
+	err := sm.RecordFeedback("docs-auth-0", "docs", "oauth tokens", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := sm.ReadFeedback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 feedback entry, got %d", len(entries))
+	}
+	if entries[0].ChunkID != "docs-auth-0" {
+		t.Errorf("chunk_id: got %q", entries[0].ChunkID)
+	}
+	if entries[0].Corpus != "docs" {
+		t.Errorf("corpus: got %q", entries[0].Corpus)
+	}
+	if entries[0].QueryTerms != "oauth tokens" {
+		t.Errorf("query_terms: got %q", entries[0].QueryTerms)
+	}
+	if !entries[0].Useful {
+		t.Error("expected useful=true")
+	}
+}
+
+func TestRecordFeedback_AppendsMultiple(t *testing.T) {
+	_, sm, _ := setupStrataTest(t)
+
+	sm.RecordFeedback("docs-auth-0", "docs", "oauth", true)
+	sm.RecordFeedback("docs-auth-1", "docs", "tokens", false)
+	sm.RecordFeedback("api-routes-0", "api", "routes", true)
+
+	entries, err := sm.ReadFeedback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 feedback entries, got %d", len(entries))
+	}
+	if entries[1].Useful {
+		t.Error("second entry should be not-useful")
+	}
+	if entries[2].Corpus != "api" {
+		t.Errorf("third entry corpus: got %q", entries[2].Corpus)
+	}
+}

@@ -347,3 +347,44 @@ func TestPreScanner_HasWork(t *testing.T) {
 		t.Error("ScanResult with stale motes should return true")
 	}
 }
+
+func TestPreScanner_FeedbackBoost(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+
+	// Create strata dirs
+	strataDir := filepath.Join(root, "strata")
+	os.MkdirAll(strataDir, 0755)
+
+	// Write query log with a topic queried exactly 2 times (below default threshold of 3)
+	queryLog := ""
+	for i := 0; i < 2; i++ {
+		queryLog += fmt.Sprintf(`{"corpus":"docs","query":"oauth tokens","results_count":1,"top_chunk_id":"docs-auth-0","top_score":2.5,"timestamp":"2026-01-01T00:00:00Z"}` + "\n")
+	}
+	os.WriteFile(filepath.Join(strataDir, "query_log.jsonl"), []byte(queryLog), 0644)
+
+	// Without feedback, 2 queries should NOT produce a candidate (threshold=3)
+	ps := NewPreScanner(root, mm, im, core.DefaultConfig().Dream)
+	result, err := ps.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.StrataCrystallization) != 0 {
+		t.Errorf("expected 0 strata candidates without feedback, got %d", len(result.StrataCrystallization))
+	}
+
+	// Now add useful feedback for this corpus:query — should lower threshold to 2
+	feedback := `{"timestamp":"2026-01-01T00:00:00Z","chunk_id":"docs-auth-0","corpus":"docs","query_terms":"oauth tokens","useful":true}` + "\n"
+	os.WriteFile(filepath.Join(strataDir, "feedback.jsonl"), []byte(feedback), 0644)
+
+	ps2 := NewPreScanner(root, mm, im, core.DefaultConfig().Dream)
+	result2, err := ps2.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result2.StrataCrystallization) != 1 {
+		t.Fatalf("expected 1 strata candidate with feedback boost, got %d", len(result2.StrataCrystallization))
+	}
+	if result2.StrataCrystallization[0].QueryCount != 2 {
+		t.Errorf("expected query count 2, got %d", result2.StrataCrystallization[0].QueryCount)
+	}
+}

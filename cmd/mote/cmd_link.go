@@ -8,6 +8,8 @@ import (
 	"motes/internal/security"
 )
 
+var linkDryRun bool
+
 var linkCmd = &cobra.Command{
 	Use:   "link <source-id> <link-type> <target-id>",
 	Short: "Create a link between two motes",
@@ -23,6 +25,7 @@ var unlinkCmd = &cobra.Command{
 }
 
 func init() {
+	linkCmd.Flags().BoolVar(&linkDryRun, "dry-run", false, "Preview link effects without writing")
 	rootCmd.AddCommand(linkCmd)
 	rootCmd.AddCommand(unlinkCmd)
 }
@@ -45,6 +48,23 @@ func runLink(cmd *cobra.Command, args []string) error {
 
 	root := mustFindRoot()
 	mm := core.NewMoteManager(root)
+
+	if linkDryRun {
+		effects, err := mm.PreviewLink(sourceID, linkType, targetID)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("[dry-run] %s --%s--> %s\n", sourceID, linkType, targetID)
+		for _, e := range effects {
+			if e.OldValue != "" && e.OldValue == e.NewValue {
+				fmt.Printf("  %-16s %s (no-op)\n", e.MoteID+":", e.Description)
+			} else {
+				fmt.Printf("  %-16s %s: %s -> %s\n", e.MoteID+":", e.Field, e.Description, e.NewValue)
+			}
+		}
+		return nil
+	}
+
 	im := core.NewIndexManager(root)
 	if _, err := im.Load(); err != nil {
 		return fmt.Errorf("load index: %w", err)

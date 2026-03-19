@@ -322,6 +322,7 @@ func (ps *PreScanner) findUncrystallized(motes []*core.Mote) []string {
 }
 
 // findStrataCandidates analyzes query_log.jsonl for frequently queried topics.
+// Chunks with explicit "useful" feedback lower the threshold from 3 queries to 2.
 func (ps *PreScanner) findStrataCandidates() []StrataCrystallizationCandidate {
 	queryPath := filepath.Join(ps.root, "strata", "query_log.jsonl")
 	data, err := os.ReadFile(queryPath)
@@ -347,9 +348,16 @@ func (ps *PreScanner) findStrataCandidates() []StrataCrystallizationCandidate {
 		counts[key]++
 	}
 
+	// Read feedback to find corpora/queries with useful feedback
+	boosted := ps.loadFeedbackBoosts()
+
 	var candidates []StrataCrystallizationCandidate
 	for key, count := range counts {
-		if count >= 3 {
+		threshold := 3
+		if boosted[key] {
+			threshold = 2
+		}
+		if count >= threshold {
 			parts := strings.SplitN(key, ":", 2)
 			candidates = append(candidates, StrataCrystallizationCandidate{
 				Corpus:     parts[0],
@@ -359,6 +367,32 @@ func (ps *PreScanner) findStrataCandidates() []StrataCrystallizationCandidate {
 		}
 	}
 	return candidates
+}
+
+// loadFeedbackBoosts reads feedback.jsonl and returns a set of "corpus:query" keys
+// that have received "useful" feedback, indicating a boost for crystallization.
+func (ps *PreScanner) loadFeedbackBoosts() map[string]bool {
+	feedbackPath := filepath.Join(ps.root, "strata", "feedback.jsonl")
+	data, err := os.ReadFile(feedbackPath)
+	if err != nil {
+		return nil
+	}
+
+	boosted := map[string]bool{}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var entry strata.FeedbackEntry
+		if err := json.Unmarshal([]byte(line), &entry); err != nil {
+			continue
+		}
+		if entry.Useful && entry.QueryTerms != "" {
+			key := entry.Corpus + ":" + entry.QueryTerms
+			boosted[key] = true
+		}
+	}
+	return boosted
 }
 
 // findSignalPatterns identifies motes with co-access patterns suggesting priming signals.
