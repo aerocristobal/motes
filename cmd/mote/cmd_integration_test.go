@@ -405,6 +405,111 @@ func TestInit_InstallsHooksAndSkills(t *testing.T) {
 	}
 }
 
+// setupGlobalIntegrationTest creates .memory/ and a SEPARATE global dir (via MOTE_GLOBAL_ROOT).
+// Unlike setupIntegrationTest, global and local are different directories.
+// Tests using this MUST NOT call t.Parallel().
+func setupGlobalIntegrationTest(t *testing.T) (memDir, globalDir string, cleanup func()) {
+	t.Helper()
+	tmpDir := t.TempDir()
+	memDir = filepath.Join(tmpDir, ".memory")
+	os.MkdirAll(filepath.Join(memDir, "nodes"), 0755)
+	globalDir = filepath.Join(tmpDir, "global-store")
+	os.Setenv("MOTE_GLOBAL_ROOT", globalDir)
+
+	cfg := core.DefaultConfig()
+	core.SaveConfig(memDir, cfg)
+	im := core.NewIndexManager(memDir)
+	im.Rebuild(nil)
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	return memDir, globalDir, func() {
+		os.Chdir(origDir)
+		os.Unsetenv("MOTE_GLOBAL_ROOT")
+	}
+}
+
+func TestSearch_FindsGlobalMotes(t *testing.T) {
+	memDir, _, cleanup := setupGlobalIntegrationTest(t)
+	defer cleanup()
+
+	mm := core.NewMoteManager(memDir)
+
+	// Create a global knowledge mote (goes to global dir automatically)
+	_, err := mm.Create("lesson", "Kubernetes networking lesson", core.CreateOpts{
+		Tags: []string{"k8s"},
+		Body: "Flannel CNI provides overlay networking for pods across nodes.",
+	})
+	if err != nil {
+		t.Fatalf("create global: %v", err)
+	}
+
+	// Create a local task mote
+	_, err = mm.Create("task", "Fix auth bug", core.CreateOpts{
+		Tags: []string{"auth"},
+		Body: "The login endpoint returns 500.",
+	})
+	if err != nil {
+		t.Fatalf("create local: %v", err)
+	}
+
+	// Rebuild index for local motes
+	motes, _ := mm.ReadAllParallel()
+	im := core.NewIndexManager(memDir)
+	im.Rebuild(motes)
+
+	output := captureStdout(func() {
+		searchCmd.RunE(searchCmd, []string{"flannel", "CNI", "networking"})
+	})
+
+	if !strings.Contains(output, "Kubernetes") && !strings.Contains(output, "networking") {
+		t.Errorf("expected global lesson in search results, got:\n%s", output)
+	}
+}
+
+func TestContext_FindsGlobalMotes(t *testing.T) {
+	memDir, _, cleanup := setupGlobalIntegrationTest(t)
+	defer cleanup()
+
+	mm := core.NewMoteManager(memDir)
+
+	// Create a global knowledge mote
+	_, err := mm.Create("decision", "Use Rust for CLI tools", core.CreateOpts{
+		Tags: []string{"rust", "tooling"},
+		Body: "Rust provides memory safety and good CLI ergonomics.",
+	})
+	if err != nil {
+		t.Fatalf("create global: %v", err)
+	}
+
+	// Create a local task
+	_, err = mm.Create("task", "Build CLI parser", core.CreateOpts{
+		Tags: []string{"rust", "cli"},
+		Body: "Implement argument parsing with clap.",
+	})
+	if err != nil {
+		t.Fatalf("create local: %v", err)
+	}
+
+	// Rebuild index
+	motes, _ := mm.ReadAllParallel()
+	im := core.NewIndexManager(memDir)
+	im.Rebuild(motes)
+
+	output := captureStdout(func() {
+		contextCmd.RunE(contextCmd, []string{"rust"})
+	})
+
+	if !strings.Contains(output, "rust") && !strings.Contains(output, "Rust") {
+		t.Errorf("expected rust-related content from global mote in context output, got:\n%s", output)
+	}
+}
+
 func TestOnboard_DryRun(t *testing.T) {
 	_, cleanup := setupIntegrationTest(t)
 	defer cleanup()
