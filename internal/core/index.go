@@ -225,13 +225,12 @@ func (im *IndexManager) appendEdgeLine(edge Edge) error {
 	return err
 }
 
-// Rebuild reconstructs the index from mote frontmatter link fields.
-func (im *IndexManager) Rebuild(motes []*Mote) error {
+// buildEdges constructs an EdgeIndex from mote frontmatter link fields (in-memory only).
+func buildEdges(motes []*Mote) *EdgeIndex {
 	var edges []Edge
 	tagStats := map[string]int{}
-	conceptTermStats := map[string]int{} // concept terms from unresolved wiki-links
+	conceptTermStats := map[string]int{}
 
-	// Build mote ID set for classifying wiki-links
 	moteIDSet := make(map[string]bool, len(motes))
 	for _, m := range motes {
 		moteIDSet[m.ID] = true
@@ -250,18 +249,15 @@ func (im *IndexManager) Rebuild(motes []*Mote) error {
 		edges = appendEdges(edges, m.ID, "caused_by", m.CausedBy)
 		edges = appendEdges(edges, m.ID, "informed_by", m.InformedBy)
 
-		// Index-only reverse edges for builds_on
 		for _, target := range m.BuildsOn {
 			edges = append(edges, Edge{Source: target, Target: m.ID, EdgeType: "built_by_ref"})
 		}
 
-		// Parent/child hierarchy edges
 		if m.Parent != "" {
 			edges = append(edges, Edge{Source: m.ID, Target: m.Parent, EdgeType: "child_of"})
 			edges = append(edges, Edge{Source: m.Parent, Target: m.ID, EdgeType: "parent_of"})
 		}
 
-		// Classify body wiki-links as resolved (body_ref) or concept (concept_ref)
 		resolved, concepts := ExtractBodyLinksClassified(m.Body, m.ID, moteIDSet)
 		for _, target := range resolved {
 			edges = append(edges, Edge{Source: m.ID, Target: target, EdgeType: "body_ref"})
@@ -272,7 +268,6 @@ func (im *IndexManager) Rebuild(motes []*Mote) error {
 		}
 	}
 
-	// ConceptStats = tags + concept terms merged
 	conceptStats := make(map[string]int, len(tagStats)+len(conceptTermStats))
 	for k, v := range tagStats {
 		conceptStats[k] = v
@@ -281,10 +276,24 @@ func (im *IndexManager) Rebuild(motes []*Mote) error {
 		conceptStats[k] += v
 	}
 
-	idx := &EdgeIndex{Edges: edges, TagStats: tagStats, ConceptStats: conceptStats}
+	return &EdgeIndex{Edges: edges, TagStats: tagStats, ConceptStats: conceptStats}
+}
+
+// Rebuild reconstructs the index from mote frontmatter link fields and persists to disk.
+func (im *IndexManager) Rebuild(motes []*Mote) error {
+	idx := buildEdges(motes)
 	im.buildDerived(idx)
 	im.index = idx
 	return im.writeIndex()
+}
+
+// BuildInMemory constructs a transient EdgeIndex from motes without writing to disk.
+// Used for unified cross-scope graph views (e.g., merging local + global motes).
+func (im *IndexManager) BuildInMemory(motes []*Mote) *EdgeIndex {
+	idx := buildEdges(motes)
+	im.buildDerived(idx)
+	im.index = idx
+	return idx
 }
 
 func appendEdges(edges []Edge, source, edgeType string, targets []string) []Edge {

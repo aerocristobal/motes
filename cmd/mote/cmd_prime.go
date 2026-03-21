@@ -112,19 +112,14 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 
 	mm := core.NewMoteManager(root)
 	im := core.NewIndexManager(root)
-	idx, err := im.Load()
-	if err != nil {
-		return fmt.Errorf("load index: %w", err)
-	}
 
-	motes, err := mm.ReadAllParallel()
+	motes, err := readAllWithGlobal(mm)
 	if err != nil {
 		return fmt.Errorf("read motes: %w", err)
 	}
 
-	// Merge global motes
-	globalMotes := readGlobalMotes()
-	motes = append(motes, globalMotes...)
+	// Build unified cross-scope edge index (transient, no disk write)
+	idx := im.BuildInMemory(motes)
 
 	// Read session state
 	session := core.ReadSessionState(root)
@@ -553,30 +548,6 @@ func filterByType(results []core.ScoredMote, moteType string) []core.ScoredMote 
 		}
 	}
 	return filtered
-}
-
-func readGlobalMotes() []*core.Mote {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
-	globalDir := filepath.Join(home, ".claude", "memory", "nodes")
-	entries, err := os.ReadDir(globalDir)
-	if err != nil {
-		return nil
-	}
-	var motes []*core.Mote
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-		m, err := core.ParseMote(filepath.Join(globalDir, entry.Name()))
-		if err != nil {
-			continue
-		}
-		motes = append(motes, m)
-	}
-	return motes
 }
 
 func isGlobalMote(m *core.Mote) bool {

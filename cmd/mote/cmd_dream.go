@@ -95,6 +95,9 @@ func runDream(cmd *cobra.Command, args []string) error {
 	dream.CheckFeedback(root, mm, im, cfg)
 
 	orch := dream.NewDreamOrchestrator(root, cfg)
+	orch.SetMoteLoader(func() ([]*core.Mote, error) {
+		return readAllWithGlobal(mm)
+	})
 	if dreamStructuredLog {
 		orch.SetLogger(dream.NewDreamLogger(os.Stderr, true))
 	}

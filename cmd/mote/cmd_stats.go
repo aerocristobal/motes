@@ -67,7 +67,7 @@ func runStats(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("load index: %w", err)
 	}
 
-	motes, err := mm.ReadAllParallel()
+	motes, err := readAllWithGlobal(mm)
 	if err != nil {
 		return fmt.Errorf("read motes: %w", err)
 	}

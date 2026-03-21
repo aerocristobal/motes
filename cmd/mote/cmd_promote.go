@@ -35,6 +35,11 @@ func runPromote(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("read mote: %w", err)
 	}
 
+	// Knowledge types are now global by default — warn about deprecation
+	if core.KnowledgeTypes[source.Type] {
+		fmt.Fprintf(os.Stderr, "warning: %s motes are now global by default; promote is deprecated for knowledge types\n", source.Type)
+	}
+
 	if source.PromotedTo != "" {
 		return fmt.Errorf("mote %s already promoted to %s", source.ID, source.PromotedTo)
 	}

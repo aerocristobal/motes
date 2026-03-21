@@ -30,6 +30,7 @@ var (
 	addSize   string
 	addRefs   []string
 	addStatus string
+	addLocal  bool
 )
 
 func init() {
@@ -44,6 +45,7 @@ func init() {
 	addCmd.Flags().StringVar(&addSize, "size", "", "Effort size (xs|s|m|l|xl)")
 	addCmd.Flags().StringSliceVar(&addRefs, "ref", nil, "External reference (format: provider:id[:url], repeatable)")
 	addCmd.Flags().StringVar(&addStatus, "status", "", "Initial status (active|completed|archived|deprecated)")
+	addCmd.Flags().BoolVar(&addLocal, "local", false, "Force local storage for knowledge types (decision, lesson, explore, context, question)")
 	_ = addCmd.MarkFlagRequired("type")
 	_ = addCmd.MarkFlagRequired("title")
 	rootCmd.AddCommand(addCmd)
@@ -175,6 +177,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		Parent:     addParent,
 		Acceptance: addAccept,
 		Size:       addSize,
+		Local:      addLocal,
 	})
 	if err != nil {
 		return fmt.Errorf("create mote: %w", err)
@@ -195,8 +198,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Update BM25 index
-	allMotes, _ := mm.ReadAllParallel()
+	// Update BM25 index (include global motes for full-text search)
+	allMotes, _ := readAllWithGlobal(mm)
 	if allMotes != nil {
 		_ = rebuildMoteBM25(root, allMotes)
 	}

@@ -168,6 +168,7 @@ func TestPromptContext_WithMotes(t *testing.T) {
 
 func setupTestMemory(t *testing.T, root string) {
 	t.Helper()
+	t.Setenv("MOTE_GLOBAL_ROOT", root)
 	os.MkdirAll(filepath.Join(root, "nodes"), 0755)
 	os.MkdirAll(filepath.Join(root, "dream"), 0755)
 	os.MkdirAll(filepath.Join(root, "strata"), 0755)

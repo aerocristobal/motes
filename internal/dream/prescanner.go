@@ -16,6 +16,7 @@ import (
 type PreScanner struct {
 	moteManager  *core.MoteManager
 	indexManager  *core.IndexManager
+	moteLoader   func() ([]*core.Mote, error) // optional override for dual-scope loading
 	root         string
 	config       core.DreamConfig
 	moteBM25     *strata.BM25Index
@@ -31,6 +32,12 @@ func NewPreScanner(root string, mm *core.MoteManager, im *core.IndexManager, cfg
 	}
 }
 
+// SetMoteLoader overrides the default mote loading function.
+// Used to inject readAllWithGlobal for cross-scope dream scanning.
+func (ps *PreScanner) SetMoteLoader(loader func() ([]*core.Mote, error)) {
+	ps.moteLoader = loader
+}
+
 // SetMoteBM25 sets the mote BM25 index for content similarity scanning.
 func (ps *PreScanner) SetMoteBM25(idx *strata.BM25Index) {
 	ps.moteBM25 = idx
@@ -39,7 +46,13 @@ func (ps *PreScanner) SetMoteBM25(idx *strata.BM25Index) {
 // Scan reads all motes and the index, returning candidates across 9 categories.
 // It uses a content-hash cache to skip unchanged motes where possible.
 func (ps *PreScanner) Scan() (*ScanResult, error) {
-	motes, err := ps.moteManager.ReadAllParallel()
+	var motes []*core.Mote
+	var err error
+	if ps.moteLoader != nil {
+		motes, err = ps.moteLoader()
+	} else {
+		motes, err = ps.moteManager.ReadAllParallel()
+	}
 	if err != nil {
 		return nil, err
 	}

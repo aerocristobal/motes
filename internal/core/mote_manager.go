@@ -16,21 +16,23 @@ import (
 
 type MoteManager struct {
 	root           string
+	globalRoot     string // Override for global nodes dir; empty = default (~/.claude/memory/nodes)
 	cache          *ReadCache
 	accessBatchMux sync.Mutex // Protects access batch operations
 	audit          *AuditLogger
 }
 
 type CreateOpts struct {
-	Tags          []string
-	Weight        float64
-	Origin        string
-	Body          string
-	StrataCorpus  string
-	SourceIssue   string
-	Parent        string
-	Acceptance    []string
-	Size          string
+	Tags         []string
+	Weight       float64
+	Origin       string
+	Body         string
+	StrataCorpus string
+	SourceIssue  string
+	Parent       string
+	Acceptance   []string
+	Size         string
+	Local        bool // Force local storage for knowledge types
 }
 
 type ListFilters struct {
@@ -50,6 +52,24 @@ type AccessBatchEntry struct {
 
 func NewMoteManager(root string) *MoteManager {
 	return &MoteManager{root: root, cache: NewReadCache(), audit: NewAuditLogger(root)}
+}
+
+// SetGlobalRoot overrides the global nodes directory. Used by tests to avoid
+// writing to ~/.claude/memory/nodes/.
+func (mm *MoteManager) SetGlobalRoot(dir string) {
+	mm.globalRoot = dir
+}
+
+// globalNodesDir returns the directory for global motes, creating it if needed.
+func (mm *MoteManager) globalNodesDir() (string, error) {
+	if mm.globalRoot != "" {
+		dir := filepath.Join(mm.globalRoot, "nodes")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", err
+		}
+		return dir, nil
+	}
+	return GlobalNodesDir()
 }
 
 // auditLog is a best-effort helper to log an audit entry.
@@ -114,6 +134,27 @@ func (mm *MoteManager) nodesDir() string {
 	return filepath.Join(mm.root, "nodes")
 }
 
+// GlobalNodesDir returns the global mote storage path (~/.claude/memory/nodes/)
+// and ensures the directory exists. If MOTE_GLOBAL_ROOT is set, uses that instead.
+func GlobalNodesDir() (string, error) {
+	if override := os.Getenv("MOTE_GLOBAL_ROOT"); override != "" {
+		dir := filepath.Join(override, "nodes")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", fmt.Errorf("create global nodes dir: %w", err)
+		}
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home dir: %w", err)
+	}
+	dir := filepath.Join(home, ".claude", "memory", "nodes")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("create global nodes dir: %w", err)
+	}
+	return dir, nil
+}
+
 func (mm *MoteManager) trashDir() string {
 	return filepath.Join(mm.root, "trash")
 }
@@ -121,6 +162,13 @@ func (mm *MoteManager) trashDir() string {
 func (mm *MoteManager) moteFilePath(moteID string) (string, error) {
 	if err := security.ValidateMoteID(moteID); err != nil {
 		return "", fmt.Errorf("invalid mote ID: %w", err)
+	}
+	if strings.HasPrefix(moteID, "global-") {
+		gDir, err := mm.globalNodesDir()
+		if err != nil {
+			return "", err
+		}
+		return filepath.Join(gDir, moteID+".md"), nil
 	}
 	return filepath.Join(mm.nodesDir(), moteID+".md"), nil
 }
@@ -170,6 +218,11 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 	}
 
 	scope := scopeFromRoot(mm.root)
+	// Route knowledge types to global storage by default
+	isGlobal := KnowledgeTypes[moteType] && !opts.Local
+	if isGlobal {
+		scope = "global"
+	}
 	id := GenerateID(scope, moteType)
 
 	weight := opts.Weight
@@ -202,6 +255,9 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 		CreatedBy:     agentID,
 		ModifiedBy:    agentID,
 	}
+	if isGlobal {
+		m.OriginProject = scopeFromRoot(mm.root)
+	}
 
 	data, err := SerializeMote(m)
 	if err != nil {
@@ -220,6 +276,7 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 }
 
 // Read loads a mote by ID, using the in-memory cache when the file is unchanged.
+// If the mote is a tombstone (has ForwardedTo set), follows the redirect to the global mote.
 func (mm *MoteManager) Read(moteID string) (*Mote, error) {
 	path, err := mm.moteFilePath(moteID)
 	if err != nil {
@@ -231,6 +288,10 @@ func (mm *MoteManager) Read(moteID string) (*Mote, error) {
 	m, err := ParseMote(path)
 	if err != nil {
 		return nil, err
+	}
+	// Follow tombstone forwarding to global mote
+	if m.ForwardedTo != "" {
+		return mm.Read(m.ForwardedTo)
 	}
 	mm.cache.Put(moteID, path, m)
 	return m, nil
@@ -393,7 +454,7 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 
 // List returns motes matching the given filters.
 func (mm *MoteManager) List(filters ListFilters) ([]*Mote, error) {
-	motes, err := mm.ReadAllParallel()
+	motes, err := mm.ReadAllWithGlobal()
 	if err != nil {
 		return nil, err
 	}
@@ -587,6 +648,51 @@ func (mm *MoteManager) ReadAllParallel() ([]*Mote, error) {
 		motes = append(motes, r.mote)
 	}
 	return motes, nil
+}
+
+// ReadGlobalMotes reads all motes from the global nodes directory.
+func (mm *MoteManager) ReadGlobalMotes() []*Mote {
+	gDir, err := mm.globalNodesDir()
+	if err != nil {
+		return nil
+	}
+	entries, err := os.ReadDir(gDir)
+	if err != nil {
+		return nil
+	}
+	var motes []*Mote
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		m, err := ParseMote(filepath.Join(gDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		motes = append(motes, m)
+	}
+	return motes
+}
+
+// ReadAllWithGlobal reads project-local motes and merges with global motes,
+// deduplicating by ID (local takes precedence).
+func (mm *MoteManager) ReadAllWithGlobal() ([]*Mote, error) {
+	local, err := mm.ReadAllParallel()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(local))
+	for _, m := range local {
+		seen[m.ID] = true
+	}
+	global := mm.ReadGlobalMotes()
+	for _, m := range global {
+		if !seen[m.ID] {
+			local = append(local, m)
+			seen[m.ID] = true
+		}
+	}
+	return local, nil
 }
 
 // AppendAccessBatch appends an access record to .access_batch.jsonl.

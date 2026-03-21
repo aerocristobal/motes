@@ -20,6 +20,10 @@ func setupIntegrationTest(t *testing.T) (string, func()) {
 	memDir := filepath.Join(tmpDir, ".memory")
 	os.MkdirAll(filepath.Join(memDir, "nodes"), 0755)
 
+	// Point global root at the same .memory dir so knowledge motes stay co-located
+	// with local motes for test simplicity. Tests for global routing test separately.
+	os.Setenv("MOTE_GLOBAL_ROOT", memDir)
+
 	// Initialize config
 	cfg := core.DefaultConfig()
 	core.SaveConfig(memDir, cfg)
@@ -37,6 +41,7 @@ func setupIntegrationTest(t *testing.T) (string, func()) {
 	}
 	return memDir, func() {
 		os.Chdir(origDir)
+		os.Unsetenv("MOTE_GLOBAL_ROOT")
 	}
 }
 
@@ -70,7 +75,7 @@ func seedMotes(t *testing.T, root string, specs []moteSpec) {
 	im := core.NewIndexManager(root)
 
 	for _, s := range specs {
-		opts := core.CreateOpts{Tags: s.Tags, Body: s.Body}
+		opts := core.CreateOpts{Tags: s.Tags, Body: s.Body, Local: true}
 		if s.Weight > 0 {
 			opts.Weight = s.Weight
 		}

@@ -58,15 +58,14 @@ func runContext(cmd *cobra.Command, args []string) error {
 
 	mm := core.NewMoteManager(root)
 	im := core.NewIndexManager(root)
-	idx, err := im.Load()
-	if err != nil {
-		return fmt.Errorf("load index: %w", err)
-	}
 
-	motes, err := mm.ReadAllParallel()
+	motes, err := readAllWithGlobal(mm)
 	if err != nil {
 		return fmt.Errorf("read motes: %w", err)
 	}
+
+	// Build unified cross-scope edge index
+	idx := im.BuildInMemory(motes)
 
 	// Seed selection
 	ss := core.NewSeedSelector(motes, idx.TagStats, cfg.Priming.Signals, loadTextSearcher(root))

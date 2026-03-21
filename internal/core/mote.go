@@ -122,6 +122,10 @@ type Mote struct {
 	CreatedBy  string `yaml:"created_by,omitempty"`
 	ModifiedBy string `yaml:"modified_by,omitempty"`
 
+	// Global knowledge routing
+	OriginProject string `yaml:"origin_project,omitempty"`
+	ForwardedTo   string `yaml:"forwarded_to,omitempty"`
+
 	// Soft-delete tracking
 	DeletedAt *time.Time `yaml:"deleted_at,omitempty"`
 

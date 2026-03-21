@@ -41,7 +41,9 @@ func setupBenchMemory(b *testing.B) (string, *MoteManager) {
 	if err := os.MkdirAll(filepath.Join(root, "nodes"), 0755); err != nil {
 		b.Fatal(err)
 	}
-	return root, NewMoteManager(root)
+	mm := NewMoteManager(root)
+	mm.SetGlobalRoot(root)
+	return root, mm
 }
 
 func BenchmarkGraphTraverser_Traverse(b *testing.B) {

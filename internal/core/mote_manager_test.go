@@ -16,7 +16,11 @@ func setupTestMemory(t *testing.T) (string, *MoteManager) {
 	if err := os.MkdirAll(filepath.Join(root, "nodes"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	return root, NewMoteManager(root)
+	// Point global root at the same .memory dir so knowledge motes stay co-located
+	// with local motes for test simplicity. Tests for global routing test separately.
+	mm := NewMoteManager(root)
+	mm.SetGlobalRoot(root)
+	return root, mm
 }
 
 func TestMoteManager_CreateRead(t *testing.T) {

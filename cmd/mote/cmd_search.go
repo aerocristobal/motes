@@ -47,7 +47,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	root := mustFindRoot()
 	mm := core.NewMoteManager(root)
 
-	motes, err := mm.ReadAllParallel()
+	motes, err := readAllWithGlobal(mm)
 	if err != nil {
 		return fmt.Errorf("read motes: %w", err)
 	}
@@ -71,14 +71,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return text
 	}
 
-	// Try persistent BM25 index first
-	persistentIdx, loadErr := loadMoteBM25(root)
-
+	// Build ephemeral BM25 index from all motes (local + global)
 	var results []strata.ChunkResult
-	if persistentIdx != nil && loadErr == nil {
-		results = persistentIdx.Search(query, searchTopK)
-	} else {
-		// Fall back to ephemeral index
+	{
 		chunks := make([]strata.Chunk, len(motes))
 		for i, m := range motes {
 			chunks[i] = strata.Chunk{

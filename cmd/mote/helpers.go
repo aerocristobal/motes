@@ -48,6 +48,11 @@ func initMemoryDir(root string) error {
 	return os.MkdirAll(filepath.Join(root, "nodes"), 0755)
 }
 
+// readAllWithGlobal reads project-local motes and merges with global motes.
+func readAllWithGlobal(mm *core.MoteManager) ([]*core.Mote, error) {
+	return mm.ReadAllWithGlobal()
+}
+
 // openEditor opens the given file in $EDITOR (or vi as fallback).
 func openEditor(path string) error {
 	editor := os.Getenv("EDITOR")

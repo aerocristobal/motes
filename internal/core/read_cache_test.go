@@ -75,6 +75,7 @@ func TestMoteManager_ReadUsesCache(t *testing.T) {
 	os.MkdirAll(filepath.Join(root, "nodes"), 0755)
 
 	mm := NewMoteManager(root)
+	mm.SetGlobalRoot(root)
 	m, err := mm.Create("lesson", "Cache test", CreateOpts{Tags: []string{"test"}})
 	if err != nil {
 		t.Fatal(err)
@@ -104,6 +105,7 @@ func TestMoteManager_ReadAllParallelPopulatesCache(t *testing.T) {
 	os.MkdirAll(filepath.Join(root, "nodes"), 0755)
 
 	mm := NewMoteManager(root)
+	mm.SetGlobalRoot(root)
 	mm.Create("lesson", "Mote A", CreateOpts{Tags: []string{"test"}})
 	mm.Create("decision", "Mote B", CreateOpts{Tags: []string{"test"}})
 

@@ -14,6 +14,7 @@ func TestExportRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, ".memory")
 	os.MkdirAll(filepath.Join(root, "nodes"), 0755)
+	t.Setenv("MOTE_GLOBAL_ROOT", root)
 
 	mm := core.NewMoteManager(root)
 

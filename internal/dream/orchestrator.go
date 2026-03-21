@@ -50,6 +50,11 @@ func NewDreamOrchestrator(root string, cfg *core.Config) *DreamOrchestrator {
 	}
 }
 
+// SetMoteLoader overrides the default mote loading for cross-scope dream scanning.
+func (do *DreamOrchestrator) SetMoteLoader(loader func() ([]*core.Mote, error)) {
+	do.scanner.SetMoteLoader(loader)
+}
+
 // SetLogger configures the structured logger for machine-parseable output.
 func (do *DreamOrchestrator) SetLogger(logger *DreamLogger) {
 	if logger != nil {

@@ -16,7 +16,11 @@ func setupTestMotes(t *testing.T) (string, *core.MoteManager, *core.IndexManager
 	nodesDir := filepath.Join(root, "nodes")
 	os.MkdirAll(nodesDir, 0755)
 
+	// Redirect global motes to same dir so knowledge motes stay co-located
+	t.Setenv("MOTE_GLOBAL_ROOT", root)
+
 	mm := core.NewMoteManager(root)
+	mm.SetGlobalRoot(root)
 	im := core.NewIndexManager(root)
 	return root, mm, im
 }

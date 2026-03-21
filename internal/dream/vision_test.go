@@ -91,6 +91,7 @@ func setupApplyTest(t *testing.T) (string, *core.MoteManager, *core.IndexManager
 	os.MkdirAll(filepath.Join(root, "nodes"), 0755)
 	os.MkdirAll(filepath.Join(root, "dream"), 0755)
 	mm := core.NewMoteManager(root)
+	mm.SetGlobalRoot(root)
 	im := core.NewIndexManager(root)
 	vw := NewVisionWriter(filepath.Join(root, "dream"))
 	return root, mm, im, vw
