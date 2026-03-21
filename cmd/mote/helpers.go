@@ -129,3 +129,62 @@ func rebuildMoteBM25(root string, motes []*core.Mote) error {
 	bm25m := core.NewMoteBM25Manager(root)
 	return bm25m.SaveRaw(data)
 }
+
+// appendAutoLinks BM25-searches allMotes for matches to m's title+body,
+// then appends top matches as [[id]] wikilinks to m's body.
+func appendAutoLinks(mm *core.MoteManager, m *core.Mote, allMotes []*core.Mote, cfg *core.Config) error {
+	if cfg.Linking.MaxAutoLinks <= 0 {
+		return nil
+	}
+
+	// Build ephemeral BM25 index from all motes
+	chunks := make([]strata.Chunk, len(allMotes))
+	for i, am := range allMotes {
+		chunks[i] = strata.Chunk{
+			ID:   am.ID,
+			Text: am.Title + " " + am.Body,
+		}
+	}
+	idx := strata.BuildBM25Index(chunks)
+
+	// Search using the new mote's content
+	query := m.Title + " " + m.Body
+	results := idx.Search(query, cfg.Linking.MaxAutoLinks+1) // +1 to allow for self-filtering
+
+	// Filter: exclude self, below threshold
+	var links []string
+	for _, r := range results {
+		if r.Chunk.ID == m.ID {
+			continue
+		}
+		if r.Score < cfg.Linking.MinScore {
+			continue
+		}
+		links = append(links, r.Chunk.ID)
+		if len(links) >= cfg.Linking.MaxAutoLinks {
+			break
+		}
+	}
+
+	if len(links) == 0 {
+		return nil
+	}
+
+	// Build "See also:" line
+	seeAlso := "See also:"
+	for _, id := range links {
+		seeAlso += " [[" + id + "]]"
+	}
+	m.Body += "\n" + seeAlso
+
+	// Persist updated body
+	data, err := core.SerializeMote(m)
+	if err != nil {
+		return fmt.Errorf("serialize mote: %w", err)
+	}
+	path, err := mm.MoteFilePath(m.ID)
+	if err != nil {
+		return fmt.Errorf("mote path: %w", err)
+	}
+	return core.AtomicWrite(path, data, 0644)
+}

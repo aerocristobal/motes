@@ -14,6 +14,12 @@ type Config struct {
 	Dream   DreamConfig   `yaml:"dream"`
 	Strata  StrataConfig  `yaml:"strata"`
 	Trash   TrashConfig   `yaml:"trash"`
+	Linking LinkingConfig `yaml:"linking"`
+}
+
+type LinkingConfig struct {
+	MaxAutoLinks int     `yaml:"max_auto_links"`
+	MinScore     float64 `yaml:"min_score"`
 }
 
 type TrashConfig struct {
@@ -249,6 +255,10 @@ func DefaultConfig() *Config {
 		},
 		Trash: TrashConfig{
 			RetentionDays: 30,
+		},
+		Linking: LinkingConfig{
+			MaxAutoLinks: 5,
+			MinScore:     0.1,
 		},
 		Strata: StrataConfig{
 			Chunking: ChunkingConfig{

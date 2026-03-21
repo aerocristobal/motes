@@ -198,9 +198,13 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Update BM25 index (include global motes for full-text search)
+	// Auto-link and update BM25 index (include global motes)
 	allMotes, _ := readAllWithGlobal(mm)
 	if allMotes != nil {
+		cfg, _ := core.LoadConfig(root)
+		if cfg.Linking.MaxAutoLinks > 0 {
+			_ = appendAutoLinks(mm, m, allMotes, cfg)
+		}
 		_ = rebuildMoteBM25(root, allMotes)
 	}
 
