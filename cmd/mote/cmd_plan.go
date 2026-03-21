@@ -23,9 +23,9 @@ var (
 )
 
 func init() {
-	planCmd.Flags().StringArrayVar(&planChildren, "child", nil, "Child task title (repeatable)")
+	planCmd.Flags().StringSliceVar(&planChildren, "child", nil, "Child task title (repeatable)")
 	planCmd.Flags().BoolVar(&planSequential, "sequential", false, "Chain children with depends_on links")
-	planCmd.Flags().StringArrayVar(&planTag, "tag", nil, "Additional tag for children (repeatable)")
+	planCmd.Flags().StringSliceVar(&planTag, "tag", nil, "Additional tag for children (repeatable)")
 	_ = planCmd.MarkFlagRequired("child")
 	rootCmd.AddCommand(planCmd)
 }
