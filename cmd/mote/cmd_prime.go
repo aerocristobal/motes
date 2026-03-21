@@ -15,6 +15,7 @@ import (
 	"motes/internal/core"
 	"motes/internal/dream"
 	"motes/internal/format"
+	"motes/internal/strata"
 )
 
 var (
@@ -25,12 +26,21 @@ var (
 
 // PrimeOutput is the JSON output structure for mote prime --json.
 type PrimeOutput struct {
-	ActiveTasks    []MoteEntry   `json:"active_tasks"`
-	Decisions      []MoteEntry   `json:"decisions"`
-	Lessons        []MoteEntry   `json:"lessons"`
-	Explores       []MoteEntry   `json:"explores"`
-	ContentEchoes  []MoteEntry   `json:"content_echoes,omitempty"`
-	Strata         []StrataEntry `json:"strata,omitempty"`
+	ActiveTasks    []MoteEntry        `json:"active_tasks"`
+	Decisions      []MoteEntry        `json:"decisions"`
+	Lessons        []MoteEntry        `json:"lessons"`
+	Explores       []MoteEntry        `json:"explores"`
+	ContentEchoes  []MoteEntry        `json:"content_echoes,omitempty"`
+	Strata         []StrataEntry      `json:"strata,omitempty"`
+	CodeContext    []CodeContextEntry `json:"code_context,omitempty"`
+}
+
+// CodeContextEntry represents a strata chunk surfaced by git-diff file analysis.
+type CodeContextEntry struct {
+	ChunkID    string  `json:"chunk_id"`
+	Score      float64 `json:"score"`
+	SourcePath string  `json:"source_path"`
+	Snippet    string  `json:"snippet"`
 }
 
 // MoteEntry represents a single mote in JSON output.
@@ -316,6 +326,9 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 	lessons := filterByType(allResults, "lesson")
 	explores := filterByType(allResults, "explore")
 
+	// Code context from git diff + strata
+	codeContextResults := queryStrataForChangedFiles(root, ambient.RecentFiles, cfg)
+
 	// JSON output mode
 	if primeJSON {
 		var jsonEchoes []core.ScoredMote
@@ -345,6 +358,14 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 					Hint:   hint,
 				})
 			}
+		}
+		for _, cr := range codeContextResults {
+			out.CodeContext = append(out.CodeContext, CodeContextEntry{
+				ChunkID:    cr.Chunk.ID,
+				Score:      cr.Score,
+				SourcePath: cr.Chunk.SourcePath,
+				Snippet:    format.Truncate(strings.ReplaceAll(cr.Chunk.Text, "\n", " "), 120),
+			})
 		}
 		data, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
@@ -401,6 +422,18 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 			}
 			fmt.Println()
 		}
+	}
+
+	// Code context from changed files
+	if len(codeContextResults) > 0 {
+		fmt.Println("## Code context")
+		fmt.Println()
+		for _, cr := range codeContextResults {
+			snippet := format.Truncate(strings.ReplaceAll(cr.Chunk.Text, "\n", " "), 120)
+			fmt.Printf("  [%.2f] %s — %s\n", cr.Score, cr.Chunk.ID, snippet)
+			fmt.Printf("         source: %s\n", cr.Chunk.SourcePath)
+		}
+		fmt.Println()
 	}
 
 	// Contradiction warnings
@@ -668,4 +701,51 @@ func readAccessBatchIDs(root string) map[string]bool {
 		}
 	}
 	return ids
+}
+
+// queryStrataForChangedFiles queries strata corpora using keywords from changed file paths.
+func queryStrataForChangedFiles(root string, changedFiles []string, cfg *core.Config) []strata.ChunkResult {
+	// Filter to code files only
+	var codeFiles []string
+	for _, f := range changedFiles {
+		if strata.IsCodeFile(f) {
+			codeFiles = append(codeFiles, f)
+		}
+	}
+	if len(codeFiles) == 0 {
+		return nil
+	}
+
+	// Cap to avoid latency issues with large diffs
+	if len(codeFiles) > 10 {
+		codeFiles = codeFiles[:10]
+	}
+
+	// Extract path-component keywords (e.g. "internal/strata/manager.go" → "strata manager")
+	keywordSet := make(map[string]bool)
+	for _, f := range codeFiles {
+		parts := strings.Split(f, string(filepath.Separator))
+		for _, p := range parts {
+			name := strings.TrimSuffix(p, filepath.Ext(p))
+			if len(name) > 2 {
+				keywordSet[strings.ToLower(name)] = true
+			}
+		}
+	}
+
+	var keywords []string
+	for kw := range keywordSet {
+		keywords = append(keywords, kw)
+	}
+	if len(keywords) == 0 {
+		return nil
+	}
+
+	query := strings.Join(keywords, " ")
+	sm := strata.NewStrataManager(root, cfg.Strata)
+	results, err := sm.QueryAll(query, 3)
+	if err != nil {
+		return nil
+	}
+	return results
 }

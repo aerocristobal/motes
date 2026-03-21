@@ -118,6 +118,9 @@ type Mote struct {
 	StrataQueryCount  int        `yaml:"strata_query_count,omitempty"`
 	StrataLastQueried *time.Time `yaml:"strata_last_queried,omitempty"`
 
+	// Code artifact references (anchor motes linking to source files)
+	CodeFilePaths []string `yaml:"code_file_paths,omitempty"`
+
 	// Agent tracking
 	CreatedBy  string `yaml:"created_by,omitempty"`
 	ModifiedBy string `yaml:"modified_by,omitempty"`

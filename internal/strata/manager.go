@@ -82,6 +82,12 @@ var supportedExts = map[string]bool{
 	".yml": true, ".json": true, ".toml": true, ".xml": true,
 }
 
+// IsCodeFile returns true if the file extension is a supported code/text type.
+func IsCodeFile(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return supportedExts[ext]
+}
+
 // AddCorpus ingests files from paths into a named corpus.
 func (sm *StrataManager) AddCorpus(name string, paths []string, createAnchor bool, mm *core.MoteManager) error {
 	corpusDir, err := sm.corpusDir(name)
@@ -343,6 +349,99 @@ func (sm *StrataManager) UpdateCorpus(name string) (changed int, err error) {
 	}
 
 	manifest.SourcePaths = newPaths
+	manifest.SourceHashes = newHashes
+	manifest.ChunkCount = len(allChunks)
+	manifest.LastUpdated = time.Now().UTC().Format(time.RFC3339)
+	return changed, sm.writeManifest(name, *manifest)
+}
+
+// EnsureCorpus creates or updates a corpus with the given file paths.
+// If the corpus exists, new paths are merged with existing ones and only
+// changed/new files are re-chunked. Returns the count of changed/new files.
+func (sm *StrataManager) EnsureCorpus(name string, paths []string) (int, error) {
+	if len(paths) == 0 {
+		return 0, nil
+	}
+
+	manifest, loadErr := sm.loadManifest(name)
+	if loadErr != nil || manifest == nil {
+		// Corpus doesn't exist — create it
+		if err := sm.AddCorpus(name, paths, false, nil); err != nil {
+			return 0, err
+		}
+		return len(paths), nil
+	}
+
+	// Union existing source paths with new paths
+	pathSet := make(map[string]bool, len(manifest.SourcePaths)+len(paths))
+	for _, p := range manifest.SourcePaths {
+		pathSet[p] = true
+	}
+	for _, p := range paths {
+		pathSet[p] = true
+	}
+	var unionPaths []string
+	for p := range pathSet {
+		unionPaths = append(unionPaths, p)
+	}
+	sort.Strings(unionPaths)
+
+	// Re-chunk with hash-based skip for unchanged files
+	var allChunks []Chunk
+	var keptPaths []string
+	newHashes := make(map[string]string)
+	changed := 0
+
+	existingChunks, _ := sm.loadChunks(name)
+	chunksBySource := make(map[string][]Chunk)
+	for _, c := range existingChunks {
+		base := filepath.Base(c.SourcePath)
+		chunksBySource[base] = append(chunksBySource[base], c)
+	}
+
+	for _, p := range unionPaths {
+		if _, statErr := os.Stat(p); statErr != nil {
+			continue // deleted file — drop
+		}
+		h, _ := fileHash(p)
+		newHashes[p] = h
+
+		if manifest.SourceHashes != nil && manifest.SourceHashes[p] == h {
+			// Unchanged — reuse existing chunks
+			base := filepath.Base(p)
+			if cached, ok := chunksBySource[base]; ok {
+				allChunks = append(allChunks, cached...)
+			}
+			keptPaths = append(keptPaths, p)
+			continue
+		}
+
+		chunks, readErr := sm.chunkFile(p, name)
+		if readErr != nil {
+			continue
+		}
+		allChunks = append(allChunks, chunks...)
+		keptPaths = append(keptPaths, p)
+		changed++
+	}
+
+	if changed == 0 {
+		return 0, nil
+	}
+
+	if len(allChunks) == 0 {
+		return 0, fmt.Errorf("no content after ensure")
+	}
+
+	if err := sm.writeChunks(name, allChunks); err != nil {
+		return 0, err
+	}
+	bm25Idx := BuildBM25Index(allChunks)
+	if err := sm.writeBM25(name, bm25Idx); err != nil {
+		return 0, err
+	}
+
+	manifest.SourcePaths = keptPaths
 	manifest.SourceHashes = newHashes
 	manifest.ChunkCount = len(allChunks)
 	manifest.LastUpdated = time.Now().UTC().Format(time.RFC3339)

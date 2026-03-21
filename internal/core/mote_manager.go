@@ -23,16 +23,17 @@ type MoteManager struct {
 }
 
 type CreateOpts struct {
-	Tags         []string
-	Weight       float64
-	Origin       string
-	Body         string
-	StrataCorpus string
-	SourceIssue  string
-	Parent       string
-	Acceptance   []string
-	Size         string
-	Local        bool // Force local storage for knowledge types
+	Tags          []string
+	Weight        float64
+	Origin        string
+	Body          string
+	StrataCorpus  string
+	SourceIssue   string
+	Parent        string
+	Acceptance    []string
+	Size          string
+	Local         bool // Force local storage for knowledge types
+	CodeFilePaths []string
 }
 
 type ListFilters struct {
@@ -248,6 +249,7 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 		AccessCount:   0,
 		Body:          opts.Body,
 		StrataCorpus:  opts.StrataCorpus,
+		CodeFilePaths: opts.CodeFilePaths,
 		SourceIssue:   opts.SourceIssue,
 		Parent:        opts.Parent,
 		Acceptance:    opts.Acceptance,

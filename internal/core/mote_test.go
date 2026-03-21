@@ -279,3 +279,71 @@ func TestSerializeMote_EmptySlices(t *testing.T) {
 		t.Errorf("ID: got %q, want %q", parsed.ID, m.ID)
 	}
 }
+
+func TestParseMote_CodeFilePaths(t *testing.T) {
+	now := time.Date(2025, 3, 15, 10, 0, 0, 0, time.UTC)
+	m := &Mote{
+		ID:            "proj-A1xyz",
+		Type:          "anchor",
+		Status:        "active",
+		Title:         "Score engine anchor",
+		Weight:        0.5,
+		Origin:        "normal",
+		CreatedAt:     now,
+		StrataCorpus:  "codebase",
+		CodeFilePaths: []string{"internal/core/score.go", "internal/core/index.go"},
+	}
+
+	data, err := SerializeMote(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.md")
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseMote(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(parsed.CodeFilePaths) != 2 {
+		t.Fatalf("CodeFilePaths: got %d items, want 2", len(parsed.CodeFilePaths))
+	}
+	if parsed.CodeFilePaths[0] != "internal/core/score.go" {
+		t.Errorf("CodeFilePaths[0]: got %q, want %q", parsed.CodeFilePaths[0], "internal/core/score.go")
+	}
+	if parsed.CodeFilePaths[1] != "internal/core/index.go" {
+		t.Errorf("CodeFilePaths[1]: got %q, want %q", parsed.CodeFilePaths[1], "internal/core/index.go")
+	}
+}
+
+func TestCreateOpts_CodeFilePaths(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, ".memory")
+	os.MkdirAll(filepath.Join(root, "nodes"), 0755)
+
+	mm := NewMoteManager(root)
+	m, err := mm.Create("anchor", "Test anchor", CreateOpts{
+		CodeFilePaths: []string{"cmd/main.go"},
+		StrataCorpus:  "codebase",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(m.CodeFilePaths) != 1 || m.CodeFilePaths[0] != "cmd/main.go" {
+		t.Errorf("CodeFilePaths not set on created mote: %v", m.CodeFilePaths)
+	}
+
+	// Read back from disk
+	read, err := mm.Read(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(read.CodeFilePaths) != 1 || read.CodeFilePaths[0] != "cmd/main.go" {
+		t.Errorf("CodeFilePaths not persisted: %v", read.CodeFilePaths)
+	}
+}

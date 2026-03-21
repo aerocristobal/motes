@@ -116,6 +116,13 @@ func runSessionEndInner(cmd *cobra.Command, args []string) error {
 		hadOutput = true
 	}
 
+	// Auto-ingest changed files into _codebase corpus
+	ingested, ingestErr := autoIngestChangedFiles(root)
+	if ingestErr == nil && ingested > 0 {
+		fmt.Printf("Auto-ingested %d changed files into _codebase corpus.\n", ingested)
+		hadOutput = true
+	}
+
 	// Auto-crystallize session summary
 	if !sessionEndNoSummary && len(sessionMoteIDs) >= 3 {
 		// Build session summary body
@@ -383,4 +390,49 @@ func runSessionEndInner(cmd *cobra.Command, args []string) error {
 	core.ClearSessionState(root)
 
 	return nil
+}
+
+// autoIngestChangedFiles ingests git-changed code files into the _codebase strata corpus.
+func autoIngestChangedFiles(root string) (int, error) {
+	ambient := core.CollectAmbientContext()
+	if len(ambient.RecentFiles) == 0 {
+		return 0, nil
+	}
+
+	var codeFiles []string
+	for _, f := range ambient.RecentFiles {
+		if strata.IsCodeFile(f) {
+			codeFiles = append(codeFiles, f)
+		}
+	}
+	if len(codeFiles) == 0 {
+		return 0, nil
+	}
+
+	// Resolve to absolute paths for strata ingestion
+	cwd, err := os.Getwd()
+	if err != nil {
+		return 0, err
+	}
+	var absPaths []string
+	for _, f := range codeFiles {
+		abs := f
+		if !filepath.IsAbs(f) {
+			abs = filepath.Join(cwd, f)
+		}
+		if _, err := os.Stat(abs); err == nil {
+			absPaths = append(absPaths, abs)
+		}
+	}
+	if len(absPaths) == 0 {
+		return 0, nil
+	}
+
+	cfg, err := core.LoadConfig(root)
+	if err != nil {
+		return 0, err
+	}
+
+	sm := strata.NewStrataManager(root, cfg.Strata)
+	return sm.EnsureCorpus("_codebase", absPaths)
 }
