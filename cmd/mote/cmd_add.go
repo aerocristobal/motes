@@ -208,6 +208,21 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		_ = rebuildMoteBM25(root, allMotes)
 	}
 
+	// Warn if parent already has many active children
+	if addParent != "" {
+		if children, err := mm.Children(addParent); err == nil {
+			activeCount := 0
+			for _, c := range children {
+				if c.Status == "active" {
+					activeCount++
+				}
+			}
+			if activeCount >= 5 {
+				fmt.Fprintf(os.Stderr, "Note: parent %s has %d active children. Consider coarser tasks.\n", addParent, activeCount)
+			}
+		}
+	}
+
 	fmt.Println("Created mote", m.ID)
 	return nil
 }

@@ -136,6 +136,25 @@ func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.Edge
 		}
 	}
 
+	// Test/scratch motes: active motes with test-like titles
+	testPrefixes := []string{"test ", "access test", "tag test", "scratch "}
+	for _, m := range motes {
+		if m.Status != "active" {
+			continue
+		}
+		lower := strings.ToLower(m.Title)
+		for _, prefix := range testPrefixes {
+			if strings.HasPrefix(lower, prefix) {
+				issues = append(issues, doctorIssue{
+					Category: "test_mote",
+					MoteID:   m.ID,
+					Detail:   fmt.Sprintf("possible test/scratch mote still active: %q", m.Title),
+				})
+				break
+			}
+		}
+	}
+
 	// Active contradictions: pairs of active motes linked by contradicts
 	type pair struct{ a, b string }
 	seen := make(map[pair]bool)

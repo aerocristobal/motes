@@ -144,7 +144,7 @@ mote ls --stale                     # Motes not accessed in 90+ days
 mote ls --json                      # Machine-readable JSON output
 mote pulse                          # Active tasks sorted by weight
 mote show <id>                      # Full detail with resolved links
-mote search <query>                 # Full-text BM25 search
+mote search <query>                 # Full-text BM25 search (supports --type, --tag, --status filters)
 mote context <topic>                # Scored context via seed selection + BFS
 mote context --planning <id>        # Dependency chain view
 ```

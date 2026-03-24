@@ -383,6 +383,36 @@ func runSessionEndInner(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Knowledge type summary: reinforce that decisions/lessons are high-value
+	if allMotes != nil {
+		today := time.Now().UTC().Format("2006-01-02")
+		typeCounts := map[string]int{}
+		for _, m := range allMotes {
+			if !m.CreatedAt.IsZero() && strings.HasPrefix(m.CreatedAt.UTC().Format("2006-01-02"), today) {
+				typeCounts[m.Type]++
+			}
+		}
+		total := 0
+		for _, c := range typeCounts {
+			total += c
+		}
+		if total > 0 {
+			var parts []string
+			for _, t := range []string{"task", "decision", "lesson", "context", "explore", "question"} {
+				if c, ok := typeCounts[t]; ok {
+					parts = append(parts, fmt.Sprintf("%d %ss", c, t))
+				}
+			}
+			fmt.Printf("\nSession captured: %s\n", strings.Join(parts, ", "))
+			knowledge := typeCounts["decision"] + typeCounts["lesson"] + typeCounts["explore"]
+			tasks := typeCounts["task"]
+			if tasks > 0 && knowledge == 0 && tasks >= 3 {
+				fmt.Println("Tip: decisions and lessons age better than tasks.")
+			}
+			hadOutput = true
+		}
+	}
+
 	if !hadOutput {
 		// Silent if nothing to do
 	}

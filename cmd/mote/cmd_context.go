@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -90,6 +91,21 @@ func runContext(cmd *cobra.Command, args []string) error {
 		fmt.Println("No matching motes found.")
 		return nil
 	}
+
+	// Deprioritize completed tasks and deprecated motes — decisions/lessons age better
+	for i := range results {
+		m := results[i].Mote
+		if m.Type == "task" && m.Status == "completed" {
+			results[i].Score *= 0.5
+		}
+		if m.Status == "deprecated" {
+			results[i].Score *= 0.1
+		}
+	}
+	// Re-sort after score adjustment
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
 
 	// JSON output mode
 	if contextJSON {

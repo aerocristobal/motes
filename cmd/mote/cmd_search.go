@@ -27,6 +27,10 @@ type SearchResultEntry struct {
 
 var searchTopK int
 var searchJSON bool
+var searchType string
+var searchTag string
+var searchStatus string
+var searchExcludeStatus string
 
 var searchCmd = &cobra.Command{
 	Use:   "search <query...>",
@@ -38,6 +42,10 @@ var searchCmd = &cobra.Command{
 func init() {
 	searchCmd.Flags().IntVarP(&searchTopK, "top", "k", 10, "Number of results to return")
 	searchCmd.Flags().BoolVar(&searchJSON, "json", false, "Output in JSON format")
+	searchCmd.Flags().StringVar(&searchType, "type", "", "Filter by mote type")
+	searchCmd.Flags().StringVar(&searchTag, "tag", "", "Filter by tag")
+	searchCmd.Flags().StringVar(&searchStatus, "status", "", "Filter by status")
+	searchCmd.Flags().StringVar(&searchExcludeStatus, "exclude-status", "", "Exclude motes with this status")
 	rootCmd.AddCommand(searchCmd)
 }
 
@@ -55,6 +63,32 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	if len(motes) == 0 {
 		fmt.Println("No motes found.")
 		return nil
+	}
+
+	// Pre-filter motes before building BM25 index
+	hasFilter := searchType != "" || searchTag != "" || searchStatus != "" || searchExcludeStatus != ""
+	if hasFilter {
+		var filtered []*core.Mote
+		for _, m := range motes {
+			if searchType != "" && m.Type != searchType {
+				continue
+			}
+			if searchTag != "" && !moteHasTag(m, searchTag) {
+				continue
+			}
+			if searchStatus != "" && m.Status != searchStatus {
+				continue
+			}
+			if searchExcludeStatus != "" && m.Status == searchExcludeStatus {
+				continue
+			}
+			filtered = append(filtered, m)
+		}
+		motes = filtered
+		if len(motes) == 0 {
+			fmt.Println("No motes match the given filters.")
+			return nil
+		}
 	}
 
 	moteMap := make(map[string]*core.Mote, len(motes))
@@ -131,4 +165,13 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func moteHasTag(m *core.Mote, tag string) bool {
+	for _, t := range m.Tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
 }

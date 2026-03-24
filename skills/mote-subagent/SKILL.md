@@ -11,7 +11,7 @@ You are running as a subagent. Use motes for context retrieval and knowledge cap
 
 ```bash
 mote context <topic>      # Graph traversal — what do we know about X?
-mote search <query>       # Full-text search — where did we mention Y?
+mote search <query>       # Full-text search (add --type, --tag, --status to filter)
 mote show <id>            # Read a specific mote
 mote strata query <topic> # Query reference docs
 ```

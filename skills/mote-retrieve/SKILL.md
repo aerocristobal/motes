@@ -21,10 +21,12 @@ Walks the knowledge graph from topic-matching motes, following semantic links. B
 ### "Where did we mention Y?" → Full-Text Search
 
 ```bash
-mote search <query>
+mote search <query>                              # All motes
+mote search <query> --type=lesson                # Filter by type
+mote search <query> --exclude-status=deprecated  # Exclude deprecated
 ```
 
-BM25 keyword search across all mote titles and bodies. Best for finding specific mentions, exact phrases, or keywords you remember.
+BM25 keyword search across all mote titles and bodies. Supports `--type`, `--tag`, `--status`, and `--exclude-status` filters. Best for finding specific mentions, exact phrases, or keywords you remember.
 
 ### "What does the spec say about Z?" → Reference Docs
 
