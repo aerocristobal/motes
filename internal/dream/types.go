@@ -77,6 +77,12 @@ type ConstellationEvolution struct {
 	NewCount        int    `json:"new_count"`
 }
 
+// ActionCandidate identifies a mote that would benefit from action extraction.
+type ActionCandidate struct {
+	MoteID      string
+	AccessCount int
+}
+
 // ScanResult holds all dream pre-scan findings.
 type ScanResult struct {
 	LinkCandidates            []MotePair
@@ -91,6 +97,7 @@ type ScanResult struct {
 	SignalCandidates          []SignalCandidate
 	MergeCandidates           []MergeCluster
 	SummarizationCandidates   []SummarizationCluster
+	ActionCandidates          []ActionCandidate
 }
 
 // HasWork returns true if any scan category found candidates.
@@ -106,7 +113,8 @@ func (sr *ScanResult) HasWork() bool {
 		len(sr.StrataCrystallization) > 0 ||
 		len(sr.SignalCandidates) > 0 ||
 		len(sr.MergeCandidates) > 0 ||
-		len(sr.SummarizationCandidates) > 0
+		len(sr.SummarizationCandidates) > 0 ||
+		len(sr.ActionCandidates) > 0
 }
 
 // Batch groups motes for a single Claude invocation.

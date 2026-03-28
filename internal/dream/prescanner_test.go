@@ -392,3 +392,74 @@ func TestPreScanner_FeedbackBoost(t *testing.T) {
 		t.Errorf("expected query count 2, got %d", result2.StrataCrystallization[0].QueryCount)
 	}
 }
+
+func TestPreScanner_ActionCandidates(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+
+	// Create lesson with body, no action — should be candidate
+	lesson1, err := mm.Create("lesson", "Lesson with body", core.CreateOpts{
+		Tags: []string{"api"},
+		Body: "Always check response bodies for error fields on 2xx.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create lesson with action already set — should be skipped
+	lesson2, err := mm.Create("lesson", "Lesson with action", core.CreateOpts{
+		Tags: []string{"api"},
+		Body: "Some body text.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = mm.Update(lesson2.ID, core.UpdateOpts{Action: core.StringPtr("Check error fields")})
+
+	// Create decision — should be candidate
+	decision, err := mm.Create("decision", "Decision mote", core.CreateOpts{
+		Tags: []string{"arch"},
+		Body: "Use CylinderGeometry instead of CapsuleGeometry.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create task — should be skipped
+	_, err = mm.Create("task", "Task mote", core.CreateOpts{
+		Tags: []string{"work"},
+		Body: "Do some work.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Create lesson with empty body — should be skipped
+	_, err = mm.Create("lesson", "Empty body lesson", core.CreateOpts{
+		Tags: []string{"misc"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Bump access count on decision to test priority ordering
+	cnt := 10
+	_ = mm.Update(decision.ID, core.UpdateOpts{AccessCount: &cnt})
+
+	ps := NewPreScanner(root, mm, im, core.DefaultConfig().Dream)
+	result, err := ps.Scan()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(result.ActionCandidates) != 2 {
+		t.Fatalf("expected 2 action candidates, got %d", len(result.ActionCandidates))
+	}
+
+	// Decision (access_count=10) should be first due to priority ordering
+	if result.ActionCandidates[0].MoteID != decision.ID {
+		t.Errorf("expected decision %s first, got %s", decision.ID, result.ActionCandidates[0].MoteID)
+	}
+	if result.ActionCandidates[1].MoteID != lesson1.ID {
+		t.Errorf("expected lesson %s second, got %s", lesson1.ID, result.ActionCandidates[1].MoteID)
+	}
+}

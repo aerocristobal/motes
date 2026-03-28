@@ -216,3 +216,60 @@ func TestScoreStructure_MergeSuggestion(t *testing.T) {
 		t.Errorf("incomplete merge vision should score lower: %.2f >= %.2f", score2, score)
 	}
 }
+
+func TestApplyVision_ActionExtraction(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+	os.MkdirAll(filepath.Join(root, "dream"), 0755)
+
+	m, err := mm.Create("lesson", "Rate limit lesson", core.CreateOpts{
+		Tags: []string{"api"},
+		Body: "Stripe returns 200 with error body for rate limits. Always check the response body.",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	v := Vision{
+		Type:        "action_extraction",
+		Action:      "add_action",
+		SourceMotes: []string{m.ID},
+		Rationale:   "Check response body for error field even on 2xx status codes",
+		Severity:    "low",
+	}
+
+	if err := ApplyVision(v, mm, im, root, nil); err != nil {
+		t.Fatalf("ApplyVision action_extraction: %v", err)
+	}
+
+	updated, err := mm.Read(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Action != v.Rationale {
+		t.Errorf("action = %q, want %q", updated.Action, v.Rationale)
+	}
+}
+
+func TestApplyVision_ActionExtraction_InvalidInput(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+
+	// Missing source motes
+	v := Vision{
+		Type:      "action_extraction",
+		Action:    "add_action",
+		Rationale: "some action",
+	}
+	if err := ApplyVision(v, mm, im, root, nil); err == nil {
+		t.Error("expected error for missing source motes")
+	}
+
+	// Missing rationale
+	v2 := Vision{
+		Type:        "action_extraction",
+		Action:      "add_action",
+		SourceMotes: []string{"some-id"},
+	}
+	if err := ApplyVision(v2, mm, im, root, nil); err == nil {
+		t.Error("expected error for empty rationale")
+	}
+}

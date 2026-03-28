@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -81,7 +82,7 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	sr.LinkCandidates = linkCandidates
 
 	var wg sync.WaitGroup
-	wg.Add(10)
+	wg.Add(11)
 	go func() { defer wg.Done(); sr.ContentLinkCandidates = ps.findContentLinkCandidates(motes, idx, linkCandidates) }()
 	go func() { defer wg.Done(); sr.ContradictionCandidates = ps.findContradictionCandidates(motes) }()
 	go func() { defer wg.Done(); sr.OverloadedTags = ps.findOverloadedTags(idx.TagStats) }()
@@ -92,6 +93,7 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	go func() { defer wg.Done(); sr.StrataCrystallization = ps.findStrataCandidates() }()
 	go func() { defer wg.Done(); sr.MergeCandidates = ps.findMergeCandidates(motes, idx) }()
 	go func() { defer wg.Done(); sr.SummarizationCandidates = ps.findSummarizationCandidates(motes, idx) }()
+	go func() { defer wg.Done(); sr.ActionCandidates = ps.findActionCandidates(candidateMotes) }()
 	sr.SignalCandidates = ps.findSignalPatterns(motes)
 	wg.Wait()
 
@@ -762,4 +764,29 @@ func sharedTags(a, b *core.Mote) []string {
 		}
 	}
 	return shared
+}
+
+// findActionCandidates identifies lesson and decision motes that would benefit
+// from dream-extracted action summaries. Prioritizes frequently-accessed motes.
+func (ps *PreScanner) findActionCandidates(motes []*core.Mote) []ActionCandidate {
+	var candidates []ActionCandidate
+	for _, m := range motes {
+		if m.Status != "active" {
+			continue
+		}
+		if m.Type != "lesson" && m.Type != "decision" {
+			continue
+		}
+		if m.Action != "" || m.Body == "" {
+			continue
+		}
+		candidates = append(candidates, ActionCandidate{
+			MoteID:      m.ID,
+			AccessCount: m.AccessCount,
+		})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].AccessCount > candidates[j].AccessCount
+	})
+	return candidates
 }

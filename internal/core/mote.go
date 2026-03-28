@@ -71,6 +71,7 @@ type Mote struct {
 	Tags   []string `yaml:"tags"`
 	Weight float64  `yaml:"weight"` // 0.0-1.0
 	Origin string   `yaml:"origin"` // normal|failure|revert|hotfix|discovery
+	Action string   `yaml:"action,omitempty"` // Dream-extracted prescriptive summary
 
 	// Retrieval metadata (auto-managed)
 	CreatedAt    time.Time  `yaml:"created_at"`

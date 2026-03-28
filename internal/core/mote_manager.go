@@ -335,6 +335,7 @@ type UpdateOpts struct {
 	Acceptance    []string   // nil = no change, non-nil = replace
 	AcceptanceMet []bool     // nil = no change, non-nil = replace
 	Size          *string
+	Action        *string
 	LastAccessed  *time.Time
 	AccessCount   *int
 	Force         bool // Bypass security scan blocks
@@ -444,6 +445,9 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 		}
 		m.Size = *opts.Size
 	}
+	if opts.Action != nil {
+		m.Action = *opts.Action
+	}
 	m.ModifiedBy = ResolveAgentID()
 
 	// Build changedFields from non-nil opts
@@ -477,6 +481,9 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 	}
 	if opts.Size != nil {
 		changedFields = append(changedFields, "size")
+	}
+	if opts.Action != nil {
+		changedFields = append(changedFields, "action")
 	}
 
 	data, err := SerializeMote(m)

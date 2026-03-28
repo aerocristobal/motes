@@ -37,6 +37,7 @@ type ShowOutput struct {
 	InformedBy    []string           `json:"informed_by,omitempty"`
 	Acceptance    []string           `json:"acceptance,omitempty"`
 	AcceptanceMet []bool             `json:"acceptance_met,omitempty"`
+	Action        string             `json:"action,omitempty"`
 	Body          string             `json:"body"`
 	BodyLinks     []BodyLinkEntry    `json:"body_links,omitempty"`
 	Concepts      []ConceptEntry     `json:"concepts,omitempty"`
@@ -138,6 +139,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 			InformedBy:    m.InformedBy,
 			Acceptance:    m.Acceptance,
 			AcceptanceMet: m.AcceptanceMet,
+			Action:        m.Action,
 			Body:          m.Body,
 		}
 		if m.LastAccessed != nil {
@@ -171,6 +173,9 @@ func runShow(cmd *cobra.Command, args []string) error {
 	fmt.Println(format.Field("origin", m.Origin))
 	if m.Size != "" {
 		fmt.Println(format.Field("size", m.Size))
+	}
+	if m.Action != "" {
+		fmt.Println(format.Field("action", m.Action))
 	}
 	if m.Parent != "" {
 		parentTitle := m.Parent

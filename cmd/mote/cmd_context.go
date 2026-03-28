@@ -134,6 +134,9 @@ func runContext(cmd *cobra.Command, args []string) error {
 			sm.Mote.ID,
 			sm.Mote.Type,
 			format.Truncate(sm.Mote.Title, 40))
+		if sm.Mote.Action != "" {
+			fmt.Printf("          -> %s\n", sm.Mote.Action)
+		}
 	}
 
 	// Contradiction detection

@@ -125,6 +125,18 @@ If yes, produce a merge_suggestion vision:
 - severity: "medium"
 Only merge truly redundant content. Different perspectives on the same topic should stay separate.
 {{end}}
+{{if hasTask .Tasks "action_extraction"}}
+## Action Extraction Context
+For "action_extraction" tasks, extract a single prescriptive action sentence from each lesson or
+decision mote's body. The action should be an imperative sentence (max 120 chars) that a developer
+can apply directly — e.g., "Check response body for error field even on 2xx status codes."
+Produce an action_extraction vision:
+- type: "action_extraction", action: "add_action"
+- source_motes: [the mote ID]
+- rationale: the extracted action sentence (imperative, max 120 chars)
+- severity: "low"
+Skip motes whose body does not contain a clear prescriptive statement.
+{{end}}
 
 IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in markdown code fences.
 
@@ -133,8 +145,8 @@ Required format:
 
 Your ENTIRE response must be this JSON object. No text before or after.
 
-Vision types: link_suggestion, contradiction, tag_refinement, staleness, compression, signal, merge_suggestion.
-Vision actions: add_link, remove, split_tag, deprecate, compress, add_signal, merge.
+Vision types: link_suggestion, contradiction, tag_refinement, staleness, compression, signal, merge_suggestion, action_extraction.
+Vision actions: add_link, remove, split_tag, deprecate, compress, add_signal, merge, add_action.
 If no findings for a category, use an empty array [].
 `
 
@@ -156,6 +168,6 @@ IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in
 Required format:
 {"visions": [{"type": "link_suggestion", "action": "add_link", "source_motes": ["id1"], "target_motes": ["id2"], "link_type": "relates_to", "rationale": "why", "severity": "medium"}]}
 
-Vision types: link_suggestion, contradiction, tag_refinement, staleness, compression, signal, merge_suggestion.
+Vision types: link_suggestion, contradiction, tag_refinement, staleness, compression, signal, merge_suggestion, action_extraction.
 If no visions, respond with: {"visions": []}
 `

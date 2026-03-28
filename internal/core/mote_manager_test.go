@@ -662,6 +662,49 @@ func TestUpdate_ForceBypassesBlock(t *testing.T) {
 	}
 }
 
+func TestAction_RoundTrip(t *testing.T) {
+	_, mm := setupTestMemory(t)
+
+	m, err := mm.Create("lesson", "Action round-trip", CreateOpts{
+		Body: "Some lesson body",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Set action via update
+	action := "Check response body for error field even on 2xx"
+	if err := mm.Update(m.ID, UpdateOpts{Action: &action}); err != nil {
+		t.Fatalf("update action: %v", err)
+	}
+
+	// Re-read and verify
+	updated, err := mm.Read(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Action != action {
+		t.Errorf("action = %q, want %q", updated.Action, action)
+	}
+}
+
+func TestAction_OmittedWhenEmpty(t *testing.T) {
+	_, mm := setupTestMemory(t)
+
+	m, err := mm.Create("lesson", "No action", CreateOpts{
+		Body: "No action here",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Read back — Action should be empty
+	read, _ := mm.Read(m.ID)
+	if read.Action != "" {
+		t.Errorf("action should be empty, got %q", read.Action)
+	}
+}
+
 func TestCreate_CleanBodyPasses(t *testing.T) {
 	_, mm := setupTestMemory(t)
 

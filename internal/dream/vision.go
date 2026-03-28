@@ -406,6 +406,13 @@ func ApplyVision(v Vision, mm *core.MoteManager, im *core.IndexManager, root str
 			_ = mm.Update(srcID, core.UpdateOpts{Status: core.StringPtr("archived")})
 		}
 		fmt.Printf("  -> Summarized %d motes into %s\n", len(v.SourceMotes), hub.ID)
+	case "action_extraction":
+		if len(v.SourceMotes) == 0 || v.Rationale == "" {
+			return fmt.Errorf("action_extraction vision needs source mote and rationale as action text")
+		}
+		return mm.Update(v.SourceMotes[0], core.UpdateOpts{
+			Action: core.StringPtr(v.Rationale),
+		})
 	case "signal":
 		if cfg == nil || root == "" {
 			return fmt.Errorf("signal apply requires config access (use NewVisionReviewerWithConfig)")

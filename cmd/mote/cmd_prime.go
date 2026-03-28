@@ -50,6 +50,7 @@ type MoteEntry struct {
 	Score   float64  `json:"score"`
 	Tags    []string `json:"tags"`
 	Snippet string   `json:"snippet"`
+	Action  string   `json:"action,omitempty"`
 	Global  bool     `json:"global,omitempty"`
 }
 
@@ -601,6 +602,7 @@ func moteToEntry(m *core.Mote, score float64) MoteEntry {
 		Score:   score,
 		Tags:    m.Tags,
 		Snippet: format.Truncate(m.Body, 200),
+		Action:  m.Action,
 		Global:  isGlobalMote(m),
 	}
 }
@@ -630,6 +632,9 @@ func scoredMotesToEntriesFromScored(scored []core.ScoredMote) []MoteEntry {
 // printScoredMote prints a scored mote line, with body snippet in compact mode.
 func printScoredMote(sm core.ScoredMote) {
 	fmt.Printf("  %s[%.3f] %s — %s\n", motePrefix(sm.Mote), sm.Score, sm.Mote.ID, sm.Mote.Title)
+	if sm.Mote.Action != "" {
+		fmt.Printf("           -> %s\n", sm.Mote.Action)
+	}
 	if primeMode == "compact" && sm.Mote.Body != "" {
 		snippet := format.Truncate(strings.ReplaceAll(sm.Mote.Body, "\n", " "), 200)
 		fmt.Printf("           %s\n", snippet)

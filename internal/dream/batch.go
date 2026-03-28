@@ -72,6 +72,12 @@ func (bc *BatchConstructor) Build(candidates *ScanResult) []Batch {
 		}
 		moteTaskMap[sc.MoteID]["signal_discovery"] = true
 	}
+	for _, ac := range candidates.ActionCandidates {
+		if moteTaskMap[ac.MoteID] == nil {
+			moteTaskMap[ac.MoteID] = map[string]bool{}
+		}
+		moteTaskMap[ac.MoteID]["action_extraction"] = true
+	}
 	for _, ot := range candidates.OverloadedTags {
 		// Tag overload doesn't map directly to motes, but we include for batch prompt context
 		_ = ot
