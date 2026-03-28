@@ -8,6 +8,32 @@ Intelligent context retrieval. Use when you need project knowledge beyond what `
 ## Available Strata
 !mote strata ls --compact
 
+## Auto-Query on Errors
+
+When you encounter an unfamiliar error during work, search for prior lessons before debugging from scratch.
+
+```bash
+mote search "<error message or key phrase>" --type=lesson
+```
+
+### Trigger
+
+- API returns unexpected error code or message → search the error code/message
+- Build fails with non-obvious error → search the failing module or error text
+- Configuration rejected or ignored at runtime → search the config key or symptom
+- Dependency conflict or version mismatch → search the package name and version constraint
+
+### Skip
+
+- Syntax errors, typos, missing semicolons — fix directly
+- Missing imports or undefined names — fix directly
+- File-not-found for paths you just typed — fix the path
+- Test assertion failures on code you just changed — read the diff
+
+### Session De-duplication
+
+Track which error patterns you have already queried in this session. If the same error class recurs (same error code, same failing module, same config key), use the results from your earlier query instead of searching again.
+
 ## Decision Tree
 
 ### "What do we know about X?" → Graph Traversal
@@ -75,4 +101,5 @@ After retrieving context:
 | See mote change history | `mote diff <id>` |
 | Check graph health | `mote doctor` |
 | View graph metrics | `mote stats` |
+| Search past errors | `mote search "<error>" --type=lesson` |
 | Give relevance feedback | `mote feedback <id> useful\|irrelevant` |
