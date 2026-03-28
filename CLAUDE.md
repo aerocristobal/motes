@@ -46,3 +46,7 @@ go vet ./...                    # Lint
 ```
 
 See [docs/internals.md](docs/internals.md) for architecture, storage layout, and design decisions.
+
+## Error Recovery
+
+When debugging unfamiliar errors in motes itself, search for prior lessons first: `mote search "<error>" --type=lesson`. The full trigger/skip rules are in the `/mote-retrieve` skill.
