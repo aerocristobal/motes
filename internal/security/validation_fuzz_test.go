@@ -59,3 +59,19 @@ func FuzzValidateCommand(f *testing.F) {
 		ValidateCommand(s) // must not panic
 	})
 }
+
+func FuzzScanBodyContent(f *testing.F) {
+	f.Add("")
+	f.Add("normal text")
+	f.Add("AKIAIOSFODNN7EXAMPLE")
+	f.Add("sk_" + "live_TESTDONOTUSE000000000000")
+	f.Add("ghp_abcdefghijklmnopqrstuvwxyz0123456789")
+	f.Add("-----BEGIN RSA PRIVATE KEY-----")
+	f.Add("sk-ant-api03-abcdefghijklmnopqrstuvwxyz")
+	f.Add("token = 'secret123'")
+	f.Add("QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVphYmNkZWZnaGlqa2xt")
+
+	f.Fuzz(func(t *testing.T, s string) {
+		ScanBodyContent(s) // must not panic
+	})
+}

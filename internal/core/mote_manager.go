@@ -34,6 +34,8 @@ type CreateOpts struct {
 	Size          string
 	Local         bool // Force local storage for knowledge types
 	CodeFilePaths []string
+	Force         bool // Bypass security scan blocks
+	Quiet         bool // Suppress security scan warnings on stderr
 }
 
 type ListFilters struct {
@@ -226,6 +228,26 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 	}
 	id := GenerateID(scope, moteType)
 
+	// Scan body for secrets after ID generation so audit entries have the real ID
+	if opts.Body != "" {
+		scanResult := security.ScanBodyContent(opts.Body)
+		if scanResult.HasBlocks() {
+			if !opts.Force {
+				return nil, fmt.Errorf("body contains blocked content: %s",
+					strings.Join(scanResult.BlockedPatterns, "; "))
+			}
+			mm.auditLog("security_override", id, scanResult.BlockedPatterns)
+		}
+		if scanResult.HasWarnings() {
+			mm.auditLog("security_warning", id, scanResult.Warnings)
+			if !opts.Quiet {
+				for _, w := range scanResult.Warnings {
+					fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+				}
+			}
+		}
+	}
+
 	weight := opts.Weight
 	if weight == 0 {
 		weight = 0.5
@@ -315,6 +337,8 @@ type UpdateOpts struct {
 	Size          *string
 	LastAccessed  *time.Time
 	AccessCount   *int
+	Force         bool // Bypass security scan blocks
+	Quiet         bool // Suppress security scan warnings on stderr
 }
 
 // StringPtr returns a pointer to the given string. Useful for building UpdateOpts
@@ -381,6 +405,22 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 	if opts.Body != nil {
 		if err := security.ValidateBodySize(*opts.Body); err != nil {
 			return err
+		}
+		scanResult := security.ScanBodyContent(*opts.Body)
+		if scanResult.HasBlocks() {
+			if !opts.Force {
+				return fmt.Errorf("body contains blocked content: %s",
+					strings.Join(scanResult.BlockedPatterns, "; "))
+			}
+			mm.auditLog("security_override", m.ID, scanResult.BlockedPatterns)
+		}
+		if scanResult.HasWarnings() {
+			mm.auditLog("security_warning", m.ID, scanResult.Warnings)
+			if !opts.Quiet {
+				for _, w := range scanResult.Warnings {
+					fmt.Fprintf(os.Stderr, "warning: %s\n", w)
+				}
+			}
 		}
 		m.Body = *opts.Body
 	}

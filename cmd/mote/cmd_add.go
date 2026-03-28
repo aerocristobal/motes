@@ -31,6 +31,8 @@ var (
 	addRefs   []string
 	addStatus string
 	addLocal  bool
+	addForce  bool
+	addQuiet  bool
 )
 
 func init() {
@@ -46,6 +48,8 @@ func init() {
 	addCmd.Flags().StringSliceVar(&addRefs, "ref", nil, "External reference (format: provider:id[:url], repeatable)")
 	addCmd.Flags().StringVar(&addStatus, "status", "", "Initial status (active|completed|archived|deprecated)")
 	addCmd.Flags().BoolVar(&addLocal, "local", false, "Force local storage for knowledge types (decision, lesson, explore, context, question)")
+	addCmd.Flags().BoolVar(&addForce, "force", false, "Bypass security scan blocks (for false positives)")
+	addCmd.Flags().BoolVar(&addQuiet, "quiet", false, "Suppress security scan warnings on stderr")
 	_ = addCmd.MarkFlagRequired("type")
 	_ = addCmd.MarkFlagRequired("title")
 	rootCmd.AddCommand(addCmd)
@@ -178,6 +182,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		Acceptance: addAccept,
 		Size:       addSize,
 		Local:      addLocal,
+		Force:      addForce,
+		Quiet:      addQuiet,
 	})
 	if err != nil {
 		return fmt.Errorf("create mote: %w", err)

@@ -507,3 +507,171 @@ func TestMoteManager_CreateSetsFilePath(t *testing.T) {
 		t.Errorf("FilePath %q should end with %s.md", m.FilePath, m.ID)
 	}
 }
+
+func TestCreate_BlocksSecretInBody(t *testing.T) {
+	root, mm := setupTestMemory(t)
+
+	_, err := mm.Create("lesson", "Secret test", CreateOpts{
+		Body: "Found key AKIAIOSFODNN7EXAMPLE in config",
+	})
+	if err == nil {
+		t.Fatal("expected error for blocked secret pattern")
+	}
+	if !strings.Contains(err.Error(), "blocked content") {
+		t.Errorf("error should mention blocked content, got: %v", err)
+	}
+
+	// Verify no mote file was written
+	files, _ := filepath.Glob(filepath.Join(root, "nodes", "*.md"))
+	if len(files) != 0 {
+		t.Errorf("expected no files on disk, got %d", len(files))
+	}
+}
+
+func TestCreate_ForceBypassesBlock(t *testing.T) {
+	root, mm := setupTestMemory(t)
+
+	m, err := mm.Create("lesson", "Force test", CreateOpts{
+		Body:  "Found key AKIAIOSFODNN7EXAMPLE in config",
+		Force: true,
+	})
+	if err != nil {
+		t.Fatalf("expected force to bypass block, got: %v", err)
+	}
+	if m == nil {
+		t.Fatal("expected mote to be created")
+	}
+
+	// Verify audit log contains security_override
+	auditPath := filepath.Join(root, "audit.jsonl")
+	data, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatalf("read audit log: %v", err)
+	}
+	if !strings.Contains(string(data), "security_override") {
+		t.Error("audit log should contain security_override entry")
+	}
+}
+
+func TestCreate_WarningDoesNotBlock(t *testing.T) {
+	_, mm := setupTestMemory(t)
+
+	m, err := mm.Create("lesson", "Warning test", CreateOpts{
+		Body: "auth_token = \"a1Kx9mP2qR3sT4uV5wX6\"",
+	})
+	if err != nil {
+		t.Fatalf("warning patterns should not block: %v", err)
+	}
+	if m == nil {
+		t.Fatal("expected mote to be created")
+	}
+}
+
+func TestCreate_WarningAudited(t *testing.T) {
+	root, mm := setupTestMemory(t)
+
+	_, err := mm.Create("lesson", "Audit warning test", CreateOpts{
+		Body: "auth_token = \"a1Kx9mP2qR3sT4uV5wX6\"",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	auditPath := filepath.Join(root, "audit.jsonl")
+	data, err := os.ReadFile(auditPath)
+	if err != nil {
+		t.Fatalf("read audit log: %v", err)
+	}
+	if !strings.Contains(string(data), "security_warning") {
+		t.Error("audit log should contain security_warning entry")
+	}
+}
+
+func TestUpdate_BlocksSecretInBody(t *testing.T) {
+	_, mm := setupTestMemory(t)
+
+	m, err := mm.Create("task", "Update secret test", CreateOpts{
+		Body: "clean body",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	secretBody := "sk_" + "live_TESTDONOTUSE000000000000"
+	err = mm.Update(m.ID, UpdateOpts{
+		Body: &secretBody,
+	})
+	if err == nil {
+		t.Fatal("expected error for blocked secret in update")
+	}
+	if !strings.Contains(err.Error(), "blocked content") {
+		t.Errorf("error should mention blocked content, got: %v", err)
+	}
+
+	// Verify original body unchanged
+	updated, _ := mm.Read(m.ID)
+	if updated.Body != "clean body" {
+		t.Errorf("body should be unchanged, got: %q", updated.Body)
+	}
+}
+
+func TestUpdate_MetadataOnlySkipsScan(t *testing.T) {
+	_, mm := setupTestMemory(t)
+
+	// Create a mote with a secret body using force
+	m, err := mm.Create("task", "Metadata test", CreateOpts{
+		Body:  "AKIAIOSFODNN7EXAMPLE",
+		Force: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Update only status — should not scan existing body
+	status := "completed"
+	err = mm.Update(m.ID, UpdateOpts{
+		Status: &status,
+	})
+	if err != nil {
+		t.Fatalf("metadata-only update should not scan body: %v", err)
+	}
+}
+
+func TestUpdate_ForceBypassesBlock(t *testing.T) {
+	_, mm := setupTestMemory(t)
+
+	m, err := mm.Create("task", "Update force test", CreateOpts{
+		Body: "clean body",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	secretBody := "sk_" + "live_TESTDONOTUSE000000000000"
+	err = mm.Update(m.ID, UpdateOpts{
+		Body:  &secretBody,
+		Force: true,
+	})
+	if err != nil {
+		t.Fatalf("force should bypass block on update: %v", err)
+	}
+
+	updated, _ := mm.Read(m.ID)
+	if updated.Body != secretBody {
+		t.Errorf("body should be updated, got: %q", updated.Body)
+	}
+}
+
+func TestCreate_CleanBodyPasses(t *testing.T) {
+	_, mm := setupTestMemory(t)
+
+	m, err := mm.Create("lesson", "Clean test", CreateOpts{
+		Body: "This is a normal lesson about Go concurrency patterns and channels.",
+	})
+	if err != nil {
+		t.Fatalf("clean body should pass: %v", err)
+	}
+	if m == nil {
+		t.Fatal("expected mote to be created")
+	}
+}

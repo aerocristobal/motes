@@ -25,6 +25,8 @@ var (
 	updateAccept []string
 	updateSize   string
 	updateParent string
+	updateForce  bool
+	updateQuiet  bool
 )
 
 func init() {
@@ -36,6 +38,8 @@ func init() {
 	updateCmd.Flags().StringSliceVar(&updateAccept, "accept", nil, "Acceptance criterion to append (repeatable)")
 	updateCmd.Flags().StringVar(&updateSize, "size", "", "Effort size (xs|s|m|l|xl)")
 	updateCmd.Flags().StringVar(&updateParent, "parent", "", "Parent mote ID")
+	updateCmd.Flags().BoolVar(&updateForce, "force", false, "Bypass security scan blocks (for false positives)")
+	updateCmd.Flags().BoolVar(&updateQuiet, "quiet", false, "Suppress security scan warnings on stderr")
 	rootCmd.AddCommand(updateCmd)
 }
 
@@ -162,6 +166,9 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		opts.Parent = &updateParent
 		parts = append(parts, fmt.Sprintf("parent=%s", updateParent))
 	}
+
+	opts.Force = updateForce
+	opts.Quiet = updateQuiet
 
 	if err := mm.Update(moteID, opts); err != nil {
 		return fmt.Errorf("update mote: %w", err)

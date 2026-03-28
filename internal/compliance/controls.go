@@ -13,9 +13,12 @@ func controlMappings() []controlMapping {
 			ControlID: "si-10",
 			Description: "Input Validation (SI-10): All mote inputs are validated through " +
 				"internal/security/validation.go functions including ValidateEnum, ValidateTag, " +
-				"ValidateWeight, ValidateBodySize, and ValidatePathComponent. These enforce " +
-				"allowlists, length limits, and character restrictions on all user-supplied data " +
-				"before it reaches storage.",
+				"ValidateWeight, ValidateBodySize, ScanBodyContent, and ValidatePathComponent. " +
+				"ScanBodyContent scans mote body text for high-confidence secret patterns " +
+				"(AWS keys, Stripe keys, GitHub tokens, Anthropic keys, Cloudflare keys, " +
+				"private key material) and blocks creation/update unless --force is used. " +
+				"These enforce allowlists, length limits, and character restrictions on all " +
+				"user-supplied data before it reaches storage.",
 		},
 		{
 			ControlID: "sc-28",

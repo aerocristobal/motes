@@ -186,6 +186,62 @@ func ValidateBodySize(body string) error {
 	return nil
 }
 
+// ScanResult holds the outcome of body content secret scanning.
+type ScanResult struct {
+	BlockedPatterns []string // high-confidence matches (hard block)
+	Warnings        []string // ambiguous matches (stderr warning only)
+}
+
+// HasBlocks returns true if any high-confidence secret patterns were detected.
+func (r ScanResult) HasBlocks() bool { return len(r.BlockedPatterns) > 0 }
+
+// HasWarnings returns true if any ambiguous secret-like patterns were detected.
+func (r ScanResult) HasWarnings() bool { return len(r.Warnings) > 0 }
+
+// secretPattern defines a compiled regex with its human-readable description.
+type secretPattern struct {
+	re   *regexp.Regexp
+	desc string
+}
+
+// High-confidence patterns that block mote creation/update.
+var blockPatterns = []secretPattern{
+	{regexp.MustCompile(`AKIA[0-9A-Z]{16}`), "potential AWS access key detected in body"},
+	{regexp.MustCompile(`sk_live_[0-9a-zA-Z]{24,}`), "potential Stripe secret key detected in body"},
+	{regexp.MustCompile(`ghp_[0-9a-zA-Z]{36}`), "potential GitHub personal access token detected in body"},
+	{regexp.MustCompile(`github_pat_[0-9a-zA-Z_]{22,}`), "potential GitHub fine-grained token detected in body"},
+	{regexp.MustCompile(`-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----`), "potential private key material detected in body"},
+	{regexp.MustCompile(`sk-ant-[a-zA-Z0-9_-]{20,}`), "potential Anthropic API key detected in body"},
+	{regexp.MustCompile(`(?i)(?:cloudflare|cf_api|x-auth-key)\S*\s*[:=]\s*["']?[0-9a-f]{37}`), "potential Cloudflare API key detected in body"},
+	{regexp.MustCompile(`(?i)(?:cloudflare|cf_api_token|cf_bearer)\S*\s*[:=]\s*["']?[A-Za-z0-9_-]{40,}`), "potential Cloudflare API token detected in body"},
+}
+
+// Ambiguous patterns that produce warnings but don't block.
+var warnPatterns = []secretPattern{
+	{regexp.MustCompile(`(?i)(?:token|secret|password|api_key)\s*[:=]\s*["']?[A-Za-z0-9/+=]{8,}`), "potential credential assignment detected in body"},
+	{regexp.MustCompile(`(?:^|\s|["'])([A-Za-z0-9+/]{40,}={0,2})(?:\s|["']|$)`), "potential base64-encoded secret detected in body"},
+}
+
+// ScanBodyContent checks body text for secret patterns.
+// It returns both blocking matches and non-blocking warnings.
+func ScanBodyContent(body string) ScanResult {
+	var result ScanResult
+
+	for _, p := range blockPatterns {
+		if p.re.MatchString(body) {
+			result.BlockedPatterns = append(result.BlockedPatterns, p.desc)
+		}
+	}
+
+	for _, p := range warnPatterns {
+		if p.re.MatchString(body) {
+			result.Warnings = append(result.Warnings, p.desc)
+		}
+	}
+
+	return result
+}
+
 // SafeBounds checks if an index is safe for slice/string access.
 func SafeBounds(index, length int) error {
 	if index < 0 {
