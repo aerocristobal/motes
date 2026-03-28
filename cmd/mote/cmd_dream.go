@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
@@ -29,6 +30,10 @@ var (
 	dreamStats         bool
 	dreamJSON          bool
 	dreamStructuredLog bool
+	dreamQuality       bool
+	dreamCompare       bool
+	dreamProject       string
+	dreamLast          int
 )
 
 func init() {
@@ -38,6 +43,10 @@ func init() {
 	dreamCmd.Flags().BoolVar(&dreamStats, "stats", false, "Show feedback statistics for auto-applied visions")
 	dreamCmd.Flags().BoolVar(&dreamJSON, "json", false, "Output pending visions in JSON format (use with --review)")
 	dreamCmd.Flags().BoolVar(&dreamStructuredLog, "structured-log", false, "Emit JSON log lines to stderr for machine parsing")
+	dreamCmd.Flags().BoolVar(&dreamQuality, "quality", false, "Show cycle quality time-series from global ledger")
+	dreamCmd.Flags().BoolVar(&dreamCompare, "compare", false, "Compare voting configs across all projects")
+	dreamCmd.Flags().StringVar(&dreamProject, "project", "", "Filter quality/compare output by project name")
+	dreamCmd.Flags().IntVar(&dreamLast, "last", 0, "Limit quality output to last N entries")
 	rootCmd.AddCommand(dreamCmd)
 }
 
@@ -50,6 +59,12 @@ func runDream(cmd *cobra.Command, args []string) error {
 
 	if dreamStats {
 		return runDreamStats(root)
+	}
+	if dreamQuality {
+		return runDreamQuality(dreamProject, dreamLast)
+	}
+	if dreamCompare {
+		return runDreamCompare(dreamProject)
 	}
 
 	// Acquire exclusive dream lock (non-blocking)
@@ -125,6 +140,10 @@ func runDream(cmd *cobra.Command, args []string) error {
 				if deferred > 0 {
 					fmt.Printf("  Deferred: %d low-confidence (run: mote dream --review)\n", deferred)
 				}
+				// Update quality entries with auto-apply stats
+				avgConf := orch.LastAvgConfidence()
+				orch.UpdateRunLogAutoApply(applied, deferred, avgConf)
+				_ = dream.UpdateLastEntryAutoApply(applied, deferred, avgConf)
 			}
 		}
 	}
@@ -147,6 +166,141 @@ func runDreamReview(root string, cfg *core.Config) error {
 			result.Accepted, result.Rejected, result.Deferred)
 	}
 	return nil
+}
+
+func runDreamQuality(project string, last int) error {
+	entries, err := dream.ReadQualityLedger()
+	if err != nil {
+		return fmt.Errorf("read quality ledger: %w", err)
+	}
+	if len(entries) == 0 {
+		fmt.Println("No quality data yet. Run 'mote dream' to collect cycle quality metrics.")
+		return nil
+	}
+
+	// Filter by project if specified
+	if project != "" {
+		var filtered []dream.QualityEntry
+		for _, e := range entries {
+			if e.Project == project {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+
+	// Limit to last N
+	if last > 0 && len(entries) > last {
+		entries = entries[len(entries)-last:]
+	}
+
+	if len(entries) == 0 {
+		fmt.Println("No matching quality entries.")
+		return nil
+	}
+
+	fmt.Println("Dream Cycle Quality")
+	fmt.Println("====================")
+	fmt.Printf("%-12s %-10s %-12s %7s %13s %14s %8s %8s %9s\n",
+		"Date", "Project", "Config", "Batches", "Batch→Recon", "Applied/Defer", "AvgConf", "Cost", "$/Vision")
+	fmt.Println(strings.Repeat("-", 105))
+
+	for _, e := range entries {
+		date := e.Timestamp
+		if len(date) >= 10 {
+			date = date[:10]
+		}
+		proj := e.Project
+		if len(proj) > 10 {
+			proj = proj[:10]
+		}
+		fmt.Printf("%-12s %-10s %-12s %7d %5d → %-5d %6d / %-5d %7.0f%% %7s %9s\n",
+			date, proj, e.VotingConfig, e.Batches,
+			e.BatchVisions, e.ReconVisions,
+			e.AutoApplied, e.Deferred,
+			e.AvgConfidence*100,
+			formatCost(e.EstimatedCost),
+			formatCost(e.CostPerVision))
+	}
+	return nil
+}
+
+func runDreamCompare(project string) error {
+	entries, err := dream.ReadQualityLedger()
+	if err != nil {
+		return fmt.Errorf("read quality ledger: %w", err)
+	}
+	if len(entries) == 0 {
+		fmt.Println("No quality data yet. Run 'mote dream' to collect cycle quality metrics.")
+		return nil
+	}
+
+	if project != "" {
+		var filtered []dream.QualityEntry
+		for _, e := range entries {
+			if e.Project == project {
+				filtered = append(filtered, e)
+			}
+		}
+		entries = filtered
+	}
+
+	comparisons := dream.CompareConfigs(entries)
+	if len(comparisons) == 0 {
+		fmt.Println("No matching quality entries.")
+		return nil
+	}
+
+	fmt.Println("A/B Comparison (global)")
+	fmt.Println("========================")
+
+	// Header
+	fmt.Printf("%-22s", "Metric")
+	for _, c := range comparisons {
+		fmt.Printf(" %20s", fmt.Sprintf("%s (n=%d)", c.Config, c.Cycles))
+	}
+	fmt.Println()
+	fmt.Println(strings.Repeat("-", 22+21*len(comparisons)))
+
+	// Rows
+	fmt.Printf("%-22s", "Visions/batch")
+	for _, c := range comparisons {
+		fmt.Printf(" %20.2f", c.AvgVisionsPerBatch)
+	}
+	fmt.Println()
+
+	fmt.Printf("%-22s", "Recon filter rate")
+	for _, c := range comparisons {
+		fmt.Printf(" %19.0f%%", c.AvgReconFilter*100)
+	}
+	fmt.Println()
+
+	fmt.Printf("%-22s", "Avg confidence")
+	for _, c := range comparisons {
+		fmt.Printf(" %19.0f%%", c.AvgConfidence*100)
+	}
+	fmt.Println()
+
+	fmt.Printf("%-22s", "Cost/cycle")
+	for _, c := range comparisons {
+		fmt.Printf(" %20s", formatCost(c.AvgCostPerCycle))
+	}
+	fmt.Println()
+
+	fmt.Printf("%-22s", "Cost/vision")
+	for _, c := range comparisons {
+		fmt.Printf(" %20s", formatCost(c.AvgCostPerVision))
+	}
+	fmt.Println()
+
+	return nil
+}
+
+func formatCost(cost float64) string {
+	if cost <= 0 {
+		return "-"
+	}
+	return fmt.Sprintf("$%.4f", cost)
 }
 
 func runDreamStats(root string) error {

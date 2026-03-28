@@ -1,6 +1,7 @@
 package dream
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,16 +15,17 @@ import (
 
 // DreamOrchestrator coordinates the 4-stage dream pipeline.
 type DreamOrchestrator struct {
-	root     string
-	config   core.DreamConfig
-	scanner  *PreScanner
-	batcher  *BatchConstructor
-	prompts  *PromptBuilder
-	invoker  *ClaudeInvoker
-	parser   *ResponseParser
-	lucidLog *LucidLog
-	visions  *VisionWriter
-	logger   *DreamLogger
+	root              string
+	config            core.DreamConfig
+	scanner           *PreScanner
+	batcher           *BatchConstructor
+	prompts           *PromptBuilder
+	invoker           *ClaudeInvoker
+	parser            *ResponseParser
+	lucidLog          *LucidLog
+	visions           *VisionWriter
+	logger            *DreamLogger
+	lastAvgConfidence float64 // Set by AutoApply
 }
 
 // NewDreamOrchestrator creates an orchestrator with all components wired.
@@ -53,6 +55,11 @@ func NewDreamOrchestrator(root string, cfg *core.Config) *DreamOrchestrator {
 // SetMoteLoader overrides the default mote loading for cross-scope dream scanning.
 func (do *DreamOrchestrator) SetMoteLoader(loader func() ([]*core.Mote, error)) {
 	do.scanner.SetMoteLoader(loader)
+}
+
+// LastAvgConfidence returns the average confidence from the most recent AutoApply call.
+func (do *DreamOrchestrator) LastAvgConfidence() float64 {
+	return do.lastAvgConfidence
 }
 
 // SetLogger configures the structured logger for machine-parseable output.
@@ -240,7 +247,7 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 	wg.Wait()
 
 	// Merge results sequentially
-	var totalInput, totalOutput int
+	var totalInput, totalOutput, batchVisionCount int
 	for _, r := range results {
 		if r.err != nil {
 			fmt.Fprintf(os.Stderr, "  warning: batch %d failed: %v\n", r.index+1, r.err)
@@ -253,6 +260,7 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 		do.lucidLog.Update(r.updates)
 		totalInput += r.inputTokens
 		totalOutput += r.outputTokens
+		batchVisionCount += len(r.visions)
 		fmt.Printf("  Batch %d: %d visions\n", r.index+1, len(r.visions))
 	}
 
@@ -304,6 +312,7 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 		InputTokens:   totalInput,
 		OutputTokens:  totalOutput,
 		EstimatedCost: estimatedCost,
+		BatchVisions:  batchVisionCount,
 	}
 	do.writeRunLog(result, time.Since(start))
 	return result, nil
@@ -332,16 +341,21 @@ func (do *DreamOrchestrator) AutoApply(cfg *core.Config) (applied int, failed in
 
 	// Score and split visions
 	var toApply, toDefer []Vision
+	var totalConfidence float64
 	for i := range visions {
 		affectedIDs := AffectedMoteIDs(visions[i])
 		preScores := SnapshotScores(mm, cfg, affectedIDs)
 		visions[i].Confidence = ScoreConfidence(visions[i], stats, preScores)
+		totalConfidence += visions[i].Confidence
 
 		if visions[i].Confidence >= threshold {
 			toApply = append(toApply, visions[i])
 		} else {
 			toDefer = append(toDefer, visions[i])
 		}
+	}
+	if len(visions) > 0 {
+		do.lastAvgConfidence = totalConfidence / float64(len(visions))
 	}
 
 	// Apply high-confidence visions
@@ -368,6 +382,52 @@ func (do *DreamOrchestrator) AutoApply(cfg *core.Config) (applied int, failed in
 	}
 
 	return applied, failed, deferred, nil
+}
+
+// UpdateRunLogAutoApply updates the most recent local run log entry with auto-apply stats.
+func (do *DreamOrchestrator) UpdateRunLogAutoApply(applied, deferred int, avgConfidence float64) {
+	logPath := filepath.Join(do.root, "dream", "log.jsonl")
+	entries := readRunLog(logPath)
+	if len(entries) == 0 {
+		return
+	}
+	last := &entries[len(entries)-1]
+	last.AutoApplied = applied
+	last.Deferred = deferred
+	last.AvgConfidence = avgConfidence
+
+	var buf strings.Builder
+	for _, e := range entries {
+		line, err := json.Marshal(e)
+		if err != nil {
+			continue
+		}
+		buf.Write(line)
+		buf.WriteByte('\n')
+	}
+	_ = core.AtomicWrite(logPath, []byte(buf.String()), 0644)
+}
+
+func readRunLog(path string) []RunLogEntry {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	var entries []RunLogEntry
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		var e RunLogEntry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			continue
+		}
+		entries = append(entries, e)
+	}
+	return entries
 }
 
 // printDryRun outputs the scan results and planned batches without executing.
@@ -422,21 +482,50 @@ func (do *DreamOrchestrator) logFailedResponse(batch int, raw string) {
 	f.Write([]byte{'\n'})
 }
 
+// scopeFromRoot derives the project name from the .memory root path.
+func scopeFromRoot(root string) string {
+	return filepath.Base(filepath.Dir(root))
+}
+
 func (do *DreamOrchestrator) writeRunLog(result *DreamResult, elapsed time.Duration) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	votingCfg := VotingConfigLabel(do.config)
+
+	var reconFilterRate float64
+	if result.BatchVisions > 0 {
+		reconFilterRate = 1.0 - float64(result.Visions)/float64(result.BatchVisions)
+	}
+
+	// Compute average agreement from final visions
+	var avgAgreement float64
+	finalVisions := do.visions.ReadFinal()
+	if len(finalVisions) > 0 {
+		var totalAgreement float64
+		for _, v := range finalVisions {
+			totalAgreement += v.Agreement
+		}
+		avgAgreement = totalAgreement / float64(len(finalVisions))
+	}
+
 	logPath := filepath.Join(do.root, "dream", "log.jsonl")
 	entry := RunLogEntry{
-		Timestamp:     time.Now().UTC().Format(time.RFC3339),
-		Status:        result.Status,
-		Batches:       result.Batches,
-		Visions:       result.Visions,
-		DurationS:     elapsed.Seconds(),
-		InputTokens:   result.InputTokens,
-		OutputTokens:  result.OutputTokens,
-		EstimatedCost: result.EstimatedCost,
+		Timestamp:       now,
+		Status:          result.Status,
+		Batches:         result.Batches,
+		Visions:         result.Visions,
+		DurationS:       elapsed.Seconds(),
+		InputTokens:     result.InputTokens,
+		OutputTokens:    result.OutputTokens,
+		EstimatedCost:   result.EstimatedCost,
+		VotingConfig:    votingCfg,
+		BatchVisions:    result.BatchVisions,
+		ReconVisions:    result.Visions,
+		ReconFilterRate: reconFilterRate,
+		AvgAgreement:    avgAgreement,
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {
-		return // Skip logging if marshal fails
+		return
 	}
 	line = append(line, '\n')
 
@@ -445,5 +534,28 @@ func (do *DreamOrchestrator) writeRunLog(result *DreamResult, elapsed time.Durat
 		return
 	}
 	defer f.Close()
-	_, _ = f.Write(line) // Dream logging is non-critical
+	_, _ = f.Write(line)
+
+	// Write to global quality ledger (best-effort)
+	project := scopeFromRoot(do.root)
+	var costPerVision float64
+	if result.Visions > 0 {
+		costPerVision = result.EstimatedCost / float64(result.Visions)
+	}
+	qe := QualityEntry{
+		Timestamp:       now,
+		Project:         project,
+		VotingConfig:    votingCfg,
+		Batches:         result.Batches,
+		BatchVisions:    result.BatchVisions,
+		ReconVisions:    result.Visions,
+		ReconFilterRate: reconFilterRate,
+		AvgAgreement:    avgAgreement,
+		DurationS:       elapsed.Seconds(),
+		InputTokens:     result.InputTokens,
+		OutputTokens:    result.OutputTokens,
+		EstimatedCost:   result.EstimatedCost,
+		CostPerVision:   costPerVision,
+	}
+	_ = AppendQualityEntry(qe) // Non-critical
 }

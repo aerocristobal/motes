@@ -27,6 +27,7 @@ type DreamResult struct {
 	InputTokens   int     `json:"input_tokens,omitempty"`
 	OutputTokens  int     `json:"output_tokens,omitempty"`
 	EstimatedCost float64 `json:"estimated_cost,omitempty"`
+	BatchVisions  int     `json:"batch_visions,omitempty"` // Visions before reconciliation
 }
 
 // MotePair identifies two motes for link/contradiction analysis.
@@ -127,14 +128,22 @@ type Batch struct {
 
 // RunLogEntry records a single dream execution in the log.
 type RunLogEntry struct {
-	Timestamp     string  `json:"timestamp"`
-	Status        string  `json:"status"`
-	Batches       int     `json:"batches"`
-	Visions       int     `json:"visions"`
-	DurationS     float64 `json:"duration_s"`
-	InputTokens   int     `json:"input_tokens,omitempty"`
-	OutputTokens  int     `json:"output_tokens,omitempty"`
-	EstimatedCost float64 `json:"estimated_cost,omitempty"`
+	Timestamp       string  `json:"timestamp"`
+	Status          string  `json:"status"`
+	Batches         int     `json:"batches"`
+	Visions         int     `json:"visions"`
+	DurationS       float64 `json:"duration_s"`
+	InputTokens     int     `json:"input_tokens,omitempty"`
+	OutputTokens    int     `json:"output_tokens,omitempty"`
+	EstimatedCost   float64 `json:"estimated_cost,omitempty"`
+	VotingConfig    string  `json:"voting_config,omitempty"`
+	BatchVisions    int     `json:"batch_visions,omitempty"`
+	ReconVisions    int     `json:"recon_visions,omitempty"`
+	ReconFilterRate float64 `json:"recon_filter_rate,omitempty"`
+	AutoApplied     int     `json:"auto_applied,omitempty"`
+	Deferred        int     `json:"deferred,omitempty"`
+	AvgConfidence   float64 `json:"avg_confidence,omitempty"`
+	AvgAgreement    float64 `json:"avg_agreement,omitempty"`
 }
 
 // ReviewResult summarizes interactive vision review.
