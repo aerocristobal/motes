@@ -19,32 +19,44 @@ import (
 
 // StatsOutput is the JSON output structure for mote stats --json.
 type StatsOutput struct {
-	TotalMotes         int            `json:"total_motes"`
-	StatusCounts       map[string]int `json:"status_counts"`
-	Accessed7          int            `json:"accessed_7d"`
-	Accessed30         int            `json:"accessed_30d"`
-	Accessed90         int            `json:"accessed_90d"`
-	NeverAccessed      int            `json:"never_accessed"`
-	TotalTags          int            `json:"total_tags"`
-	OverloadedTags     int            `json:"overloaded_tags"`
-	SingletonTags      int            `json:"singleton_tags"`
-	Contradictions     int            `json:"contradictions"`
-	PendingVisions     int            `json:"pending_visions"`
-	DreamRuns          int            `json:"dream_runs,omitempty"`
-	DreamInputTokens   int            `json:"dream_input_tokens,omitempty"`
-	DreamOutputTokens  int            `json:"dream_output_tokens,omitempty"`
-	DreamEstimatedCost float64        `json:"dream_estimated_cost,omitempty"`
-	PrimeHitRate       float64        `json:"prime_hit_rate,omitempty"`
-	PrimeSessions      int            `json:"prime_sessions,omitempty"`
-	Created7d          int            `json:"created_7d,omitempty"`
-	Created30d         int            `json:"created_30d,omitempty"`
-	Created90d         int            `json:"created_90d,omitempty"`
-	Deprecated7d       int            `json:"deprecated_7d,omitempty"`
-	Deprecated30d      int            `json:"deprecated_30d,omitempty"`
-	Deprecated90d      int            `json:"deprecated_90d,omitempty"`
-	NetGrowth7d        int            `json:"net_growth_7d,omitempty"`
-	NetGrowth30d       int            `json:"net_growth_30d,omitempty"`
-	NetGrowth90d       int            `json:"net_growth_90d,omitempty"`
+	TotalMotes            int            `json:"total_motes"`
+	StatusCounts          map[string]int `json:"status_counts"`
+	Accessed7             int            `json:"accessed_7d"`
+	Accessed30            int            `json:"accessed_30d"`
+	Accessed90            int            `json:"accessed_90d"`
+	NeverAccessed         int            `json:"never_accessed"`
+	TotalTags             int            `json:"total_tags"`
+	OverloadedTags        int            `json:"overloaded_tags"`
+	SingletonTags         int            `json:"singleton_tags"`
+	Contradictions        int            `json:"contradictions"`
+	PendingVisions        int            `json:"pending_visions"`
+	DreamRuns             int            `json:"dream_runs,omitempty"`
+	DreamInputTokens      int            `json:"dream_input_tokens,omitempty"`
+	DreamOutputTokens     int            `json:"dream_output_tokens,omitempty"`
+	DreamEstimatedCost    float64        `json:"dream_estimated_cost,omitempty"`
+	DreamTotalVisions     int            `json:"dream_total_visions,omitempty"`
+	DreamTotalApplied     int            `json:"dream_total_applied,omitempty"`
+	DreamTotalDeferred    int            `json:"dream_total_deferred,omitempty"`
+	DreamAcceptanceRate   float64        `json:"dream_acceptance_rate,omitempty"`
+	DreamCostPerAccepted  float64        `json:"dream_cost_per_accepted,omitempty"`
+	PrimeHitRate          float64        `json:"prime_hit_rate,omitempty"`
+	PrimeSessions         int            `json:"prime_sessions,omitempty"`
+	Created7d             int            `json:"created_7d,omitempty"`
+	Created30d            int            `json:"created_30d,omitempty"`
+	Created90d            int            `json:"created_90d,omitempty"`
+	Deprecated7d          int            `json:"deprecated_7d,omitempty"`
+	Deprecated30d         int            `json:"deprecated_30d,omitempty"`
+	Deprecated90d         int            `json:"deprecated_90d,omitempty"`
+	NetGrowth7d           int            `json:"net_growth_7d,omitempty"`
+	NetGrowth30d          int            `json:"net_growth_30d,omitempty"`
+	NetGrowth90d          int            `json:"net_growth_90d,omitempty"`
+	GraphDecisions        int            `json:"graph_decisions,omitempty"`
+	GraphLessons          int            `json:"graph_lessons,omitempty"`
+	GraphExplorations     int            `json:"graph_explorations,omitempty"`
+	GraphKnowledgeCount   int            `json:"graph_knowledge_count,omitempty"`
+	GraphAvgLinks         float64        `json:"graph_avg_links,omitempty"`
+	GraphCrossSession     int            `json:"graph_cross_session_motes,omitempty"`
+	GraphAgeDays          int            `json:"graph_age_days,omitempty"`
 }
 
 var statsCmd = &cobra.Command{
@@ -140,13 +152,14 @@ func runStats(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Read cumulative dream cost data
+	// Read cumulative dream cost data and run entries for last-5 acceptance check
 	dreamCost := readDreamCostStats(dreamDir)
+	dreamEntries := readDreamRunEntries(dreamDir)
 
 	// Compute graph flow metrics
 	flow := computeFlowStats(motes)
 
-	// Read prime session stats for hit-rate feedback
+	// Read prime session stats for hit-rate feedback and graph value
 	primeStats, _ := mm.ReadPrimeSessionStats(0)
 	var totalPrimed, totalHit int
 	for _, s := range primeStats {
@@ -158,34 +171,58 @@ func runStats(cmd *cobra.Command, args []string) error {
 		rollingHitRate = float64(totalHit) / float64(totalPrimed)
 	}
 
+	gv := computeGraphValue(motes, idx, primeStats)
+
+	// Dream ROI: acceptance rate and cost per accepted vision
+	dreamAcceptRate := 0.0
+	if dreamCost.totalVisions > 0 {
+		dreamAcceptRate = float64(dreamCost.totalApplied) / float64(dreamCost.totalVisions)
+	}
+	dreamCostPerAccepted := 0.0
+	if dreamCost.totalApplied > 0 {
+		dreamCostPerAccepted = dreamCost.estimatedCost / float64(dreamCost.totalApplied)
+	}
+
 	if statsJSON {
 		out := StatsOutput{
-			TotalMotes:         len(motes),
-			StatusCounts:       statusCounts,
-			Accessed7:          accessed7,
-			Accessed30:         accessed30,
-			Accessed90:         accessed90,
-			NeverAccessed:      neverAccessed,
-			TotalTags:          len(idx.TagStats),
-			OverloadedTags:     overloaded,
-			SingletonTags:      singletons,
-			Contradictions:     contradictions,
-			PendingVisions:     pendingVisions,
-			DreamRuns:          dreamCost.runs,
-			DreamInputTokens:   dreamCost.inputTokens,
-			DreamOutputTokens:  dreamCost.outputTokens,
-			DreamEstimatedCost: dreamCost.estimatedCost,
-			PrimeHitRate:       rollingHitRate,
-			PrimeSessions:      len(primeStats),
-			Created7d:          flow.Created7d,
-			Created30d:         flow.Created30d,
-			Created90d:         flow.Created90d,
-			Deprecated7d:       flow.Deprecated7d,
-			Deprecated30d:      flow.Deprecated30d,
-			Deprecated90d:      flow.Deprecated90d,
-			NetGrowth7d:        flow.Created7d - flow.Deprecated7d,
-			NetGrowth30d:       flow.Created30d - flow.Deprecated30d,
-			NetGrowth90d:       flow.Created90d - flow.Deprecated90d,
+			TotalMotes:           len(motes),
+			StatusCounts:         statusCounts,
+			Accessed7:            accessed7,
+			Accessed30:           accessed30,
+			Accessed90:           accessed90,
+			NeverAccessed:        neverAccessed,
+			TotalTags:            len(idx.TagStats),
+			OverloadedTags:       overloaded,
+			SingletonTags:        singletons,
+			Contradictions:       contradictions,
+			PendingVisions:       pendingVisions,
+			DreamRuns:            dreamCost.runs,
+			DreamInputTokens:     dreamCost.inputTokens,
+			DreamOutputTokens:    dreamCost.outputTokens,
+			DreamEstimatedCost:   dreamCost.estimatedCost,
+			DreamTotalVisions:    dreamCost.totalVisions,
+			DreamTotalApplied:    dreamCost.totalApplied,
+			DreamTotalDeferred:   dreamCost.totalDeferred,
+			DreamAcceptanceRate:  dreamAcceptRate,
+			DreamCostPerAccepted: dreamCostPerAccepted,
+			PrimeHitRate:         rollingHitRate,
+			PrimeSessions:        len(primeStats),
+			Created7d:            flow.Created7d,
+			Created30d:           flow.Created30d,
+			Created90d:           flow.Created90d,
+			Deprecated7d:         flow.Deprecated7d,
+			Deprecated30d:        flow.Deprecated30d,
+			Deprecated90d:        flow.Deprecated90d,
+			NetGrowth7d:          flow.Created7d - flow.Deprecated7d,
+			NetGrowth30d:         flow.Created30d - flow.Deprecated30d,
+			NetGrowth90d:         flow.Created90d - flow.Deprecated90d,
+			GraphDecisions:       gv.decisions,
+			GraphLessons:         gv.lessons,
+			GraphExplorations:    gv.explorations,
+			GraphKnowledgeCount:  gv.decisions + gv.lessons + gv.explorations,
+			GraphAvgLinks:        gv.avgLinks,
+			GraphCrossSession:    gv.crossSession,
+			GraphAgeDays:         gv.ageDays,
 		}
 		data, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
@@ -232,6 +269,20 @@ func runStats(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 		fmt.Printf("  Sessions tracked: %d\n", len(primeStats))
 		fmt.Printf("  Rolling hit rate: %.0f%%\n", rollingHitRate*100)
+	}
+
+	knowledgeCount := gv.decisions + gv.lessons + gv.explorations
+	if knowledgeCount > 0 {
+		fmt.Println()
+		fmt.Println(format.Header("Graph Value"))
+		fmt.Println()
+		fmt.Printf("  Knowledge motes: %d (%d decisions, %d lessons, %d explorations)\n",
+			knowledgeCount, gv.decisions, gv.lessons, gv.explorations)
+		fmt.Printf("  Avg links/knowledge mote: %.1f\n", gv.avgLinks)
+		fmt.Printf("  Cross-session retrievals: %d motes\n", gv.crossSession)
+		fmt.Printf("  Graph age: %d days\n", gv.ageDays)
+		fmt.Printf("  %d decisions, %d lessons, and %d explorations captured over %d days\n",
+			gv.decisions, gv.lessons, gv.explorations, gv.ageDays)
 	}
 
 	fmt.Println()
@@ -297,7 +348,7 @@ func runStats(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Corpora: %d (%d total chunks)\n", len(corpora), totalChunks)
 	}
 
-	// Dream status
+	// Dream Cycle section (merged with ROI metrics)
 	fmt.Println()
 	fmt.Println(format.Header("Dream Cycle"))
 	fmt.Println()
@@ -305,17 +356,34 @@ func runStats(cmd *cobra.Command, args []string) error {
 		fmt.Println("  Status: N/A (no dream directory)")
 	} else {
 		fmt.Printf("  Pending visions: %d\n", pendingVisions)
-	}
-
-	// Cumulative dream cost
-	if dreamCost.runs > 0 {
-		fmt.Println()
-		fmt.Println(format.Header("Cumulative Dream Cost"))
-		fmt.Println()
-		fmt.Printf("  Total runs:      %d\n", dreamCost.runs)
-		fmt.Printf("  Input tokens:    %d\n", dreamCost.inputTokens)
-		fmt.Printf("  Output tokens:   %d\n", dreamCost.outputTokens)
-		fmt.Printf("  Estimated cost:  $%.4f\n", dreamCost.estimatedCost)
+		if dreamCost.runs > 0 {
+			fmt.Printf("  Total runs:      %d\n", dreamCost.runs)
+			fmt.Printf("  Total visions:   %d\n", dreamCost.totalVisions)
+			fmt.Printf("  Applied:         %d\n", dreamCost.totalApplied)
+			fmt.Printf("  Deferred:        %d\n", dreamCost.totalDeferred)
+			if dreamCost.totalVisions > 0 {
+				fmt.Printf("  Acceptance rate: %.0f%%\n", dreamAcceptRate*100)
+			} else {
+				fmt.Printf("  Acceptance rate: N/A\n")
+			}
+			fmt.Printf("  Estimated cost:  $%.4f\n", dreamCost.estimatedCost)
+			if dreamCost.totalApplied > 0 {
+				fmt.Printf("  Cost/accepted:   $%.4f\n", dreamCostPerAccepted)
+			}
+			// Low acceptance rate note: check last 5 runs
+			if len(dreamEntries) >= 5 {
+				last5 := dreamEntries[len(dreamEntries)-5:]
+				var l5visions, l5applied int
+				for _, e := range last5 {
+					l5visions += e.Visions
+					l5applied += e.AutoApplied
+				}
+				if l5visions > 0 && float64(l5applied)/float64(l5visions) < 0.25 {
+					fmt.Printf("  Note: Low vision acceptance rate. Consider adjusting dream cycle\n")
+					fmt.Printf("  frequency or reviewing scoring thresholds in config.yaml.\n")
+				}
+			}
+		}
 	}
 
 	return nil
@@ -409,29 +477,43 @@ type dreamCostStats struct {
 	inputTokens   int
 	outputTokens  int
 	estimatedCost float64
+	totalVisions  int
+	totalApplied  int
+	totalDeferred int
 }
 
 func readDreamCostStats(dreamDir string) dreamCostStats {
 	var stats dreamCostStats
+	for _, e := range readDreamRunEntries(dreamDir) {
+		stats.runs++
+		stats.inputTokens += e.InputTokens
+		stats.outputTokens += e.OutputTokens
+		stats.estimatedCost += e.EstimatedCost
+		stats.totalVisions += e.Visions
+		stats.totalApplied += e.AutoApplied
+		stats.totalDeferred += e.Deferred
+	}
+	return stats
+}
+
+func readDreamRunEntries(dreamDir string) []dream.RunLogEntry {
 	logPath := filepath.Join(dreamDir, "log.jsonl")
 	f, err := os.Open(logPath)
 	if err != nil {
-		return stats
+		return nil
 	}
 	defer f.Close()
 
+	var entries []dream.RunLogEntry
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		var entry dream.RunLogEntry
 		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
 			continue
 		}
-		stats.runs++
-		stats.inputTokens += entry.InputTokens
-		stats.outputTokens += entry.OutputTokens
-		stats.estimatedCost += entry.EstimatedCost
+		entries = append(entries, entry)
 	}
-	return stats
+	return entries
 }
 
 func countActiveContradictions(motes []*core.Mote) int {
@@ -462,4 +544,72 @@ func countActiveContradictions(motes []*core.Mote) int {
 		}
 	}
 	return count
+}
+
+type graphValueStats struct {
+	decisions    int
+	lessons      int
+	explorations int
+	avgLinks     float64
+	crossSession int
+	ageDays      int
+}
+
+func computeGraphValue(motes []*core.Mote, idx *core.EdgeIndex, primeStats []core.PrimeSessionStats) graphValueStats {
+	var gv graphValueStats
+
+	// Knowledge motes: decision, lesson, explore — not deprecated/archived
+	var knowledgeIDs []string
+	var oldestCreated *time.Time
+	for _, m := range motes {
+		if m.Status == "deprecated" || m.Status == "archived" {
+			continue
+		}
+		switch m.Type {
+		case "decision":
+			gv.decisions++
+			knowledgeIDs = append(knowledgeIDs, m.ID)
+		case "lesson":
+			gv.lessons++
+			knowledgeIDs = append(knowledgeIDs, m.ID)
+		case "explore":
+			gv.explorations++
+			knowledgeIDs = append(knowledgeIDs, m.ID)
+		}
+		if !m.CreatedAt.IsZero() {
+			if oldestCreated == nil || m.CreatedAt.Before(*oldestCreated) {
+				t := m.CreatedAt
+				oldestCreated = &t
+			}
+		}
+	}
+
+	// Avg outgoing links per knowledge mote
+	if len(knowledgeIDs) > 0 {
+		var totalLinks int
+		for _, id := range knowledgeIDs {
+			totalLinks += len(idx.Neighbors(id, nil))
+		}
+		gv.avgLinks = float64(totalLinks) / float64(len(knowledgeIDs))
+	}
+
+	// Cross-session retrievals: motes appearing in hit_ids of 3+ sessions
+	hitFreq := map[string]int{}
+	for _, s := range primeStats {
+		for _, id := range s.HitIDs {
+			hitFreq[id]++
+		}
+	}
+	for _, freq := range hitFreq {
+		if freq >= 3 {
+			gv.crossSession++
+		}
+	}
+
+	// Graph age in days
+	if oldestCreated != nil {
+		gv.ageDays = int(time.Since(*oldestCreated).Hours() / 24)
+	}
+
+	return gv
 }

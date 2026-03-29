@@ -56,12 +56,13 @@ type AccessBatchEntry struct {
 
 // PrimeSessionStats records which motes were primed vs. actually accessed in a session.
 type PrimeSessionStats struct {
-	SessionAt   string   `json:"session_at"`
-	PrimedCount int      `json:"primed_count"`
-	HitCount    int      `json:"hit_count"`
-	HitRate     float64  `json:"hit_rate"`
-	PrimedIDs   []string `json:"primed_ids"`
-	HitIDs      []string `json:"hit_ids"`
+	SessionAt      string   `json:"session_at"`
+	PrimedCount    int      `json:"primed_count"`
+	HitCount       int      `json:"hit_count"`
+	HitRate        float64  `json:"hit_rate"`
+	PrimedIDs      []string `json:"primed_ids"`
+	HitIDs         []string `json:"hit_ids"`
+	LingeringNudge bool     `json:"lingering_nudge,omitempty"`
 }
 
 func NewMoteManager(root string) *MoteManager {

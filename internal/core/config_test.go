@@ -164,3 +164,53 @@ func TestLoadConfig_InvalidYAML(t *testing.T) {
 		t.Fatal("expected error for invalid YAML")
 	}
 }
+
+func TestDefaultConfig_DoctorDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Doctor.MaxAvgLinks != 8.0 {
+		t.Errorf("MaxAvgLinks: got %f, want 8.0", cfg.Doctor.MaxAvgLinks)
+	}
+	if cfg.Doctor.MaxChainDepth != 10 {
+		t.Errorf("MaxChainDepth: got %d, want 10", cfg.Doctor.MaxChainDepth)
+	}
+	if cfg.Doctor.SingletonPct != 50.0 {
+		t.Errorf("SingletonPct: got %f, want 50.0", cfg.Doctor.SingletonPct)
+	}
+}
+
+func TestLoadConfig_DoctorSection(t *testing.T) {
+	dir := t.TempDir()
+	yamlContent := `doctor:
+  max_avg_links: 5.0
+  max_chain_depth: 7
+  singleton_pct: 30.0
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Doctor.MaxAvgLinks != 5.0 {
+		t.Errorf("MaxAvgLinks: got %f, want 5.0", cfg.Doctor.MaxAvgLinks)
+	}
+	if cfg.Doctor.MaxChainDepth != 7 {
+		t.Errorf("MaxChainDepth: got %d, want 7", cfg.Doctor.MaxChainDepth)
+	}
+	if cfg.Doctor.SingletonPct != 30.0 {
+		t.Errorf("SingletonPct: got %f, want 30.0", cfg.Doctor.SingletonPct)
+	}
+}
+
+func TestLoadConfig_DoctorMissing_UsesDefaults(t *testing.T) {
+	dir := t.TempDir()
+	// No config.yaml — should fall back to defaults
+	cfg, err := LoadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Doctor.MaxAvgLinks != 8.0 {
+		t.Errorf("MaxAvgLinks: got %f, want 8.0 (default)", cfg.Doctor.MaxAvgLinks)
+	}
+}

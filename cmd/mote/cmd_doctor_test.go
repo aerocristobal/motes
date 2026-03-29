@@ -362,3 +362,260 @@ func TestDoctorChecks_NoBloatWhenSmall(t *testing.T) {
 		}
 	}
 }
+
+// --- runDoctorAdvisories tests ---
+
+func makeMoteMap(n int) map[string]*core.Mote {
+	m := make(map[string]*core.Mote, n)
+	for i := 0; i < n; i++ {
+		id := fmt.Sprintf("mote-%02d", i)
+		m[id] = &core.Mote{ID: id, Type: "task", Status: "active"}
+	}
+	return m
+}
+
+func TestDoctorAdvisories_EmptyGraph(t *testing.T) {
+	dir := t.TempDir()
+	im := core.NewIndexManager(dir)
+	idx, _ := im.Load()
+	cfg := core.DefaultConfig()
+
+	advisories := runDoctorAdvisories(idx, map[string]*core.Mote{}, cfg)
+	if len(advisories) != 0 {
+		t.Errorf("expected no advisories for empty graph, got %d", len(advisories))
+	}
+}
+
+func TestDoctorAdvisories_HighLinkDensity(t *testing.T) {
+	dir := t.TempDir()
+	im := core.NewIndexManager(dir)
+	idx, _ := im.Load()
+
+	// 2 motes, 20 distinct edges injected directly → avg 10 links/mote (> threshold of 8)
+	// AddEdge deduplicates same source+target+type, so inject into Edges slice directly.
+	moteMap := makeMoteMap(2)
+	for i := 0; i < 20; i++ {
+		idx.Edges = append(idx.Edges, core.Edge{
+			Source:   fmt.Sprintf("mote-%02d", i%2),
+			Target:   fmt.Sprintf("target-%d", i),
+			EdgeType: "relates_to",
+		})
+	}
+	_ = im
+
+	cfg := core.DefaultConfig()
+	advisories := runDoctorAdvisories(idx, moteMap, cfg)
+
+	found := false
+	for _, a := range advisories {
+		if strings.Contains(a, "High link density") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected High link density advisory, got: %v", advisories)
+	}
+}
+
+func TestDoctorAdvisories_NoWarningBelowLinkThreshold(t *testing.T) {
+	dir := t.TempDir()
+	im := core.NewIndexManager(dir)
+
+	// 10 motes, 5 edges → avg 0.5 links/mote (below threshold)
+	moteMap := makeMoteMap(10)
+	_ = im.AddEdge(core.Edge{Source: "mote-00", Target: "mote-01", EdgeType: "relates_to"})
+	idx, _ := im.Load()
+
+	cfg := core.DefaultConfig()
+	advisories := runDoctorAdvisories(idx, moteMap, cfg)
+
+	for _, a := range advisories {
+		if strings.Contains(a, "High link density") {
+			t.Errorf("unexpected High link density advisory: %s", a)
+		}
+	}
+}
+
+func TestDoctorAdvisories_TagFragmentation(t *testing.T) {
+	dir := t.TempDir()
+	im := core.NewIndexManager(dir)
+
+	// Build an index with high singleton rate
+	moteMap := makeMoteMap(3)
+	// 3 singleton tags + 1 shared tag = 75% singletons (> 50%)
+	_ = im.AddEdge(core.Edge{Source: "mote-00", Target: "mote-01", EdgeType: "relates_to"})
+	idx, _ := im.Load()
+
+	// Manually inject tag stats with high singleton fraction
+	idx.TagStats = map[string]int{
+		"unique-a": 1,
+		"unique-b": 1,
+		"unique-c": 1,
+		"shared":   4,
+	}
+
+	cfg := core.DefaultConfig()
+	advisories := runDoctorAdvisories(idx, moteMap, cfg)
+
+	found := false
+	for _, a := range advisories {
+		if strings.Contains(a, "Tag fragmentation") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected Tag fragmentation advisory, got: %v", advisories)
+	}
+}
+
+func TestDoctorAdvisories_NoFragmentationBelowThreshold(t *testing.T) {
+	dir := t.TempDir()
+	im := core.NewIndexManager(dir)
+	moteMap := makeMoteMap(2)
+	_ = im.AddEdge(core.Edge{Source: "mote-00", Target: "mote-01", EdgeType: "relates_to"})
+	idx, _ := im.Load()
+
+	// Only 1/5 = 20% singletons (below 50% threshold)
+	idx.TagStats = map[string]int{
+		"singleton": 1,
+		"tag-a":     3,
+		"tag-b":     5,
+		"tag-c":     2,
+		"tag-d":     4,
+	}
+
+	cfg := core.DefaultConfig()
+	for _, a := range runDoctorAdvisories(idx, moteMap, cfg) {
+		if strings.Contains(a, "Tag fragmentation") {
+			t.Errorf("unexpected fragmentation advisory: %s", a)
+		}
+	}
+}
+
+func TestDoctorAdvisories_CustomLinkThreshold(t *testing.T) {
+	dir := t.TempDir()
+	im := core.NewIndexManager(dir)
+	idx, _ := im.Load()
+
+	// 2 motes, 8 distinct edges injected → avg 4 links/mote
+	moteMap := makeMoteMap(2)
+	for i := 0; i < 8; i++ {
+		idx.Edges = append(idx.Edges, core.Edge{
+			Source:   fmt.Sprintf("mote-%02d", i%2),
+			Target:   fmt.Sprintf("target-%d", i),
+			EdgeType: "relates_to",
+		})
+	}
+	_ = im
+
+	// Custom threshold of 3.0 → avg 4 links/mote should trigger advisory
+	cfg := core.DefaultConfig()
+	cfg.Doctor.MaxAvgLinks = 3.0
+	advisories := runDoctorAdvisories(idx, moteMap, cfg)
+
+	found := false
+	for _, a := range advisories {
+		if strings.Contains(a, "High link density") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected advisory with custom threshold 3.0, got: %v", advisories)
+	}
+}
+
+// --- maxDependsOnDepth tests ---
+
+func TestMaxDependsOnDepth_Empty(t *testing.T) {
+	dir := t.TempDir()
+	im := core.NewIndexManager(dir)
+	idx, _ := im.Load()
+
+	depth := maxDependsOnDepth(idx)
+	if depth != 0 {
+		t.Errorf("expected depth 0 for empty graph, got %d", depth)
+	}
+}
+
+func TestMaxDependsOnDepth_LinearChain(t *testing.T) {
+	dir := t.TempDir()
+	im := core.NewIndexManager(dir)
+
+	// A→B→C→D→E: chain of 4 edges, depth = 4
+	chain := []string{"A", "B", "C", "D", "E"}
+	for i := 0; i < len(chain)-1; i++ {
+		_ = im.AddEdge(core.Edge{Source: chain[i], Target: chain[i+1], EdgeType: "depends_on"})
+	}
+	idx, _ := im.Load()
+
+	depth := maxDependsOnDepth(idx)
+	if depth != 4 {
+		t.Errorf("expected depth 4 for A→B→C→D→E, got %d", depth)
+	}
+}
+
+func TestMaxDependsOnDepth_NoDepends(t *testing.T) {
+	dir := t.TempDir()
+	im := core.NewIndexManager(dir)
+
+	// Only relates_to edges — no depends_on
+	_ = im.AddEdge(core.Edge{Source: "X", Target: "Y", EdgeType: "relates_to"})
+	idx, _ := im.Load()
+
+	depth := maxDependsOnDepth(idx)
+	if depth != 0 {
+		t.Errorf("expected depth 0 with no depends_on edges, got %d", depth)
+	}
+}
+
+func TestDoctorAdvisories_DeepChain(t *testing.T) {
+	dir := t.TempDir()
+	im := core.NewIndexManager(dir)
+	moteMap := makeMoteMap(12)
+
+	// Build 11-node chain (depth 10, at threshold) then add 1 more → depth 11 > 10
+	ids := make([]string, 12)
+	for i := 0; i < 12; i++ {
+		ids[i] = fmt.Sprintf("mote-%02d", i)
+	}
+	for i := 0; i < 11; i++ {
+		_ = im.AddEdge(core.Edge{Source: ids[i], Target: ids[i+1], EdgeType: "depends_on"})
+	}
+	idx, _ := im.Load()
+
+	cfg := core.DefaultConfig() // MaxChainDepth = 10
+	advisories := runDoctorAdvisories(idx, moteMap, cfg)
+
+	found := false
+	for _, a := range advisories {
+		if strings.Contains(a, "Deep dependency chain") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected Deep dependency chain advisory, got: %v", advisories)
+	}
+}
+
+func TestDoctorAdvisories_ChainAtThreshold_NoWarning(t *testing.T) {
+	dir := t.TempDir()
+	im := core.NewIndexManager(dir)
+	moteMap := makeMoteMap(11)
+
+	// Build chain of depth exactly 10 (10 edges, 11 nodes) — at threshold, not over
+	ids := make([]string, 11)
+	for i := 0; i < 11; i++ {
+		ids[i] = fmt.Sprintf("mote-%02d", i)
+	}
+	for i := 0; i < 10; i++ {
+		_ = im.AddEdge(core.Edge{Source: ids[i], Target: ids[i+1], EdgeType: "depends_on"})
+	}
+	idx, _ := im.Load()
+
+	cfg := core.DefaultConfig() // MaxChainDepth = 10
+	for _, a := range runDoctorAdvisories(idx, moteMap, cfg) {
+		if strings.Contains(a, "Deep dependency chain") {
+			t.Errorf("advisory should not fire at exactly the threshold: %s", a)
+		}
+	}
+}

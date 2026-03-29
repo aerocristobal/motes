@@ -123,8 +123,18 @@ func runSessionEndInner(cmd *cobra.Command, args []string) error {
 		hadOutput = true
 	}
 
-	// Record prime hit-rate stats when prime was used this session
-	if len(primedSet) > 0 {
+	// Read all motes now — used for nudge check, crystallization, and co-access sections
+	allMotes, _ := mm.ReadAllParallel()
+
+	// Read prime history for nudge throttle check
+	primeHistory, _ := mm.ReadPrimeSessionStats(0)
+
+	// Lingering task nudge: completed tasks > 7 days old with no crystallized_at
+	nudgeCount := countLingeringTasks(allMotes)
+	showNudge := nudgeCount >= 3 && !lastSessionHadNudge(primeHistory)
+
+	// Record prime hit-rate stats when prime was used this session, or when nudge fires
+	if len(primedSet) > 0 || showNudge {
 		var primedIDs, hitIDs []string
 		for id := range primedSet {
 			primedIDs = append(primedIDs, id)
@@ -134,19 +144,30 @@ func runSessionEndInner(cmd *cobra.Command, args []string) error {
 				hitIDs = append(hitIDs, id)
 			}
 		}
-		hitRate := float64(len(hitIDs)) / float64(len(primedIDs))
+		hitRate := 0.0
+		if len(primedIDs) > 0 {
+			hitRate = float64(len(hitIDs)) / float64(len(primedIDs))
+		}
 		stats := core.PrimeSessionStats{
-			SessionAt:   time.Now().UTC().Format(time.RFC3339),
-			PrimedCount: len(primedIDs),
-			HitCount:    len(hitIDs),
-			HitRate:     hitRate,
-			PrimedIDs:   primedIDs,
-			HitIDs:      hitIDs,
+			SessionAt:      time.Now().UTC().Format(time.RFC3339),
+			PrimedCount:    len(primedIDs),
+			HitCount:       len(hitIDs),
+			HitRate:        hitRate,
+			PrimedIDs:      primedIDs,
+			HitIDs:         hitIDs,
+			LingeringNudge: showNudge,
 		}
 		if writeErr := mm.WritePrimeSessionStats(stats); writeErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: write prime stats: %v\n", writeErr)
 		}
-		fmt.Printf("Prime hit rate: %d/%d (%.0f%%)\n", len(hitIDs), len(primedIDs), hitRate*100)
+		if len(primedSet) > 0 {
+			fmt.Printf("Prime hit rate: %d/%d (%.0f%%)\n", len(hitIDs), len(primedIDs), hitRate*100)
+			hadOutput = true
+		}
+	}
+
+	if showNudge {
+		fmt.Printf("📦 %d completed tasks not yet crystallized. `mote crystallize --candidates`\n", nudgeCount)
 		hadOutput = true
 	}
 
@@ -186,7 +207,6 @@ func runSessionEndInner(cmd *cobra.Command, args []string) error {
 	}
 
 	// Crystallization suggestions: uncrystallized completed motes
-	allMotes, _ := mm.ReadAllParallel()
 	if allMotes != nil {
 		sourceIssueSet := map[string]bool{}
 		for _, m := range allMotes {
@@ -499,4 +519,27 @@ func autoIngestChangedFiles(root string) (int, error) {
 
 	sm := strata.NewStrataManager(root, cfg.Strata)
 	return sm.EnsureCorpus("_codebase", absPaths)
+}
+
+// countLingeringTasks counts completed task motes older than 7 days with no crystallized_at.
+func countLingeringTasks(motes []*core.Mote) int {
+	threshold := time.Now().AddDate(0, 0, -7)
+	count := 0
+	for _, m := range motes {
+		if m.Type != "task" || m.Status != "completed" || m.CrystallizedAt != nil {
+			continue
+		}
+		if m.CreatedAt.Before(threshold) {
+			count++
+		}
+	}
+	return count
+}
+
+// lastSessionHadNudge returns true if the most recent prime session had LingeringNudge=true.
+func lastSessionHadNudge(stats []core.PrimeSessionStats) bool {
+	if len(stats) == 0 {
+		return false
+	}
+	return stats[len(stats)-1].LingeringNudge
 }

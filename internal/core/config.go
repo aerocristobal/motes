@@ -15,6 +15,13 @@ type Config struct {
 	Strata  StrataConfig  `yaml:"strata"`
 	Trash   TrashConfig   `yaml:"trash"`
 	Linking LinkingConfig `yaml:"linking"`
+	Doctor  DoctorConfig  `yaml:"doctor"`
+}
+
+type DoctorConfig struct {
+	MaxAvgLinks   float64 `yaml:"max_avg_links"`   // advisory threshold: avg edges per mote
+	MaxChainDepth int     `yaml:"max_chain_depth"` // advisory threshold: depends_on chain depth
+	SingletonPct  float64 `yaml:"singleton_pct"`   // advisory threshold: % singleton tags
 }
 
 type LinkingConfig struct {
@@ -259,6 +266,11 @@ func DefaultConfig() *Config {
 		Linking: LinkingConfig{
 			MaxAutoLinks: 5,
 			MinScore:     0.1,
+		},
+		Doctor: DoctorConfig{
+			MaxAvgLinks:   8.0,
+			MaxChainDepth: 10,
+			SingletonPct:  50.0,
 		},
 		Strata: StrataConfig{
 			Chunking: ChunkingConfig{

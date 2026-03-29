@@ -51,19 +51,29 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	issues := runDoctorChecks(mm, im, idx, moteMap, cfg)
+	advisories := runDoctorAdvisories(idx, moteMap, cfg)
 
 	if len(issues) == 0 {
 		fmt.Println("No issues found. Graph is healthy.")
-		return nil
+	} else {
+		fmt.Printf("%-16s  %-26s  %s\n", "ISSUE", "MOTE", "DETAIL")
+		fmt.Println(strings.Repeat("-", 80))
+		for _, iss := range issues {
+			fmt.Printf("%-16s  %-26s  %s\n", iss.Category, iss.MoteID, iss.Detail)
+		}
+		fmt.Printf("\n%d issue(s) found.\n", len(issues))
 	}
 
-	fmt.Printf("%-16s  %-26s  %s\n", "ISSUE", "MOTE", "DETAIL")
-	fmt.Println(strings.Repeat("-", 80))
-	for _, iss := range issues {
-		fmt.Printf("%-16s  %-26s  %s\n", iss.Category, iss.MoteID, iss.Detail)
+	if len(advisories) > 0 {
+		fmt.Println()
+		for _, w := range advisories {
+			fmt.Printf("⚠ %s\n", w)
+		}
 	}
-	fmt.Printf("\n%d issue(s) found.\n", len(issues))
-	os.Exit(1)
+
+	if len(issues) > 0 {
+		os.Exit(1)
+	}
 	return nil
 }
 
@@ -371,4 +381,112 @@ func collectAllLinks(m *core.Mote) map[string][]string {
 		links["informed_by"] = m.InformedBy
 	}
 	return links
+}
+
+// runDoctorAdvisories returns advisory warnings about graph complexity.
+// These are structural notices — not integrity failures — and do not affect exit code.
+func runDoctorAdvisories(idx *core.EdgeIndex, moteMap map[string]*core.Mote, cfg *core.Config) []string {
+	if len(moteMap) == 0 {
+		return nil
+	}
+	var advisories []string
+
+	maxAvgLinks := cfg.Doctor.MaxAvgLinks
+	if maxAvgLinks <= 0 {
+		maxAvgLinks = 8.0
+	}
+	maxChainDepth := cfg.Doctor.MaxChainDepth
+	if maxChainDepth <= 0 {
+		maxChainDepth = 10
+	}
+	singletonPct := cfg.Doctor.SingletonPct
+	if singletonPct <= 0 {
+		singletonPct = 50.0
+	}
+
+	// Check 1: average link density
+	avgLinks := float64(len(idx.Edges)) / float64(len(moteMap))
+	if avgLinks > maxAvgLinks {
+		advisories = append(advisories, fmt.Sprintf(
+			"High link density: avg %.1f links/mote (threshold: %.0f). Dense graphs slow traversal and dilute edge bonuses. Consider whether all links are meaningful.",
+			avgLinks, maxAvgLinks))
+	}
+
+	// Check 2: deep dependency chains
+	depth := maxDependsOnDepth(idx)
+	if depth > maxChainDepth {
+		advisories = append(advisories, fmt.Sprintf(
+			"Deep dependency chain: max depth %d (threshold: %d). Deep chains complicate planning view and slow traversal.",
+			depth, maxChainDepth))
+	}
+
+	// Check 3: tag fragmentation
+	if len(idx.TagStats) > 0 {
+		singletons := 0
+		for _, count := range idx.TagStats {
+			if count == 1 {
+				singletons++
+			}
+		}
+		pct := float64(singletons) / float64(len(idx.TagStats)) * 100
+		if pct > singletonPct {
+			advisories = append(advisories, fmt.Sprintf(
+				"Tag fragmentation: %.0f%% of tags used by only one mote (%d/%d). Singleton tags don't improve retrieval. Consider consolidating.",
+				pct, singletons, len(idx.TagStats)))
+		}
+	}
+
+	return advisories
+}
+
+// maxDependsOnDepth returns the maximum depth of any depends_on chain in the graph.
+// Uses BFS from root nodes (no incoming depends_on edges) to find the longest path.
+func maxDependsOnDepth(idx *core.EdgeIndex) int {
+	// Build adjacency list and track nodes with incoming depends_on edges
+	adj := make(map[string][]string)
+	hasIncoming := make(map[string]bool)
+	allNodes := make(map[string]bool)
+
+	for _, e := range idx.Edges {
+		if e.EdgeType != "depends_on" {
+			continue
+		}
+		adj[e.Source] = append(adj[e.Source], e.Target)
+		hasIncoming[e.Target] = true
+		allNodes[e.Source] = true
+		allNodes[e.Target] = true
+	}
+
+	if len(allNodes) == 0 {
+		return 0
+	}
+
+	// BFS from each root node (no incoming depends_on edge)
+	maxDepth := 0
+	for node := range allNodes {
+		if hasIncoming[node] {
+			continue
+		}
+		// BFS tracking depth
+		type item struct {
+			id    string
+			depth int
+		}
+		visited := map[string]bool{node: true}
+		queue := []item{{node, 0}}
+		for len(queue) > 0 {
+			cur := queue[0]
+			queue = queue[1:]
+			if cur.depth > maxDepth {
+				maxDepth = cur.depth
+			}
+			for _, next := range adj[cur.id] {
+				if !visited[next] {
+					visited[next] = true
+					queue = append(queue, item{next, cur.depth + 1})
+				}
+			}
+		}
+	}
+	return maxDepth
 }
