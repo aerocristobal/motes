@@ -108,6 +108,7 @@ type VisionReviewer struct {
 	im      *core.IndexManager
 	root    string
 	cfg     *core.Config
+	ic      *impactContext // scoring impact context, built once in Review()
 }
 
 // NewVisionReviewer creates a reviewer.
@@ -126,6 +127,15 @@ func (vr *VisionReviewer) Review() (*ReviewResult, error) {
 	if len(visions) == 0 {
 		fmt.Println("No pending visions.")
 		return &ReviewResult{}, nil
+	}
+
+	// Build scoring impact context once for use across all visions.
+	if vr.cfg != nil {
+		if motes, err := vr.mm.ReadAllWithGlobal(); err == nil {
+			idx := vr.im.BuildInMemory(motes)
+			scorer := core.NewScoreEngine(vr.cfg.Scoring, idx.ConceptStats)
+			vr.ic = &impactContext{motes: motes, idx: idx, scorer: scorer, cfg: vr.cfg}
+		}
 	}
 
 	result := &ReviewResult{}
@@ -198,6 +208,11 @@ func (vr *VisionReviewer) display(v Vision) {
 		fmt.Printf("  Link:     %s\n", v.LinkType)
 	}
 	fmt.Printf("  Reason:   %s\n", v.Rationale)
+	if vr.ic != nil {
+		if impact := computeVisionImpact(v, vr.ic); impact != "" {
+			fmt.Printf("  Impact:   %s\n", impact)
+		}
+	}
 }
 
 func (vr *VisionReviewer) editVision(v Vision) (Vision, error) {
