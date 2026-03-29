@@ -51,6 +51,17 @@ type AccessBatchEntry struct {
 	MoteID     string `json:"mote_id"`
 	AccessedAt string `json:"accessed_at"`
 	AgentID    string `json:"agent_id,omitempty"`
+	Primed     bool   `json:"primed,omitempty"`
+}
+
+// PrimeSessionStats records which motes were primed vs. actually accessed in a session.
+type PrimeSessionStats struct {
+	SessionAt   string   `json:"session_at"`
+	PrimedCount int      `json:"primed_count"`
+	HitCount    int      `json:"hit_count"`
+	HitRate     float64  `json:"hit_rate"`
+	PrimedIDs   []string `json:"primed_ids"`
+	HitIDs      []string `json:"hit_ids"`
 }
 
 func NewMoteManager(root string) *MoteManager {
@@ -747,6 +758,16 @@ func (mm *MoteManager) ReadAllWithGlobal() ([]*Mote, error) {
 // AppendAccessBatch appends an access record to .access_batch.jsonl.
 // Uses flock to serialize across processes.
 func (mm *MoteManager) AppendAccessBatch(moteID string) error {
+	return mm.appendAccessBatchEntry(moteID, false)
+}
+
+// AppendAccessBatchPrimed appends a primed access record to .access_batch.jsonl.
+// Used by mote prime to mark motes that were surfaced (not explicitly accessed).
+func (mm *MoteManager) AppendAccessBatchPrimed(moteID string) error {
+	return mm.appendAccessBatchEntry(moteID, true)
+}
+
+func (mm *MoteManager) appendAccessBatchEntry(moteID string, primed bool) error {
 	batchLock, err := mm.LockBatch()
 	if err != nil {
 		return err
@@ -760,6 +781,7 @@ func (mm *MoteManager) AppendAccessBatch(moteID string) error {
 		MoteID:     moteID,
 		AccessedAt: time.Now().UTC().Format(time.RFC3339),
 		AgentID:    ResolveAgentID(),
+		Primed:     primed,
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {
@@ -775,6 +797,51 @@ func (mm *MoteManager) AppendAccessBatch(moteID string) error {
 	defer f.Close()
 	_, err = f.Write(line)
 	return err
+}
+
+// WritePrimeSessionStats appends a session's prime hit-rate record to prime_stats.jsonl.
+func (mm *MoteManager) WritePrimeSessionStats(stats PrimeSessionStats) error {
+	path := filepath.Join(mm.root, "prime_stats.jsonl")
+	line, err := json.Marshal(stats)
+	if err != nil {
+		return fmt.Errorf("marshal prime stats: %w", err)
+	}
+	line = append(line, '\n')
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = f.Write(line)
+	return err
+}
+
+// ReadPrimeSessionStats reads prime session stats from prime_stats.jsonl.
+// If n > 0, returns only the last n records. Returns nil, nil if the file doesn't exist.
+func (mm *MoteManager) ReadPrimeSessionStats(n int) ([]PrimeSessionStats, error) {
+	path := filepath.Join(mm.root, "prime_stats.jsonl")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var all []PrimeSessionStats
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var s PrimeSessionStats
+		if err := json.Unmarshal([]byte(line), &s); err != nil {
+			continue
+		}
+		all = append(all, s)
+	}
+	if n > 0 && len(all) > n {
+		all = all[len(all)-n:]
+	}
+	return all, nil
 }
 
 // FlushAccessBatch reads the access batch, updates mote files, and removes the batch.

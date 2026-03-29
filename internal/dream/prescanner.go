@@ -21,6 +21,7 @@ type PreScanner struct {
 	root         string
 	config       core.DreamConfig
 	moteBM25     *strata.BM25Index
+	scoringCfg   core.ScoringConfig
 }
 
 // NewPreScanner creates a pre-scanner with the given managers.
@@ -42,6 +43,11 @@ func (ps *PreScanner) SetMoteLoader(loader func() ([]*core.Mote, error)) {
 // SetMoteBM25 sets the mote BM25 index for content similarity scanning.
 func (ps *PreScanner) SetMoteBM25(idx *strata.BM25Index) {
 	ps.moteBM25 = idx
+}
+
+// SetScoringConfig sets the scoring config used for decay risk detection.
+func (ps *PreScanner) SetScoringConfig(cfg core.ScoringConfig) {
+	ps.scoringCfg = cfg
 }
 
 // Scan reads all motes and the index, returning candidates across 9 categories.
@@ -82,7 +88,7 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	sr.LinkCandidates = linkCandidates
 
 	var wg sync.WaitGroup
-	wg.Add(11)
+	wg.Add(13)
 	go func() { defer wg.Done(); sr.ContentLinkCandidates = ps.findContentLinkCandidates(motes, idx, linkCandidates) }()
 	go func() { defer wg.Done(); sr.ContradictionCandidates = ps.findContradictionCandidates(motes) }()
 	go func() { defer wg.Done(); sr.OverloadedTags = ps.findOverloadedTags(idx.TagStats) }()
@@ -94,6 +100,8 @@ func (ps *PreScanner) Scan() (*ScanResult, error) {
 	go func() { defer wg.Done(); sr.MergeCandidates = ps.findMergeCandidates(motes, idx) }()
 	go func() { defer wg.Done(); sr.SummarizationCandidates = ps.findSummarizationCandidates(motes, idx) }()
 	go func() { defer wg.Done(); sr.ActionCandidates = ps.findActionCandidates(candidateMotes) }()
+	go func() { defer wg.Done(); sr.DominantMotes = ps.findDominantMotes(motes) }()
+	go func() { defer wg.Done(); sr.DecayRiskMotes = ps.findDecayRiskMotes(motes) }()
 	sr.SignalCandidates = ps.findSignalPatterns(motes)
 	wg.Wait()
 
@@ -788,5 +796,87 @@ func (ps *PreScanner) findActionCandidates(motes []*core.Mote) []ActionCandidate
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].AccessCount > candidates[j].AccessCount
 	})
+	return candidates
+}
+
+// findDominantMotes detects motes that appear in prime output disproportionately
+// often relative to their actual usage (potential feedback loop coasting).
+// Requires at least 10 sessions of prime stats. Returns nil if insufficient data.
+func (ps *PreScanner) findDominantMotes(motes []*core.Mote) []DominantMoteCandidate {
+	sessions, err := ps.moteManager.ReadPrimeSessionStats(10)
+	if err != nil || len(sessions) < 10 {
+		return nil
+	}
+
+	// Count prime frequency and hit frequency per mote across the last 10 sessions
+	primeFreq := map[string]int{}
+	hitFreq := map[string]int{}
+	for _, s := range sessions {
+		hitSet := map[string]bool{}
+		for _, id := range s.HitIDs {
+			hitSet[id] = true
+		}
+		for _, id := range s.PrimedIDs {
+			primeFreq[id]++
+			if hitSet[id] {
+				hitFreq[id]++
+			}
+		}
+	}
+
+	// Build mote lookup
+	moteMap := make(map[string]*core.Mote, len(motes))
+	for _, m := range motes {
+		moteMap[m.ID] = m
+	}
+
+	// Compute access cap from scoring config
+	capCount := 5 // safe default
+	if ps.scoringCfg.RetrievalStrength.PerAccess > 0 {
+		capCount = int(ps.scoringCfg.RetrievalStrength.MaxBonus / ps.scoringCfg.RetrievalStrength.PerAccess)
+	}
+
+	var candidates []DominantMoteCandidate
+	for moteID, freq := range primeFreq {
+		if freq < 8 {
+			continue
+		}
+		m, ok := moteMap[moteID]
+		if !ok || m.Status != "active" {
+			continue
+		}
+		if m.AccessCount < capCount {
+			continue // not at retrieval bonus cap
+		}
+		// Skip if high hit rate — this mote is genuinely useful
+		if float64(hitFreq[moteID])/float64(freq) >= 0.6 {
+			continue
+		}
+		candidates = append(candidates, DominantMoteCandidate{
+			MoteID:      moteID,
+			PrimeFreq:   freq,
+			AccessCount: m.AccessCount,
+		})
+	}
+	return candidates
+}
+
+// findDecayRiskMotes detects high-value motes that are approaching the relevance
+// threshold due to recency decay (survivorship bias guard).
+func (ps *PreScanner) findDecayRiskMotes(motes []*core.Mote) []DecayRiskCandidate {
+	risks := core.DecayRiskMotes(motes, &core.Config{Scoring: ps.scoringCfg})
+	if len(risks) == 0 {
+		return nil
+	}
+	candidates := make([]DecayRiskCandidate, 0, len(risks))
+	for _, r := range risks {
+		candidates = append(candidates, DecayRiskCandidate{
+			MoteID:        r.MoteID,
+			Weight:        r.Weight,
+			RecencyFactor: r.RecencyFactor,
+			Score:         r.Score,
+			ScoreGap:      r.ScoreGap,
+		})
+	}
 	return candidates
 }

@@ -430,6 +430,8 @@ func ApplyVision(v Vision, mm *core.MoteManager, im *core.IndexManager, root str
 			return fmt.Errorf("save config: %w", err)
 		}
 		fmt.Printf("  -> Added co_access signal %q to config\n", signal.Name)
+	case "dominant_mote_review", "decay_risk":
+		// Informational advisory visions — no automated mutation.
 	}
 	return nil
 }

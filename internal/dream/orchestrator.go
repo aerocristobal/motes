@@ -38,10 +38,13 @@ func NewDreamOrchestrator(root string, cfg *core.Config) *DreamOrchestrator {
 		return mm.Read(id)
 	}
 
+	scanner := NewPreScanner(root, mm, im, cfg.Dream)
+	scanner.SetScoringConfig(cfg.Scoring)
+
 	return &DreamOrchestrator{
 		root:     root,
 		config:   cfg.Dream,
-		scanner:  NewPreScanner(root, mm, im, cfg.Dream),
+		scanner:  scanner,
 		batcher:  NewBatchConstructor(cfg.Dream.Batching, reader),
 		prompts:  NewPromptBuilder(reader),
 		invoker:  NewClaudeInvoker(cfg.Dream.Provider),
@@ -294,6 +297,23 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 	}
 
 	// Stage 4: Write final + log
+	// Append deterministic advisory visions (no LLM cost)
+	for _, dm := range candidates.DominantMotes {
+		finalVisions = append(finalVisions, Vision{
+			Type:        "dominant_mote_review",
+			SourceMotes: []string{dm.MoteID},
+			Rationale:   fmt.Sprintf("Primed in %d/10 sessions with AccessCount=%d (at cap). Hit rate below 60%%. Review whether this mote still earns its prime slot or is coasting on accumulated retrieval strength.", dm.PrimeFreq, dm.AccessCount),
+			Severity:    "low",
+		})
+	}
+	for _, dr := range candidates.DecayRiskMotes {
+		finalVisions = append(finalVisions, Vision{
+			Type:        "decay_risk",
+			SourceMotes: []string{dr.MoteID},
+			Rationale:   fmt.Sprintf("weight=%.2f, recency=%.2f, score=%.3f within %.3f of min_relevance_threshold. High-value mote approaching irrelevance. Re-access to refresh recency, or archive if no longer applicable.", dr.Weight, dr.RecencyFactor, dr.Score, dr.ScoreGap),
+			Severity:    "medium",
+		})
+	}
 	if err := do.visions.WriteFinal(finalVisions); err != nil {
 		return nil, fmt.Errorf("write final visions: %w", err)
 	}
@@ -444,6 +464,8 @@ func (do *DreamOrchestrator) printDryRun(sr *ScanResult, batches []Batch) {
 	fmt.Printf("  Strata crystallization:   %d\n", len(sr.StrataCrystallization))
 	fmt.Printf("  Signal candidates:        %d\n", len(sr.SignalCandidates))
 	fmt.Printf("  Merge candidates:         %d\n", len(sr.MergeCandidates))
+	fmt.Printf("  Dominant mote candidates: %d\n", len(sr.DominantMotes))
+	fmt.Printf("  Decay risk candidates:    %d\n", len(sr.DecayRiskMotes))
 	fmt.Println()
 	fmt.Printf("  Planned batches: %d\n", len(batches))
 	for i, b := range batches {

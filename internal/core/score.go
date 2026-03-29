@@ -81,3 +81,67 @@ func (se *ScoreEngine) tagSpecificity(tags []string) float64 {
 	}
 	return (total / float64(len(tags))) * se.config.TagSpecificity.Weight
 }
+
+// DecayRiskInfo describes a high-value mote approaching the relevance threshold.
+type DecayRiskInfo struct {
+	MoteID        string
+	Weight        float64
+	RecencyFactor float64
+	Score         float64
+	ScoreGap      float64 // score - min_relevance_threshold (positive = still above threshold)
+}
+
+// DecayRiskMotes returns active motes with weight≥0.7 and failure/explore origin
+// whose last-access is 30–90 days ago and whose conservative score is within 0.1
+// of the min_relevance_threshold.
+func DecayRiskMotes(motes []*Mote, cfg *Config) []DecayRiskInfo {
+	se := NewScoreEngine(cfg.Scoring, nil)
+	minThreshold := cfg.Scoring.MinThreshold
+	if minThreshold <= 0 {
+		minThreshold = 0.25
+	}
+
+	var results []DecayRiskInfo
+	for _, m := range motes {
+		if m.Status != "active" {
+			continue
+		}
+		if m.Weight < 0.7 {
+			continue
+		}
+		if m.Origin != "failure" && m.Type != "explore" {
+			continue
+		}
+		if m.LastAccessed == nil {
+			continue
+		}
+		days := int(time.Since(*m.LastAccessed).Hours() / 24)
+		if days < 30 || days >= 90 {
+			continue
+		}
+
+		rf := se.recencyFactor(m.LastAccessed)
+
+		retrievalBonus := math.Min(
+			float64(m.AccessCount)*cfg.Scoring.RetrievalStrength.PerAccess,
+			cfg.Scoring.RetrievalStrength.MaxBonus,
+		)
+		salienceBonus := cfg.Scoring.Salience[m.Origin]
+		if m.Type == "explore" {
+			salienceBonus += cfg.Scoring.ExploreTypeBonus
+		}
+		score := (m.Weight + retrievalBonus + salienceBonus) * rf
+		scoreGap := score - minThreshold
+		if scoreGap < 0 || scoreGap > 0.1 {
+			continue
+		}
+		results = append(results, DecayRiskInfo{
+			MoteID:        m.ID,
+			Weight:        m.Weight,
+			RecencyFactor: rf,
+			Score:         score,
+			ScoreGap:      scoreGap,
+		})
+	}
+	return results
+}

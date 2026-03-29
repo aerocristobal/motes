@@ -463,3 +463,102 @@ func TestPreScanner_ActionCandidates(t *testing.T) {
 		t.Errorf("expected lesson %s second, got %s", lesson1.ID, result.ActionCandidates[1].MoteID)
 	}
 }
+
+func TestPreScanner_FindDominantMotes_InsufficientHistory(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+	ps := NewPreScanner(root, mm, im, core.DefaultConfig().Dream)
+	ps.SetScoringConfig(core.DefaultConfig().Scoring)
+
+	// Write only 5 sessions — not enough for dominant mote detection
+	for i := range 5 {
+		mm.WritePrimeSessionStats(core.PrimeSessionStats{
+			SessionAt:   fmt.Sprintf("2026-03-%02dT10:00:00Z", i+1),
+			PrimedCount: 1,
+			HitCount:    0,
+			PrimedIDs:   []string{"mote-abc"},
+		})
+	}
+
+	motes := []*core.Mote{{ID: "mote-abc", Status: "active", AccessCount: 5}}
+	candidates := ps.findDominantMotes(motes)
+	if len(candidates) != 0 {
+		t.Errorf("expected 0 candidates with < 10 sessions, got %d", len(candidates))
+	}
+}
+
+func TestPreScanner_FindDominantMotes_HighHitRateSkipped(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+	ps := NewPreScanner(root, mm, im, core.DefaultConfig().Dream)
+	ps.SetScoringConfig(core.DefaultConfig().Scoring)
+
+	// 10 sessions, mote primed 9 times, hit 7 times (hit rate 78% >= 60%)
+	for i := range 10 {
+		sess := core.PrimeSessionStats{
+			SessionAt:   fmt.Sprintf("2026-03-%02dT10:00:00Z", i+1),
+			PrimedCount: 1,
+		}
+		if i < 9 {
+			sess.PrimedIDs = []string{"mote-useful"}
+		}
+		if i < 7 {
+			sess.HitIDs = []string{"mote-useful"}
+		}
+		mm.WritePrimeSessionStats(sess)
+	}
+
+	motes := []*core.Mote{{ID: "mote-useful", Status: "active", AccessCount: 5}}
+	candidates := ps.findDominantMotes(motes)
+	if len(candidates) != 0 {
+		t.Errorf("high-hit-rate mote should be skipped, got %d candidates", len(candidates))
+	}
+}
+
+func TestPreScanner_FindDominantMotes_BelowFreqThreshold(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+	ps := NewPreScanner(root, mm, im, core.DefaultConfig().Dream)
+	ps.SetScoringConfig(core.DefaultConfig().Scoring)
+
+	// 10 sessions, mote primed 7 times (< 8 threshold)
+	for i := range 10 {
+		sess := core.PrimeSessionStats{
+			SessionAt: fmt.Sprintf("2026-03-%02dT10:00:00Z", i+1),
+		}
+		if i < 7 {
+			sess.PrimedIDs = []string{"mote-infreq"}
+			sess.PrimedCount = 1
+		}
+		mm.WritePrimeSessionStats(sess)
+	}
+
+	motes := []*core.Mote{{ID: "mote-infreq", Status: "active", AccessCount: 5}}
+	candidates := ps.findDominantMotes(motes)
+	if len(candidates) != 0 {
+		t.Errorf("mote primed only 7 times should not qualify, got %d", len(candidates))
+	}
+}
+
+func TestPreScanner_FindDecayRiskMotes_Delegates(t *testing.T) {
+	root, mm, im := setupTestMotes(t)
+	ps := NewPreScanner(root, mm, im, core.DefaultConfig().Dream)
+	ps.SetScoringConfig(core.DefaultConfig().Scoring)
+
+	// findDecayRiskMotes should return the same set as core.DecayRiskMotes
+	accessed := time.Now().Add(-50 * 24 * time.Hour)
+	motes := []*core.Mote{
+		{ID: "m1", Status: "active", Weight: 0.7, Origin: "failure", Type: "lesson", LastAccessed: &accessed},
+		{ID: "m2", Status: "active", Weight: 0.5, Origin: "failure", LastAccessed: &accessed}, // weight too low
+	}
+
+	cfg := core.DefaultConfig()
+	expected := core.DecayRiskMotes(motes, cfg)
+	got := ps.findDecayRiskMotes(motes)
+
+	if len(got) != len(expected) {
+		t.Errorf("findDecayRiskMotes returned %d, core.DecayRiskMotes returned %d", len(got), len(expected))
+	}
+	for i, r := range got {
+		if r.MoteID != expected[i].MoteID {
+			t.Errorf("mote[%d]: got %s, want %s", i, r.MoteID, expected[i].MoteID)
+		}
+	}
+}

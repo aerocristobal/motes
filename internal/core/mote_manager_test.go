@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -716,5 +717,108 @@ func TestCreate_CleanBodyPasses(t *testing.T) {
 	}
 	if m == nil {
 		t.Fatal("expected mote to be created")
+	}
+}
+
+func TestMoteManager_AppendAccessBatchPrimed(t *testing.T) {
+	root, mm := setupTestMemory(t)
+
+	m, _ := mm.Create("task", "Test", CreateOpts{})
+	if err := mm.AppendAccessBatchPrimed(m.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	batchPath := filepath.Join(root, ".access_batch.jsonl")
+	data, err := os.ReadFile(batchPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var entry AccessBatchEntry
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(data))), &entry); err != nil {
+		t.Fatalf("parse batch entry: %v", err)
+	}
+	if entry.MoteID != m.ID {
+		t.Errorf("MoteID: got %q, want %q", entry.MoteID, m.ID)
+	}
+	if !entry.Primed {
+		t.Error("Primed should be true for AppendAccessBatchPrimed")
+	}
+}
+
+func TestMoteManager_AppendAccessBatch_NotPrimed(t *testing.T) {
+	root, mm := setupTestMemory(t)
+
+	m, _ := mm.Create("task", "Test", CreateOpts{})
+	if err := mm.AppendAccessBatch(m.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	batchPath := filepath.Join(root, ".access_batch.jsonl")
+	data, _ := os.ReadFile(batchPath)
+
+	var entry AccessBatchEntry
+	json.Unmarshal([]byte(strings.TrimSpace(string(data))), &entry)
+	if entry.Primed {
+		t.Error("Primed should be false for AppendAccessBatch")
+	}
+}
+
+func TestMoteManager_WritePrimeSessionStats(t *testing.T) {
+	root, mm := setupTestMemory(t)
+
+	stats := PrimeSessionStats{
+		SessionAt:   "2026-03-28T10:00:00Z",
+		PrimedCount: 5,
+		HitCount:    2,
+		HitRate:     0.4,
+		PrimedIDs:   []string{"a", "b", "c", "d", "e"},
+		HitIDs:      []string{"a", "b"},
+	}
+	if err := mm.WritePrimeSessionStats(stats); err != nil {
+		t.Fatal(err)
+	}
+
+	path := filepath.Join(root, "prime_stats.jsonl")
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("prime_stats.jsonl not created: %v", err)
+	}
+}
+
+func TestMoteManager_ReadPrimeSessionStats(t *testing.T) {
+	_, mm := setupTestMemory(t)
+
+	// No file yet — should return nil, nil
+	stats, err := mm.ReadPrimeSessionStats(0)
+	if err != nil {
+		t.Fatalf("missing file should return nil error, got: %v", err)
+	}
+	if stats != nil {
+		t.Errorf("missing file should return nil slice, got: %v", stats)
+	}
+
+	// Write 3 sessions
+	for i := range 3 {
+		mm.WritePrimeSessionStats(PrimeSessionStats{
+			SessionAt:   fmt.Sprintf("2026-03-%02dT10:00:00Z", i+1),
+			PrimedCount: 10,
+			HitCount:    i + 1,
+			HitRate:     float64(i+1) / 10.0,
+		})
+	}
+
+	// Read all
+	all, _ := mm.ReadPrimeSessionStats(0)
+	if len(all) != 3 {
+		t.Errorf("expected 3 records, got %d", len(all))
+	}
+
+	// Read last 2
+	last2, _ := mm.ReadPrimeSessionStats(2)
+	if len(last2) != 2 {
+		t.Errorf("expected 2 records with n=2, got %d", len(last2))
+	}
+	if last2[0].HitCount != 2 {
+		t.Errorf("expected second session first (HitCount=2), got %d", last2[0].HitCount)
 	}
 }

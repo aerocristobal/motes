@@ -34,6 +34,8 @@ type StatsOutput struct {
 	DreamInputTokens   int            `json:"dream_input_tokens,omitempty"`
 	DreamOutputTokens  int            `json:"dream_output_tokens,omitempty"`
 	DreamEstimatedCost float64        `json:"dream_estimated_cost,omitempty"`
+	PrimeHitRate       float64        `json:"prime_hit_rate,omitempty"`
+	PrimeSessions      int            `json:"prime_sessions,omitempty"`
 }
 
 var statsCmd = &cobra.Command{
@@ -132,6 +134,18 @@ func runStats(cmd *cobra.Command, args []string) error {
 	// Read cumulative dream cost data
 	dreamCost := readDreamCostStats(dreamDir)
 
+	// Read prime session stats for hit-rate feedback
+	primeStats, _ := mm.ReadPrimeSessionStats(0)
+	var totalPrimed, totalHit int
+	for _, s := range primeStats {
+		totalPrimed += s.PrimedCount
+		totalHit += s.HitCount
+	}
+	rollingHitRate := 0.0
+	if totalPrimed > 0 {
+		rollingHitRate = float64(totalHit) / float64(totalPrimed)
+	}
+
 	if statsJSON {
 		out := StatsOutput{
 			TotalMotes:         len(motes),
@@ -149,6 +163,8 @@ func runStats(cmd *cobra.Command, args []string) error {
 			DreamInputTokens:   dreamCost.inputTokens,
 			DreamOutputTokens:  dreamCost.outputTokens,
 			DreamEstimatedCost: dreamCost.estimatedCost,
+			PrimeHitRate:       rollingHitRate,
+			PrimeSessions:      len(primeStats),
 		}
 		data, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
@@ -187,6 +203,14 @@ func runStats(cmd *cobra.Command, args []string) error {
 
 	if activeCount > 0 {
 		fmt.Printf("  Avg recency (active): %.2f\n", recencySum/float64(activeCount))
+	}
+
+	if len(primeStats) > 0 {
+		fmt.Println()
+		fmt.Println(format.Header("Prime Feedback"))
+		fmt.Println()
+		fmt.Printf("  Sessions tracked: %d\n", len(primeStats))
+		fmt.Printf("  Rolling hit rate: %.0f%%\n", rollingHitRate*100)
 	}
 
 	// Top 5 most accessed
@@ -281,6 +305,41 @@ func showDecayPreview(motes []*core.Mote, cfg *core.Config) error {
 
 	if !found {
 		fmt.Println("  No motes at risk of significant decay.")
+	}
+
+	// High-value decay risk: weight≥0.7 + failure/explore + 30-90d + within 0.1 of threshold
+	risks := core.DecayRiskMotes(motes, cfg)
+	if len(risks) > 0 {
+		fmt.Println()
+		fmt.Println(format.Header("High-value decay risk"))
+		fmt.Println()
+		fmt.Println("  High-weight motes approaching min_relevance_threshold (failure/explore origin, 30-90 days old)")
+		fmt.Println()
+		fmt.Printf("%-24s  %-6s  %-8s  %-6s  %-6s  %s\n", "ID", "DAYS", "RECENCY", "WEIGHT", "GAP", "TITLE")
+		fmt.Println(strings.Repeat("-", 84))
+		for _, r := range risks {
+			m := findMote(motes, r.MoteID)
+			days := "?"
+			if m != nil && m.LastAccessed != nil {
+				days = fmt.Sprintf("%d", int(time.Since(*m.LastAccessed).Hours()/24))
+			}
+			title := ""
+			if m != nil {
+				title = format.Truncate(m.Title, 30)
+			}
+			fmt.Printf("%-24s  %-6s  %-8.2f  %-6.2f  %-6.3f  %s\n",
+				r.MoteID, days, r.RecencyFactor, r.Weight, r.ScoreGap, title)
+		}
+	}
+
+	return nil
+}
+
+func findMote(motes []*core.Mote, id string) *core.Mote {
+	for _, m := range motes {
+		if m.ID == id {
+			return m
+		}
 	}
 	return nil
 }

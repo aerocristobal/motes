@@ -84,6 +84,22 @@ type ActionCandidate struct {
 	AccessCount int
 }
 
+// DominantMoteCandidate identifies a mote that disproportionately occupies prime output.
+type DominantMoteCandidate struct {
+	MoteID      string
+	PrimeFreq   int // sessions primed in (out of last 10)
+	AccessCount int
+}
+
+// DecayRiskCandidate identifies a high-value mote approaching the relevance threshold.
+type DecayRiskCandidate struct {
+	MoteID        string
+	Weight        float64
+	RecencyFactor float64
+	Score         float64
+	ScoreGap      float64 // score - min_relevance_threshold (positive = still above)
+}
+
 // ScanResult holds all dream pre-scan findings.
 type ScanResult struct {
 	LinkCandidates            []MotePair
@@ -99,6 +115,8 @@ type ScanResult struct {
 	MergeCandidates           []MergeCluster
 	SummarizationCandidates   []SummarizationCluster
 	ActionCandidates          []ActionCandidate
+	DominantMotes             []DominantMoteCandidate
+	DecayRiskMotes            []DecayRiskCandidate
 }
 
 // HasWork returns true if any scan category found candidates.
@@ -115,7 +133,9 @@ func (sr *ScanResult) HasWork() bool {
 		len(sr.SignalCandidates) > 0 ||
 		len(sr.MergeCandidates) > 0 ||
 		len(sr.SummarizationCandidates) > 0 ||
-		len(sr.ActionCandidates) > 0
+		len(sr.ActionCandidates) > 0 ||
+		len(sr.DominantMotes) > 0 ||
+		len(sr.DecayRiskMotes) > 0
 }
 
 // Batch groups motes for a single Claude invocation.

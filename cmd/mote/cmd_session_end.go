@@ -86,8 +86,10 @@ func runSessionEndInner(cmd *cobra.Command, args []string) error {
 
 	hadOutput := false
 
-	// Read access batch BEFORE flush to capture session mote IDs
+	// Read access batch BEFORE flush to capture session mote IDs and prime hit data
 	var sessionMoteIDs []string
+	primedSet := map[string]bool{}
+	accessedSet := map[string]bool{}
 	batchPath := filepath.Join(root, ".access_batch.jsonl")
 	if batchData, err := os.ReadFile(batchPath); err == nil && len(batchData) > 0 {
 		seen := map[string]bool{}
@@ -98,6 +100,11 @@ func runSessionEndInner(cmd *cobra.Command, args []string) error {
 			var entry core.AccessBatchEntry
 			if err := json.Unmarshal([]byte(line), &entry); err != nil {
 				continue
+			}
+			if entry.Primed {
+				primedSet[entry.MoteID] = true
+			} else {
+				accessedSet[entry.MoteID] = true
 			}
 			if !seen[entry.MoteID] {
 				seen[entry.MoteID] = true
@@ -113,6 +120,33 @@ func runSessionEndInner(cmd *cobra.Command, args []string) error {
 	}
 	if accessCount > 0 {
 		fmt.Printf("Flushed %d access updates to %d motes.\n", accessCount, moteCount)
+		hadOutput = true
+	}
+
+	// Record prime hit-rate stats when prime was used this session
+	if len(primedSet) > 0 {
+		var primedIDs, hitIDs []string
+		for id := range primedSet {
+			primedIDs = append(primedIDs, id)
+		}
+		for id := range primedSet {
+			if accessedSet[id] {
+				hitIDs = append(hitIDs, id)
+			}
+		}
+		hitRate := float64(len(hitIDs)) / float64(len(primedIDs))
+		stats := core.PrimeSessionStats{
+			SessionAt:   time.Now().UTC().Format(time.RFC3339),
+			PrimedCount: len(primedIDs),
+			HitCount:    len(hitIDs),
+			HitRate:     hitRate,
+			PrimedIDs:   primedIDs,
+			HitIDs:      hitIDs,
+		}
+		if writeErr := mm.WritePrimeSessionStats(stats); writeErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: write prime stats: %v\n", writeErr)
+		}
+		fmt.Printf("Prime hit rate: %d/%d (%.0f%%)\n", len(hitIDs), len(primedIDs), hitRate*100)
 		hadOutput = true
 	}
 

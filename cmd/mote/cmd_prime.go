@@ -375,7 +375,7 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 		fmt.Println(string(data))
 		// Batch access updates
 		for _, sm := range allResults {
-			_ = mm.AppendAccessBatch(sm.Mote.ID)
+			_ = mm.AppendAccessBatchPrimed(sm.Mote.ID)
 		}
 		return nil
 	}
@@ -461,7 +461,7 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 
 	// Batch access updates
 	for _, sm := range allResults {
-		_ = mm.AppendAccessBatch(sm.Mote.ID)
+		_ = mm.AppendAccessBatchPrimed(sm.Mote.ID)
 	}
 
 	return nil
