@@ -202,6 +202,9 @@ The dream cycle runs headless LLM analysis over your knowledge graph:
 mote dream                  # Run full cycle
 mote dream --dry-run        # Preview what would be analyzed
 mote dream --review         # Interactive review of pending visions
+mote dream --stats          # Auto-applied vision feedback statistics
+mote dream --quality        # Cross-project quality time-series from global ledger
+mote dream --compare        # A/B comparison of self-consistency voting configs
 ```
 
 It detects: missing links, contradictions, stale motes, overloaded tags, compression candidates, constellation evolution, co-access patterns, and summarization clusters.
@@ -239,7 +242,10 @@ mote feedback <id> irrelevant  # Mark as irrelevant (reduces scoring)
 ### Maintenance
 
 ```bash
-mote doctor                 # Graph integrity checks
+mote doctor                          # Graph integrity: broken links, orphans, cycles, stale, bloat
+mote doctor --cross-project          # Also validate cross-project references across sibling projects
+mote clean-links                     # Remove dead link references from frontmatter
+mote clean-links --global --dry-run  # Preview which global refs would be stripped
 mote stats                  # Health dashboard
 mote stats --decay-preview  # Show recency decay impact
 mote tags audit             # Tag health analysis
@@ -272,15 +278,18 @@ mote migrate MEMORY.md --dry-run    # Preview without writing
 ├── .access_batch.jsonl     # Batched access updates (flushed at session-end)
 ├── trash/                 # Soft-deleted motes (restorable)
 ├── dream/
-│   ├── log.jsonl           # Dream run history
-│   ├── visions.jsonl       # Pending visions from dream analysis
-│   ├── scan_state.json     # Content-hash cache for incremental prescanning
-│   └── auto_applied.jsonl  # Auto-applied dream visions log
+│   ├── log.jsonl               # Dream run history
+│   ├── visions.jsonl           # Pending visions from dream analysis
+│   ├── visions_draft.jsonl     # Raw Sonnet batch output (pre-reconciliation)
+│   ├── scan_state.json         # Content-hash cache for incremental prescanning
+│   └── auto_applied.jsonl      # Auto-applied dream visions log
 └── strata/<corpus>/
     ├── manifest.json       # Source paths, hashes, chunk count
     ├── chunks.jsonl        # Chunked document content
     └── bm25.json           # BM25 search index
 ```
+
+Knowledge types (`decision`, `lesson`, `explore`, `context`, `question`) are stored globally in `~/.claude/memory/nodes/` by default and shared across all projects. Cross-project dream quality metrics are recorded at `~/.claude/memory/dream_quality.jsonl`.
 
 ### Mote File Format
 
@@ -318,6 +327,16 @@ All configuration lives in `.memory/config.yaml`. See [docs/configuration.md](do
 
 ## Version History
 
+- **v0.4.6** — Graph integrity: cross-project ref detection (`--cross-project`), `clean-links` command, doctor advisories (link density, chain depth, tag fragmentation)
+- **v0.4.5** — Second-order impact awareness: vision scoring shows downstream impact in `dream --review`
+- **v0.4.4** — Stocks and flows: inflow/outflow metrics in `stats`, bloat detection in `doctor`
+- **v0.4.2** — Global dream quality ledger: per-cycle metrics across projects; `dream --quality` and `dream --compare`
+- **v0.4.0** — Secret detection: security scanning of mote body content for embedded credentials
+- **v0.3.19** — Search filters (`--type`, `--tag`, `--status`); doctor complexity checks; context weighting
+- **v0.3.18** — Strata code artifact connections
+- **v0.3.15** — Concept vocabulary layer (wiki-links in body auto-create concept edges)
+- **v0.3.14** — BM25 auto-link on mote creation
+- **v0.3.13** — Global-by-default knowledge: decision/lesson/explore/context/question stored in `~/.claude/memory/` by default
 - **v0.3.0** — Beads feature transfer: JSONL import/export, external refs, `--json` flags, scan cache, cluster summarization
 - **v0.2.0** — Hierarchical planning: parent/child tasks, acceptance criteria, `plan`/`progress`/`check` commands
 - **v0.1.x** — Core system: mote CRUD, graph linking, scoring, context/prime, dream cycle, strata, constellations

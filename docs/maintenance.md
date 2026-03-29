@@ -11,6 +11,9 @@ The dream cycle runs headless LLM analysis over your knowledge graph, detecting 
 ```bash
 mote dream              # Run the full cycle
 mote dream --dry-run    # Preview what would be analyzed (no LLM calls)
+mote dream --stats      # Auto-applied vision feedback statistics
+mote dream --quality    # Cross-project quality time-series from global ledger
+mote dream --compare    # A/B comparison of self-consistency voting configs
 ```
 
 A dream run goes through four stages:
@@ -54,6 +57,7 @@ Each vision type performs a specific action when accepted:
 | `compression` | Mote body is verbose or redundant | Replaces the mote's body with a compressed version |
 | `constellation` | Cluster of motes sharing a theme but no hub | Creates a new constellation mote linking all members |
 | `signal` | Recurring co-access pattern worth codifying | Adds a `co_access` signal to `config.yaml` for scoring |
+| `action_extraction` | Lesson or decision mote lacks a concrete next step | Adds an `Action` field with a prescriptive summary (surfaced in `show`, `context`, `prime`) |
 
 ### Tips
 
@@ -104,10 +108,48 @@ Periodic health checks catch problems before they accumulate.
 Runs integrity checks on the knowledge graph:
 
 ```bash
-mote doctor
+mote doctor                        # Check this project + global motes
+mote doctor --cross-project        # Also load sibling projects to validate cross-project refs
+mote doctor --projects-root ~/src  # Specify alternate root for project discovery
 ```
 
-Reports: orphan links (pointing to deleted motes), missing frontmatter fields, malformed IDs, and index inconsistencies.
+Reported issue categories:
+
+| Issue | Description |
+|-------|-------------|
+| `broken_link` | Frontmatter link field points to a non-existent mote |
+| `isolated` | Mote has no incoming or outgoing edges |
+| `deprecated_dep` | Active mote depends on a deprecated mote |
+| `stale` | Active mote never accessed, or last accessed 180+ days ago |
+| `test_mote` | Active mote with a title matching test/scratch patterns |
+| `contradiction` | Two active motes are linked by `contradicts` with no resolution |
+| `overloaded_tag` | Tag applied to more than 15 motes (configurable) |
+| `orphaned_edge` | Index edge points to a mote not in the active graph |
+| `circular_dep` | Circular dependency chain via `depends_on` links |
+| `bloat` | 15+ motes created in 30 days with zero deprecated |
+| `cross_project_ref` | Link references a mote in another project — advisory only, does not affect exit code |
+
+Structural advisories (printed after the issues table, don't affect exit code):
+- **High link density** — avg links/mote exceeds threshold (default: 8)
+- **Deep dependency chain** — max `depends_on` depth exceeds threshold (default: 10)
+- **Tag fragmentation** — >50% of tags used by only one mote
+
+With `--cross-project`, sibling projects under `--projects-root` are loaded. References that resolve in any loaded project remain as advisories; confirmed-missing refs are promoted to `broken_link` errors. All thresholds are configurable via the `doctor:` section in `.memory/config.yaml`.
+
+### `mote clean-links`
+
+Removes dead link references from mote frontmatter:
+
+```bash
+mote clean-links                                     # Scan all motes
+mote clean-links --global                            # Target only global motes
+mote clean-links --dry-run                           # Preview without modifying files
+mote clean-links --global --cross-project --dry-run  # Full validation before stripping
+```
+
+Without `--cross-project`, references to unknown project prefixes are preserved — they can't be confirmed dead without loading those projects. With `--cross-project`, all sibling projects are loaded and only confirmed-missing refs are removed.
+
+After running: `mote index rebuild` to refresh the graph.
 
 ### `mote stats`
 
@@ -158,4 +200,4 @@ Prompts you to extract lessons and decisions from a finished task before archivi
 | During work | Capture decisions, lessons, and findings with `mote add` |
 | Every session end | `mote session-end` |
 | Every few sessions | `mote dream` + `mote dream --review` |
-| Weekly or monthly | `mote doctor`, `mote stats`, `mote tags audit` |
+| Weekly or monthly | `mote doctor`, `mote stats`, `mote tags audit`, `mote clean-links --dry-run` |
