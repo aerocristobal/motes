@@ -619,3 +619,122 @@ func TestDoctorAdvisories_ChainAtThreshold_NoWarning(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorChecks_ConceptRefNotOrphaned(t *testing.T) {
+	root, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	seedMotes(t, root, []moteSpec{
+		{Type: "context", Title: "Context mote", Tags: []string{"test"}},
+	})
+
+	mm := core.NewMoteManager(root)
+	im := core.NewIndexManager(root)
+
+	motes, _ := mm.ReadAllParallel()
+	existingID := motes[0].ID
+
+	// Add a concept_ref edge (e.g. from body text [[some-concept]]) — target is a concept term, not a mote ID.
+	im.AddEdge(core.Edge{Source: existingID, Target: "some-concept", EdgeType: "concept_ref"})
+	idx, _ := im.Load()
+
+	moteMap := map[string]*core.Mote{existingID: motes[0]}
+	cfg, _ := core.LoadConfig(root)
+	issues := runDoctorChecks(mm, im, idx, moteMap, cfg)
+
+	for _, iss := range issues {
+		if iss.Category == "orphaned_edge" && strings.Contains(iss.Detail, "some-concept") {
+			t.Errorf("concept_ref edge should not be reported as orphaned_edge, got: %+v", iss)
+		}
+	}
+}
+
+func TestDoctorChecks_CrossProjectRef(t *testing.T) {
+	root, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	seedMotes(t, root, []moteSpec{
+		{Type: "context", Title: "Cross-ref mote", Tags: []string{"test"}},
+	})
+
+	mm := core.NewMoteManager(root)
+	im := core.NewIndexManager(root)
+
+	motes, _ := mm.ReadAllParallel()
+	m := motes[0]
+
+	// Simulate a cross-project informed_by ref (prefix "otherproject" not in loaded set)
+	m.InformedBy = []string{"otherproject-Tabcdef12345"}
+	sourceData, _ := core.SerializeMote(m)
+	_ = core.AtomicWrite(m.FilePath, sourceData, 0644)
+
+	motes, _ = mm.ReadAllParallel()
+	moteMap := make(map[string]*core.Mote)
+	for _, mo := range motes {
+		moteMap[mo.ID] = mo
+	}
+	idx, _ := im.Load()
+	cfg, _ := core.LoadConfig(root)
+	issues := runDoctorChecks(mm, im, idx, moteMap, cfg)
+
+	var crossRefs, brokenLinks []doctorIssue
+	for _, iss := range issues {
+		switch iss.Category {
+		case "cross_project_ref":
+			crossRefs = append(crossRefs, iss)
+		case "broken_link":
+			if strings.Contains(iss.Detail, "otherproject-Tabcdef12345") {
+				brokenLinks = append(brokenLinks, iss)
+			}
+		}
+	}
+
+	if len(crossRefs) == 0 {
+		t.Error("expected cross_project_ref issue for unknown-prefix ref, got none")
+	}
+	if len(brokenLinks) > 0 {
+		t.Errorf("cross-project ref should not be reported as broken_link, got: %+v", brokenLinks)
+	}
+}
+
+func TestDoctorChecks_KnownPrefixBrokenLink(t *testing.T) {
+	root, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	seedMotes(t, root, []moteSpec{
+		{Type: "context", Title: "Ref mote", Tags: []string{"test"}},
+	})
+
+	mm := core.NewMoteManager(root)
+	im := core.NewIndexManager(root)
+
+	motes, _ := mm.ReadAllParallel()
+	m := motes[0]
+	// Derive the project prefix from the loaded mote's ID (e.g. "test12345")
+	prefix := extractMotePrefix(m.ID)
+
+	// Add a broken link to a mote in the SAME project (known prefix) that doesn't exist
+	ghostID := prefix + "-Tdeadbeefcafe"
+	m.DependsOn = []string{ghostID}
+	sourceData, _ := core.SerializeMote(m)
+	_ = core.AtomicWrite(m.FilePath, sourceData, 0644)
+
+	motes, _ = mm.ReadAllParallel()
+	moteMap := make(map[string]*core.Mote)
+	for _, mo := range motes {
+		moteMap[mo.ID] = mo
+	}
+	idx, _ := im.Load()
+	cfg, _ := core.LoadConfig(root)
+	issues := runDoctorChecks(mm, im, idx, moteMap, cfg)
+
+	var broken []doctorIssue
+	for _, iss := range issues {
+		if iss.Category == "broken_link" && strings.Contains(iss.Detail, ghostID) {
+			broken = append(broken, iss)
+		}
+	}
+	if len(broken) == 0 {
+		t.Errorf("expected broken_link for same-project missing mote %s, got none", ghostID)
+	}
+}

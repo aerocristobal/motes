@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -19,6 +20,46 @@ var doctorCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(doctorCmd)
+	doctorCmd.Flags().Bool("cross-project", false, "validate cross-project refs by loading all discovered projects under --projects-root")
+	doctorCmd.Flags().String("projects-root", "", "root directory to scan for sibling projects (default: parent of current project)")
+}
+
+// extractMotePrefix returns the project prefix of a mote ID (e.g. "turingpi" from "turingpi-Txxx").
+func extractMotePrefix(id string) string {
+	if i := strings.IndexByte(id, '-'); i > 0 {
+		return id[:i]
+	}
+	return ""
+}
+
+// discoverProjectMotes loads motes from all sibling projects under projectsRoot,
+// excluding the project at currentMemRoot.
+func discoverProjectMotes(projectsRoot, currentMemRoot string) ([]*core.Mote, error) {
+	entries, err := os.ReadDir(projectsRoot)
+	if err != nil {
+		return nil, fmt.Errorf("read projects root %s: %w", projectsRoot, err)
+	}
+	var all []*core.Mote
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		projDir := filepath.Join(projectsRoot, e.Name())
+		if _, err := os.Stat(filepath.Join(projDir, ".memory", "nodes")); err != nil {
+			continue
+		}
+		if filepath.Clean(filepath.Join(projDir, ".memory")) == filepath.Clean(currentMemRoot) {
+			continue
+		}
+		pm := core.NewMoteManager(filepath.Join(projDir, ".memory"))
+		motes, err := pm.ReadAllParallel()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: cross-project: skipping %s: %v\n", projDir, err)
+			continue
+		}
+		all = append(all, motes...)
+	}
+	return all, nil
 }
 
 type doctorIssue struct {
@@ -50,18 +91,80 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		moteMap[m.ID] = m
 	}
 
+	// --cross-project: load motes from all sibling projects to validate cross-project refs.
+	crossProject, _ := cmd.Flags().GetBool("cross-project")
+	if crossProject {
+		projectsRoot, _ := cmd.Flags().GetString("projects-root")
+		if projectsRoot == "" {
+			// Default: grandparent of .memory dir (e.g. ~/projects/ when root is ~/projects/myapp/.memory)
+			projectsRoot = filepath.Dir(filepath.Dir(root))
+		}
+		extra, err := discoverProjectMotes(projectsRoot, root)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "warning: cross-project scan: %v\n", err)
+		}
+		for _, m := range extra {
+			if _, exists := moteMap[m.ID]; !exists {
+				moteMap[m.ID] = m
+			}
+		}
+	}
+
 	issues := runDoctorChecks(mm, im, idx, moteMap, cfg)
 	advisories := runDoctorAdvisories(idx, moteMap, cfg)
 
-	if len(issues) == 0 {
+	// Separate cross_project_ref advisories from integrity errors.
+	var errorIssues, crossRefs []doctorIssue
+	for _, iss := range issues {
+		if iss.Category == "cross_project_ref" {
+			crossRefs = append(crossRefs, iss)
+		} else {
+			errorIssues = append(errorIssues, iss)
+		}
+	}
+
+	if len(errorIssues) == 0 && len(crossRefs) == 0 {
 		fmt.Println("No issues found. Graph is healthy.")
 	} else {
-		fmt.Printf("%-16s  %-26s  %s\n", "ISSUE", "MOTE", "DETAIL")
-		fmt.Println(strings.Repeat("-", 80))
-		for _, iss := range issues {
-			fmt.Printf("%-16s  %-26s  %s\n", iss.Category, iss.MoteID, iss.Detail)
+		if len(errorIssues) > 0 {
+			fmt.Printf("%-16s  %-26s  %s\n", "ISSUE", "MOTE", "DETAIL")
+			fmt.Println(strings.Repeat("-", 80))
+			for _, iss := range errorIssues {
+				fmt.Printf("%-16s  %-26s  %s\n", iss.Category, iss.MoteID, iss.Detail)
+			}
+			fmt.Printf("\n%d issue(s) found.\n", len(errorIssues))
+		} else {
+			fmt.Println("No integrity issues found.")
 		}
-		fmt.Printf("\n%d issue(s) found.\n", len(issues))
+
+		if len(crossRefs) > 0 {
+			// Show a compact summary grouped by target project prefix.
+			sourceMotes := map[string]bool{}
+			targetPrefixCounts := map[string]int{}
+			for _, iss := range crossRefs {
+				sourceMotes[iss.MoteID] = true
+				// Detail format: "<linkType> target <targetID> is in another project..."
+				fields := strings.Fields(iss.Detail)
+				for i, f := range fields {
+					if f == "target" && i+1 < len(fields) {
+						if p := extractMotePrefix(fields[i+1]); p != "" {
+							targetPrefixCounts[p]++
+						}
+						break
+					}
+				}
+			}
+			prefixes := make([]string, 0, len(targetPrefixCounts))
+			for p := range targetPrefixCounts {
+				prefixes = append(prefixes, p)
+			}
+			sort.Strings(prefixes)
+			fmt.Printf("\n%d cross-project reference(s) in %d mote(s) (advisory):\n", len(crossRefs), len(sourceMotes))
+			for _, p := range prefixes {
+				fmt.Printf("  %s: %d ref(s)\n", p, targetPrefixCounts[p])
+			}
+			fmt.Println("  Run `mote doctor --cross-project` to validate these references.")
+		}
 	}
 
 	if len(advisories) > 0 {
@@ -71,7 +174,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if len(issues) > 0 {
+	if len(errorIssues) > 0 {
 		os.Exit(1)
 	}
 	return nil
@@ -80,6 +183,16 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.EdgeIndex, moteMap map[string]*core.Mote, cfg *core.Config) []doctorIssue {
 	var issues []doctorIssue
 
+	// Build the set of project prefixes present in the loaded moteMap.
+	// A broken link whose target prefix is absent from this set is a cross-project
+	// reference — valid from its origin project but not resolvable in the current context.
+	knownPrefixes := make(map[string]bool, 4)
+	for id := range moteMap {
+		if p := extractMotePrefix(id); p != "" {
+			knownPrefixes[p] = true
+		}
+	}
+
 	// Collect motes as a slice for ordered iteration
 	var motes []*core.Mote
 	for _, m := range moteMap {
@@ -87,16 +200,27 @@ func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.Edge
 	}
 
 	for _, m := range motes {
-		// Broken links
+		// Broken links in frontmatter fields
 		allLinks := collectAllLinks(m)
 		for linkType, targets := range allLinks {
 			for _, target := range targets {
 				if _, ok := moteMap[target]; !ok {
-					issues = append(issues, doctorIssue{
-						Category: "broken_link",
-						MoteID:   m.ID,
-						Detail:   fmt.Sprintf("%s target %s does not exist", linkType, target),
-					})
+					prefix := extractMotePrefix(target)
+					if prefix != "" && !knownPrefixes[prefix] {
+						// Target belongs to a project not loaded in this context.
+						// Report as advisory rather than an integrity error.
+						issues = append(issues, doctorIssue{
+							Category: "cross_project_ref",
+							MoteID:   m.ID,
+							Detail:   fmt.Sprintf("%s target %s is in another project (run --cross-project to validate)", linkType, target),
+						})
+					} else {
+						issues = append(issues, doctorIssue{
+							Category: "broken_link",
+							MoteID:   m.ID,
+							Detail:   fmt.Sprintf("%s target %s does not exist", linkType, target),
+						})
+					}
 				}
 			}
 		}
@@ -205,7 +329,8 @@ func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.Edge
 		}
 	}
 
-	// Orphaned edges: edges pointing to motes not in the active graph
+	// Orphaned edges: edges pointing to motes not in the active graph.
+	// concept_ref edges point to semantic concept terms, not mote IDs — skip them.
 	trashedSet := make(map[string]bool)
 	if trashed, err := mm.ListTrash(); err == nil {
 		for _, m := range trashed {
@@ -213,6 +338,9 @@ func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.Edge
 		}
 	}
 	for _, e := range idx.Edges {
+		if e.EdgeType == "concept_ref" {
+			continue
+		}
 		for _, id := range []string{e.Source, e.Target} {
 			if _, ok := moteMap[id]; ok {
 				continue

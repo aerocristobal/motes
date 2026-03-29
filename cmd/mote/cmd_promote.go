@@ -40,6 +40,18 @@ func runPromote(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stderr, "warning: %s motes are now global by default; promote is deprecated for knowledge types\n", source.Type)
 	}
 
+	// Warn if the source mote links to project-local motes — those refs won't resolve globally.
+	if sourcePrefix := extractMotePrefix(source.ID); sourcePrefix != "" {
+		allLinks := collectAllLinks(source)
+		for linkType, targets := range allLinks {
+			for _, target := range targets {
+				if extractMotePrefix(target) == sourcePrefix {
+					fmt.Fprintf(os.Stderr, "warning: %s has a project-local link that won't resolve globally: %s -> %s\n", source.ID, linkType, target)
+				}
+			}
+		}
+	}
+
 	if source.PromotedTo != "" {
 		return fmt.Errorf("mote %s already promoted to %s", source.ID, source.PromotedTo)
 	}
