@@ -112,6 +112,20 @@ Some motes in this batch were paired by BM25 content similarity — they share d
 but have no explicit links or shared tags. For each "content_link_review" task, evaluate whether the
 conceptual overlap warrants a permanent "relates_to" link. Only promote pairs with genuine thematic
 connection, not incidental vocabulary overlap.
+
+When two or more motes describe concepts where one concept causally enables, amplifies, or counteracts
+another, express this as a link_suggestion using a typed link:
+- link_type: "reinforces"  — A increases or amplifies B (reinforcing/positive loop leg)
+- link_type: "counteracts" — A reduces or stabilizes B (balancing/negative loop leg)
+- link_type: "delays"      — A causes B but with a significant time lag
+
+If the linked motes complete a cycle (A→B→A), record the loop in lucid_log_updates.observed_patterns:
+  pattern_id: "loop_reinforcing_<cluster>" or "loop_balancing_<cluster>"
+  description: "Reinforcing loop: [what amplifies]" or "Balancing loop: [what stabilizes]"
+  mote_ids: all motes in the cycle
+  strength: 0.7–0.9 if causal language is explicit in the body; 0.4–0.6 if inferred
+
+Only flag loops grounded in the motes' body text — do not infer loops from titles alone.
 {{end}}
 {{if hasTask .Tasks "merge_review"}}
 ## Merge Review Context
@@ -138,10 +152,31 @@ Produce an action_extraction vision:
 Skip motes whose body does not contain a clear prescriptive statement.
 {{end}}
 
+## Survivorship Bias Guard
+For any lesson, decision, or context mote, check whether the body presents conclusions based
+only on visible outcomes (successes, survivors, returning cases) while ignoring the unobserved
+failures or non-survivors.
+
+Indicators:
+- "Successful X always Y" or "the winning approach was Z" without base-rate or failure data
+- Lessons derived from a single positive outcome without noting failure conditions
+- Advice extrapolated from a selective sample (only successful projects, only cases that completed)
+- Missing counterfactual: "those who did X succeeded" without evidence on those who did X and failed
+
+When survivorship bias is detected, record in lucid_log_updates.interrupts:
+  severity: "medium" (use "high" if the claim is strongly stated as universal)
+  description: "Survivorship bias: [specific claim] — missing evidence from non-surviving cases"
+  mote_id: the affected mote's ID
+
+When two or more motes in this batch both show survivorship bias on the same topic, also produce
+a link_suggestion vision with link_type: "survivorship_risk" connecting them — so the pattern
+surfaces in reconciliation and becomes navigable in the graph.
+Only flag cases grounded in the body text; do not flag motes that explicitly acknowledge their limitations.
+
 IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in markdown code fences.
 
 Required format:
-{"visions": [{"type": "link_suggestion", "action": "add_link", "source_motes": ["id1"], "target_motes": ["id2"], "link_type": "relates_to", "rationale": "why", "severity": "medium"}], "lucid_log_updates": {"observed_patterns": [{"pattern_id": "p1", "description": "what", "mote_ids": ["id1"], "strength": 0.8}], "tensions": [{"tension_id": "t1", "description": "what", "mote_ids": ["id1"]}], "visions_summary": [{"type": "link_suggestion", "mote_ids": ["id1"], "batch": 1}], "interrupts": [], "strata_health": []}}
+{"visions": [{"type": "link_suggestion", "action": "add_link", "source_motes": ["id1"], "target_motes": ["id2"], "link_type": "relates_to", "rationale": "why", "severity": "medium"}], "lucid_log_updates": {"observed_patterns": [{"pattern_id": "p1", "description": "what", "mote_ids": ["id1"], "strength": 0.8}], "tensions": [{"tension_id": "t1", "description": "what", "mote_ids": ["id1"]}], "visions_summary": [{"type": "link_suggestion", "mote_ids": ["id1"], "batch": 1}], "interrupts": [{"severity": "medium", "description": "...", "mote_id": "id1"}], "strata_health": []}}
 
 Your ENTIRE response must be this JSON object. No text before or after.
 
@@ -162,6 +197,26 @@ When multiple visions target the same motes or address the same issue:
 - Synthesize rationales from all contributing visions
 - Use the highest severity among the merged visions
 - Note the number of independent batches that suggested this vision in the rationale
+
+When synthesizing survivorship bias patterns from interrupts:
+- If 2+ interrupts share a common mote tag or topic, produce a link_suggestion vision
+  connecting the affected motes with link_type: "survivorship_risk" at medium severity
+- In the rationale: name the missing class of evidence (failure cases, non-survivors, control group)
+  and note what complementary documentation would correct the bias
+- Flag knowledge clusters where survivorship bias is concentrated for priority human review
+
+When synthesizing loop patterns from observed_patterns:
+- Merge partial loop patterns from different batches that share mote IDs into complete cycles
+- Distinguish reinforcing loops (virtuous or vicious) from balancing loops (stabilizing or oscillating)
+- For reinforcing loops: note whether the loop is beneficial (virtuous cycle) or pathological (vicious cycle)
+- For any mote that appears in 2+ loops, flag it as a leverage point in that vision's rationale
+- Do not suppress loop annotations — surface them for reviewer awareness even at medium confidence
+
+After deduplication, apply second-order thinking to the consolidated vision list:
+- Would the combined effect of these visions over-concentrate weight on a small number of motes (i.e., the same mote appears as a target in 3+ visions)?
+- Does any deprecation vision orphan motes that other visions in this list are linking to?
+- Does any merge vision create a hub that itself becomes a target in 3+ other visions?
+If any of these apply, note the concern in that vision's rationale field so reviewers can decide. Do not suppress visions on these grounds.
 
 IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in markdown code fences.
 
