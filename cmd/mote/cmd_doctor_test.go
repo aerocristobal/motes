@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -297,5 +298,67 @@ func TestDetectDependsCycles(t *testing.T) {
 				t.Errorf("got %d cycles, want %d: %v", len(cycles), tt.wantCycles, cycles)
 			}
 		})
+	}
+}
+
+func TestDoctorChecks_BloatDetection(t *testing.T) {
+	root, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	mm := core.NewMoteManager(root)
+	im := core.NewIndexManager(root)
+
+	// Create 20 motes so we meet the minimum threshold
+	for i := range 20 {
+		mm.Create("lesson", fmt.Sprintf("Lesson %d", i), core.CreateOpts{Local: true})
+	}
+	idx, _ := im.Load()
+	motes, _ := mm.ReadAllParallel()
+	moteMap := make(map[string]*core.Mote, len(motes))
+	for _, m := range motes {
+		moteMap[m.ID] = m
+	}
+	cfg, _ := core.LoadConfig(root)
+
+	issues := runDoctorChecks(mm, im, idx, moteMap, cfg)
+
+	var bloatIssues []doctorIssue
+	for _, iss := range issues {
+		if iss.Category == "bloat" {
+			bloatIssues = append(bloatIssues, iss)
+		}
+	}
+	if len(bloatIssues) != 1 {
+		t.Errorf("expected 1 bloat issue, got %d", len(bloatIssues))
+	}
+	if len(bloatIssues) > 0 && bloatIssues[0].MoteID != "(graph)" {
+		t.Errorf("bloat issue MoteID should be '(graph)', got %q", bloatIssues[0].MoteID)
+	}
+}
+
+func TestDoctorChecks_NoBloatWhenSmall(t *testing.T) {
+	root, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	mm := core.NewMoteManager(root)
+	im := core.NewIndexManager(root)
+
+	// Only 5 motes — below the 20-mote minimum
+	for i := range 5 {
+		mm.Create("lesson", fmt.Sprintf("Lesson %d", i), core.CreateOpts{Local: true})
+	}
+	idx, _ := im.Load()
+	motes, _ := mm.ReadAllParallel()
+	moteMap := make(map[string]*core.Mote, len(motes))
+	for _, m := range motes {
+		moteMap[m.ID] = m
+	}
+	cfg, _ := core.LoadConfig(root)
+
+	issues := runDoctorChecks(mm, im, idx, moteMap, cfg)
+	for _, iss := range issues {
+		if iss.Category == "bloat" {
+			t.Errorf("bloat should not fire for nebula with < 20 motes")
+		}
 	}
 }

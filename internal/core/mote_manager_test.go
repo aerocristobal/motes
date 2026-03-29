@@ -822,3 +822,33 @@ func TestMoteManager_ReadPrimeSessionStats(t *testing.T) {
 		t.Errorf("expected second session first (HitCount=2), got %d", last2[0].HitCount)
 	}
 }
+
+func TestUpdate_SetsStatusChangedAt(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	m, err := mm.Create("task", "title", CreateOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.StatusChangedAt != nil {
+		t.Fatal("StatusChangedAt should be nil on creation")
+	}
+
+	// Status change → should set StatusChangedAt
+	if err := mm.Update(m.ID, UpdateOpts{Status: StringPtr("completed")}); err != nil {
+		t.Fatal(err)
+	}
+	updated, _ := mm.Read(m.ID)
+	if updated.StatusChangedAt == nil {
+		t.Fatal("StatusChangedAt should be set after status change")
+	}
+
+	// Non-status update → should NOT change StatusChangedAt
+	prev := *updated.StatusChangedAt
+	if err := mm.Update(m.ID, UpdateOpts{Title: StringPtr("new title")}); err != nil {
+		t.Fatal(err)
+	}
+	updated2, _ := mm.Read(m.ID)
+	if updated2.StatusChangedAt == nil || !updated2.StatusChangedAt.Equal(prev) {
+		t.Fatal("StatusChangedAt should not change on non-status update")
+	}
+}

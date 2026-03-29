@@ -231,6 +231,21 @@ func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.Edge
 		})
 	}
 
+	// Bloat detection: high inflow with zero outflow over 30d
+	if len(motes) >= 20 {
+		fs := computeFlowStats(motes)
+		if fs.Created30d >= 15 && fs.Deprecated30d == 0 {
+			issues = append(issues, doctorIssue{
+				Category: "bloat",
+				MoteID:   "(graph)",
+				Detail: fmt.Sprintf(
+					"%d motes created in 30d with 0 deprecated. Run `mote ls --stale` or `mote dream`.",
+					fs.Created30d,
+				),
+			})
+		}
+	}
+
 	return issues
 }
 

@@ -386,6 +386,10 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 		if err := security.ValidateEnum(*opts.Status, ValidStatuses, "status"); err != nil {
 			return err
 		}
+		if *opts.Status != m.Status {
+			now := time.Now().UTC()
+			m.StatusChangedAt = &now
+		}
 		m.Status = *opts.Status
 	}
 	if opts.Title != nil {

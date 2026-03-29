@@ -36,6 +36,15 @@ type StatsOutput struct {
 	DreamEstimatedCost float64        `json:"dream_estimated_cost,omitempty"`
 	PrimeHitRate       float64        `json:"prime_hit_rate,omitempty"`
 	PrimeSessions      int            `json:"prime_sessions,omitempty"`
+	Created7d          int            `json:"created_7d,omitempty"`
+	Created30d         int            `json:"created_30d,omitempty"`
+	Created90d         int            `json:"created_90d,omitempty"`
+	Deprecated7d       int            `json:"deprecated_7d,omitempty"`
+	Deprecated30d      int            `json:"deprecated_30d,omitempty"`
+	Deprecated90d      int            `json:"deprecated_90d,omitempty"`
+	NetGrowth7d        int            `json:"net_growth_7d,omitempty"`
+	NetGrowth30d       int            `json:"net_growth_30d,omitempty"`
+	NetGrowth90d       int            `json:"net_growth_90d,omitempty"`
 }
 
 var statsCmd = &cobra.Command{
@@ -134,6 +143,9 @@ func runStats(cmd *cobra.Command, args []string) error {
 	// Read cumulative dream cost data
 	dreamCost := readDreamCostStats(dreamDir)
 
+	// Compute graph flow metrics
+	flow := computeFlowStats(motes)
+
 	// Read prime session stats for hit-rate feedback
 	primeStats, _ := mm.ReadPrimeSessionStats(0)
 	var totalPrimed, totalHit int
@@ -165,6 +177,15 @@ func runStats(cmd *cobra.Command, args []string) error {
 			DreamEstimatedCost: dreamCost.estimatedCost,
 			PrimeHitRate:       rollingHitRate,
 			PrimeSessions:      len(primeStats),
+			Created7d:          flow.Created7d,
+			Created30d:         flow.Created30d,
+			Created90d:         flow.Created90d,
+			Deprecated7d:       flow.Deprecated7d,
+			Deprecated30d:      flow.Deprecated30d,
+			Deprecated90d:      flow.Deprecated90d,
+			NetGrowth7d:        flow.Created7d - flow.Deprecated7d,
+			NetGrowth30d:       flow.Created30d - flow.Deprecated30d,
+			NetGrowth90d:       flow.Created90d - flow.Deprecated90d,
 		}
 		data, err := json.MarshalIndent(out, "", "  ")
 		if err != nil {
@@ -212,6 +233,28 @@ func runStats(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Sessions tracked: %d\n", len(primeStats))
 		fmt.Printf("  Rolling hit rate: %.0f%%\n", rollingHitRate*100)
 	}
+
+	fmt.Println()
+	fmt.Println(format.Header("Graph Flow"))
+	fmt.Println()
+	fmt.Printf("  %-8s  %8s  %10s  %4s\n", "Window", "Created", "Deprecated", "Net")
+	fmt.Printf("  %-8s  %8s  %10s  %4s\n", "--------", "-------", "----------", "----")
+	for _, row := range []struct {
+		label string
+		c, d  int
+	}{
+		{"Last 7d", flow.Created7d, flow.Deprecated7d},
+		{"Last 30d", flow.Created30d, flow.Deprecated30d},
+		{"Last 90d", flow.Created90d, flow.Deprecated90d},
+	} {
+		net := row.c - row.d
+		sign := "+"
+		if net < 0 {
+			sign = ""
+		}
+		fmt.Printf("  %-8s  %8d  %10d  %s%d\n", row.label, row.c, row.d, sign, net)
+	}
+	fmt.Printf("\n  Stock (active): %d\n", statusCounts["active"])
 
 	// Top 5 most accessed
 	sort.Slice(motes, func(i, j int) bool {

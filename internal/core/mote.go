@@ -101,7 +101,8 @@ type Mote struct {
 	PromotedTo string `yaml:"promoted_to,omitempty"`
 
 	// Deprecation tracking
-	DeprecatedBy string `yaml:"deprecated_by,omitempty"`
+	DeprecatedBy    string     `yaml:"deprecated_by,omitempty"`
+	StatusChangedAt *time.Time `yaml:"status_changed_at,omitempty"`
 
 	// Hierarchy
 	Parent string `yaml:"parent,omitempty"`

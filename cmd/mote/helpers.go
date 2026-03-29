@@ -6,11 +6,52 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"motes/internal/core"
 	"motes/internal/security"
 	"motes/internal/strata"
 )
+
+// FlowStats holds inflow/outflow counts for 7d, 30d, and 90d windows.
+type FlowStats struct {
+	Created7d, Created30d, Created90d          int
+	Deprecated7d, Deprecated30d, Deprecated90d int
+}
+
+// computeFlowStats counts mote creation and status-transition outflows per time window.
+// Outflow counts only motes with a recorded StatusChangedAt; pre-existing motes without
+// that field are excluded from deprecated windows (backward-compatible).
+func computeFlowStats(motes []*core.Mote) FlowStats {
+	now := time.Now()
+	var fs FlowStats
+	for _, m := range motes {
+		created := now.Sub(m.CreatedAt).Hours() / 24
+		if created <= 7 {
+			fs.Created7d++
+		}
+		if created <= 30 {
+			fs.Created30d++
+		}
+		if created <= 90 {
+			fs.Created90d++
+		}
+		if m.StatusChangedAt != nil &&
+			(m.Status == "deprecated" || m.Status == "archived" || m.Status == "completed") {
+			changed := now.Sub(*m.StatusChangedAt).Hours() / 24
+			if changed <= 7 {
+				fs.Deprecated7d++
+			}
+			if changed <= 30 {
+				fs.Deprecated30d++
+			}
+			if changed <= 90 {
+				fs.Deprecated90d++
+			}
+		}
+	}
+	return fs
+}
 
 // findMemoryRoot walks cwd upward looking for a .memory/ directory.
 func findMemoryRoot() (string, error) {
