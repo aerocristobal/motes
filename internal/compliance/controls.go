@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 package compliance
 
 // controlMapping defines a NIST 800-53 control and how motes implements it.

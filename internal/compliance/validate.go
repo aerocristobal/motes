@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
 package compliance
 
 // ValidateComponentDefinition checks required fields in an OSCAL component-definition.
