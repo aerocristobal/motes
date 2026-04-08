@@ -113,6 +113,8 @@ mote prime                  # Start: scored context for current work
 mote session-end            # End: flush access counts, get suggestions
 ```
 
+`mote prime` now includes a **"## Ready to start"** section at the top listing tasks with all blockers cleared (sorted by weight, capped at 5). This makes actionable work visible without a separate `mote ls --ready` call.
+
 ### Creating Motes
 
 ```bash
@@ -123,6 +125,14 @@ mote add --type=task --title="Title" --accept "criterion A" --accept "criterion 
 Body can come from `--body`, stdin (`--body -` or pipe), or an editor (default).
 
 Origins: `normal`, `failure`, `revert`, `hotfix`, `discovery`
+
+For trivial one-session tasks, record them in a single command:
+
+```bash
+mote done "Fix typo in README" --tag=docs
+```
+
+`mote done` creates a task and immediately marks it completed — no follow-up `update` needed. Use it for quick fixes where tracking is for history only.
 
 Attach external references with `--ref provider:id[:url]` (e.g., `--ref github:42:https://github.com/org/repo/issues/42`). Ref IDs are indexed for BM25 search.
 
@@ -158,6 +168,12 @@ mote update <id> --status=completed
 mote update <id> --title="New title" --weight=0.8
 mote update <id> --add-tag=newtag --add-tag=another
 ```
+
+When `--status=completed` is set, the command prints additional context:
+
+- **Unblocked tasks** — tasks that had `depends_on` this mote and are now ready
+- **Related active tasks** — active tasks with overlapping tags (up to 3 suggestions)
+- **Epic wrap-up prompt** — if the completed task has child tasks, a `mote crystallize` suggestion
 
 ### Hierarchical Planning
 
@@ -368,6 +384,30 @@ make vet        # Static analysis
 make install    # Build and copy to ~/.local/bin/
 make clean      # Remove binary
 ```
+
+## Performance Benchmarks
+
+Benchmarks cover the hot paths: scoring, graph traversal, seed selection, mote create/update, list at scale, ready-filter, and index rebuild.
+
+```bash
+# Run benchmarks and save results
+bash bench/run.sh
+
+# Compare against the committed baseline
+bash bench/compare.sh bench/baseline.txt bench/run_<timestamp>.txt
+
+# Install benchstat for richer statistical comparison
+go install golang.org/x/perf/cmd/benchstat@latest
+```
+
+`bench/baseline.txt` is the committed baseline for the current version. After significant changes, update it:
+
+```bash
+bash bench/run.sh
+cp bench/run_<timestamp>.txt bench/baseline.txt
+```
+
+The benchmarks run at multiple scales (50, 100, 500 motes) to surface O(n) regressions that only appear under realistic graph sizes.
 
 ## License
 

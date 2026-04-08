@@ -243,6 +243,7 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 		}
 		ensureClaudeHooks(claudeDir, true)
 		ensureMoteSkills(home, true)
+		ensurePreCommitHook(cwd, true)
 		return nil
 	}
 
@@ -274,6 +275,11 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 	// Install skills
 	if err := ensureMoteSkills(home, false); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
+	}
+
+	// Install pre-commit hook
+	if err := ensurePreCommitHook(cwd, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pre-commit hook: %v\n", err)
 	}
 
 	return nil
@@ -965,4 +971,60 @@ func migrateClaudeSettings(claudeDir string, dryRun bool) (int, error) {
 	}
 
 	return migrated, nil
+}
+
+const preCommitMarker = "# mote pre-commit hook"
+
+const preCommitScript = `#!/bin/sh
+# mote pre-commit hook
+# Soft warning if no active task mote exists. Always exits 0.
+if [ -d ".memory/nodes" ] && command -v mote >/dev/null 2>&1; then
+    count=$(mote ls --type=task --status=active --compact 2>/dev/null | grep -c . 2>/dev/null || echo 0)
+    if [ "$count" -eq 0 ]; then
+        echo "mote: no active task found. Consider: mote add --type=task --title=\"...\"" >&2
+    fi
+fi
+exit 0
+`
+
+// ensurePreCommitHook installs a soft-warning pre-commit hook in .git/hooks/pre-commit.
+// It is idempotent: if the hook already contains the mote marker it is skipped.
+// If an existing hook exists without the marker, the mote script is appended.
+func ensurePreCommitHook(projectRoot string, dryRun bool) error {
+	gitDir := filepath.Join(projectRoot, ".git")
+	info, err := os.Stat(gitDir)
+	if err != nil || !info.IsDir() {
+		return nil // not a git repo, skip silently
+	}
+
+	hookPath := filepath.Join(gitDir, "hooks", "pre-commit")
+
+	existing, readErr := os.ReadFile(hookPath)
+	if readErr == nil && strings.Contains(string(existing), preCommitMarker) {
+		return nil // already installed
+	}
+
+	if dryRun {
+		fmt.Println("  Would install pre-commit hook (soft task warning)")
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Join(gitDir, "hooks"), 0755); err != nil {
+		return fmt.Errorf("create hooks dir: %w", err)
+	}
+
+	var content string
+	if readErr == nil && len(existing) > 0 {
+		// Append to existing hook
+		content = strings.TrimRight(string(existing), "\n") + "\n\n" + preCommitScript
+	} else {
+		content = preCommitScript
+	}
+
+	if err := os.WriteFile(hookPath, []byte(content), 0755); err != nil {
+		return fmt.Errorf("write pre-commit hook: %w", err)
+	}
+
+	fmt.Println("  installed pre-commit hook (soft task warning)")
+	return nil
 }

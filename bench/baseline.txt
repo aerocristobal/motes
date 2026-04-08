@@ -1,0 +1,45 @@
+# motes benchmark baseline — v0.4.7
+# commit: bf0567b
+# go: go version go1.24.2 linux/amd64
+# date: 2026-04-08
+# cpu: AMD Ryzen 9 5900X 12-Core Processor
+
+goos: linux
+goarch: amd64
+pkg: motes/internal/core
+cpu: AMD Ryzen 9 5900X 12-Core Processor
+BenchmarkScoreEngine_Score-24           	10690245	       112.8 ns/op	       0 B/op	       0 allocs/op
+BenchmarkScoreEngine_Score-24           	10450924	       112.6 ns/op	       0 B/op	       0 allocs/op
+BenchmarkScoreEngine_Score-24           	10548441	       112.1 ns/op	       0 B/op	       0 allocs/op
+BenchmarkGraphTraverser_Traverse-24     	    3582	    332288 ns/op	  176552 B/op	    2065 allocs/op
+BenchmarkGraphTraverser_Traverse-24     	    3570	    328422 ns/op	  176553 B/op	    2065 allocs/op
+BenchmarkGraphTraverser_Traverse-24     	    3494	    336536 ns/op	  176561 B/op	    2065 allocs/op
+BenchmarkMoteManager_Create-24          	   12192	     98363 ns/op	   51156 B/op	     305 allocs/op
+BenchmarkMoteManager_Create-24          	   12102	     97942 ns/op	   51156 B/op	     305 allocs/op
+BenchmarkMoteManager_Create-24          	   12300	     97858 ns/op	   51158 B/op	     305 allocs/op
+BenchmarkMoteManager_Update-24          	    6488	    169391 ns/op	   72653 B/op	     565 allocs/op
+BenchmarkMoteManager_Update-24          	    7135	    167958 ns/op	   72647 B/op	     565 allocs/op
+BenchmarkMoteManager_Update-24          	    6802	    169544 ns/op	   72646 B/op	     565 allocs/op
+BenchmarkMoteManager_List/50-24         	     405	   2862937 ns/op	 1075686 B/op	   13439 allocs/op
+BenchmarkMoteManager_List/50-24         	     411	   2892867 ns/op	 1076031 B/op	   13439 allocs/op
+BenchmarkMoteManager_List/50-24         	     410	   2915612 ns/op	 1076187 B/op	   13439 allocs/op
+BenchmarkMoteManager_List/100-24        	     211	   5687795 ns/op	 2151000 B/op	   26891 allocs/op
+BenchmarkMoteManager_List/100-24        	     207	   5699873 ns/op	 2150504 B/op	   26893 allocs/op
+BenchmarkMoteManager_List/100-24        	     205	   5703647 ns/op	 2150507 B/op	   26894 allocs/op
+BenchmarkMoteManager_List/500-24        	      42	  28134450 ns/op	10858967 B/op	  136660 allocs/op
+BenchmarkMoteManager_List/500-24        	      40	  27561907 ns/op	10871805 B/op	  136816 allocs/op
+BenchmarkMoteManager_List/500-24        	      42	  27523891 ns/op	10858996 B/op	  136659 allocs/op
+BenchmarkMoteManager_ListReady-24       	     390	   3059310 ns/op	 1102534 B/op	   14039 allocs/op
+BenchmarkMoteManager_ListReady-24       	     387	   3070921 ns/op	 1102167 B/op	   14039 allocs/op
+BenchmarkMoteManager_ListReady-24       	     385	   3077191 ns/op	 1102268 B/op	   14039 allocs/op
+BenchmarkIndexManager_Rebuild/50-24     	    6452	    175498 ns/op	  113380 B/op	     532 allocs/op
+BenchmarkIndexManager_Rebuild/50-24     	    6571	    174774 ns/op	  113382 B/op	     532 allocs/op
+BenchmarkIndexManager_Rebuild/50-24     	    6369	    174567 ns/op	  113379 B/op	     532 allocs/op
+BenchmarkIndexManager_Rebuild/200-24    	    2458	    485952 ns/op	  462908 B/op	    1752 allocs/op
+BenchmarkIndexManager_Rebuild/200-24    	    2473	    487683 ns/op	  462885 B/op	    1752 allocs/op
+BenchmarkIndexManager_Rebuild/200-24    	    2397	    478205 ns/op	  462889 B/op	    1752 allocs/op
+BenchmarkSeedSelector_SelectSeeds-24    	   42049	     28046 ns/op	   12216 B/op	      23 allocs/op
+BenchmarkSeedSelector_SelectSeeds-24    	   41451	     28615 ns/op	   12216 B/op	      23 allocs/op
+BenchmarkSeedSelector_SelectSeeds-24    	   42181	     28527 ns/op	   12216 B/op	      23 allocs/op
+PASS
+ok  	motes/internal/core	55.022s

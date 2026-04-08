@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
@@ -181,5 +182,81 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(os.Stdout, " %s", p)
 	}
 	fmt.Fprintln(os.Stdout)
+
+	// Post-completion feedback (R2, R5, R6)
+	if cmd.Flags().Changed("status") && updateStatus == "completed" {
+		completedMote, readErr := mm.Read(moteID)
+		if readErr == nil {
+			// R2: print tasks unblocked by this completion
+			readyTasks, _ := mm.List(core.ListFilters{Ready: true, Type: "task"})
+			var unblocked []*core.Mote
+			for _, t := range readyTasks {
+				for _, dep := range t.DependsOn {
+					if dep == moteID {
+						unblocked = append(unblocked, t)
+						break
+					}
+				}
+			}
+			if len(unblocked) > 0 {
+				fmt.Fprintf(os.Stdout, "  Unblocked (%d):", len(unblocked))
+				for _, t := range unblocked {
+					fmt.Fprintf(os.Stdout, " %s", t.Title)
+				}
+				fmt.Fprintln(os.Stdout)
+			}
+
+			// R5: tag-overlap link suggestions
+			if len(completedMote.Tags) > 0 {
+				activeTasks, _ := mm.List(core.ListFilters{Type: "task", Status: "active"})
+				var suggestions []*core.Mote
+				for _, t := range activeTasks {
+					if t.ID == moteID {
+						continue
+					}
+					if tagOverlapCount(completedMote.Tags, t.Tags) > 0 {
+						suggestions = append(suggestions, t)
+						if len(suggestions) >= 3 {
+							break
+						}
+					}
+				}
+				if len(suggestions) > 0 {
+					fmt.Fprintln(os.Stdout, "  Related active tasks (tag overlap):")
+					for _, t := range suggestions {
+						fmt.Fprintf(os.Stdout, "    → %s — %s\n", t.ID, t.Title)
+					}
+				}
+			}
+
+			// R6: epic wrap-up prompt when completing a task with children
+			children, _ := mm.List(core.ListFilters{Parent: moteID, Type: "task"})
+			if len(children) > 0 {
+				doneCount := 0
+				for _, c := range children {
+					if c.Status == "completed" || c.Status == "archived" {
+						doneCount++
+					}
+				}
+				fmt.Fprintf(os.Stdout, "  Epic complete: %d/%d children done\n", doneCount, len(children))
+				fmt.Fprintf(os.Stdout, "  Tip: mote crystallize %s --type=decision\n", moteID)
+			}
+		}
+	}
+
 	return nil
+}
+
+// tagOverlapCount returns the number of tags in a that also appear in b (case-insensitive).
+func tagOverlapCount(a, b []string) int {
+	count := 0
+	for _, ta := range a {
+		for _, tb := range b {
+			if strings.EqualFold(ta, tb) {
+				count++
+				break
+			}
+		}
+	}
+	return count
 }

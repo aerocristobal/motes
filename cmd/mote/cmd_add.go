@@ -231,5 +231,11 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("Created mote", m.ID)
+
+	// R3: hint for substantial tasks without a body
+	if (addSize == "m" || addSize == "l" || addSize == "xl") && addBody == "" {
+		fmt.Fprintf(os.Stderr, "tip: size=%s tasks benefit from --body describing the intent\n", addSize)
+	}
+
 	return nil
 }

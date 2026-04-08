@@ -105,6 +105,120 @@ func BenchmarkGraphTraverser_Traverse(b *testing.B) {
 	}
 }
 
+func BenchmarkMoteManager_Create(b *testing.B) {
+	_, mm := setupBenchMemory(b)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		// Reset for each iteration to avoid ID collision across runs
+		b.StartTimer()
+		mm.Create("task", fmt.Sprintf("bench-task-%d", b.N+i), CreateOpts{
+			Tags:   []string{"bench", "test"},
+			Weight: 0.5,
+		})
+	}
+}
+
+func BenchmarkMoteManager_Update(b *testing.B) {
+	_, mm := setupBenchMemory(b)
+	m, _ := mm.Create("task", "bench-update-target", CreateOpts{
+		Tags:   []string{"bench"},
+		Weight: 0.5,
+	})
+
+	w := 0.7
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		mm.Update(m.ID, UpdateOpts{Weight: &w})
+	}
+}
+
+func BenchmarkMoteManager_List(b *testing.B) {
+	for _, n := range []int{50, 100, 500} {
+		n := n
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			b.StopTimer()
+			_, mm := setupBenchMemory(b)
+			tags := []string{"auth", "api", "db", "cache", "test"}
+			for i := 0; i < n; i++ {
+				mm.Create("task", fmt.Sprintf("task-%d", i), CreateOpts{
+					Tags:   []string{tags[i%len(tags)]},
+					Weight: 0.3 + float64(i%7)*0.1,
+				})
+			}
+
+			b.ReportAllocs()
+			b.StartTimer()
+			for i := 0; i < b.N; i++ {
+				mm.List(ListFilters{Type: "task", Status: "active"})
+			}
+		})
+	}
+}
+
+func BenchmarkMoteManager_ListReady(b *testing.B) {
+	b.StopTimer()
+	root, mm := setupBenchMemory(b)
+	im := NewIndexManager(root)
+
+	// Create 50 tasks with a chain of dependencies
+	ids := make([]string, 50)
+	for i := 0; i < 50; i++ {
+		m, _ := mm.Create("task", fmt.Sprintf("ready-task-%d", i), CreateOpts{
+			Tags:   []string{"bench"},
+			Weight: 0.5,
+		})
+		ids[i] = m.ID
+	}
+	// Chain: task[i] depends_on task[i-1] for first 25
+	for i := 1; i < 25; i++ {
+		mm.Link(ids[i], "depends_on", ids[i-1], im)
+	}
+	motes, _ := mm.ReadAllParallel()
+	im.Rebuild(motes)
+
+	b.ReportAllocs()
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		mm.List(ListFilters{Ready: true, Type: "task"})
+	}
+}
+
+func BenchmarkIndexManager_Rebuild(b *testing.B) {
+	for _, n := range []int{50, 200} {
+		n := n
+		b.Run(fmt.Sprintf("%d", n), func(b *testing.B) {
+			b.StopTimer()
+			root, mm := setupBenchMemory(b)
+			im := NewIndexManager(root)
+
+			ids := make([]string, n)
+			for i := 0; i < n; i++ {
+				m, _ := mm.Create("task", fmt.Sprintf("idx-task-%d", i), CreateOpts{
+					Tags: []string{"bench", fmt.Sprintf("t%d", i%10)},
+				})
+				ids[i] = m.ID
+			}
+			for i := 0; i < n; i++ {
+				target := (i + 3) % n
+				if target != i {
+					mm.Link(ids[i], "relates_to", ids[target], im)
+				}
+			}
+			motes, _ := mm.ReadAllParallel()
+
+			b.ReportAllocs()
+			b.StartTimer()
+			for i := 0; i < b.N; i++ {
+				im.Rebuild(motes)
+			}
+		})
+	}
+}
+
 func BenchmarkSeedSelector_SelectSeeds(b *testing.B) {
 	tagPool := []string{
 		"auth", "api", "security", "oauth", "database",

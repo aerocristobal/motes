@@ -27,13 +27,14 @@ var (
 
 // PrimeOutput is the JSON output structure for mote prime --json.
 type PrimeOutput struct {
-	ActiveTasks    []MoteEntry        `json:"active_tasks"`
-	Decisions      []MoteEntry        `json:"decisions"`
-	Lessons        []MoteEntry        `json:"lessons"`
-	Explores       []MoteEntry        `json:"explores"`
-	ContentEchoes  []MoteEntry        `json:"content_echoes,omitempty"`
-	Strata         []StrataEntry      `json:"strata,omitempty"`
-	CodeContext    []CodeContextEntry `json:"code_context,omitempty"`
+	ReadyTasks    []MoteEntry        `json:"ready_tasks,omitempty"`
+	ActiveTasks   []MoteEntry        `json:"active_tasks"`
+	Decisions     []MoteEntry        `json:"decisions"`
+	Lessons       []MoteEntry        `json:"lessons"`
+	Explores      []MoteEntry        `json:"explores"`
+	ContentEchoes []MoteEntry        `json:"content_echoes,omitempty"`
+	Strata        []StrataEntry      `json:"strata,omitempty"`
+	CodeContext   []CodeContextEntry `json:"code_context,omitempty"`
 }
 
 // CodeContextEntry represents a strata chunk surfaced by git-diff file analysis.
@@ -195,6 +196,15 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 		activeTasks = activeTasks[:2]
 	}
 
+	// Collect ready tasks (unblocked, actionable now)
+	readyTasks, _ := mm.List(core.ListFilters{Ready: true, Type: "task"})
+	sort.Slice(readyTasks, func(i, j int) bool {
+		return readyTasks[i].Weight > readyTasks[j].Weight
+	})
+	if len(readyTasks) > 5 {
+		readyTasks = readyTasks[:5]
+	}
+
 	// Collect ambient context
 	ambient := core.CollectAmbientContext()
 
@@ -205,6 +215,19 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 
 	var allResults []core.ScoredMote
 	seen := make(map[string]bool)
+
+	// Print ready to start section (tasks with all blockers cleared)
+	if len(readyTasks) > 0 {
+		fmt.Println("## Ready to start")
+		fmt.Println()
+		for _, t := range readyTasks {
+			fmt.Printf("  [%.2f] %s — %s\n", t.Weight, t.ID, t.Title)
+			if len(t.Tags) > 0 {
+				fmt.Printf("         tags: %s\n", format.TagList(t.Tags))
+			}
+		}
+		fmt.Println()
+	}
 
 	// Print active work section
 	fmt.Println("## Active work")
@@ -342,6 +365,7 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 			}
 		}
 		out := PrimeOutput{
+			ReadyTasks:    scoredMotesToEntries(readyTasks, nil),
 			ActiveTasks:   scoredMotesToEntries(activeTasks, nil),
 			Decisions:     scoredMotesToEntriesFromScored(decisions),
 			Lessons:       scoredMotesToEntriesFromScored(lessons),
