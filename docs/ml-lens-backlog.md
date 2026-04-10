@@ -1,3 +1,7 @@
+> **ARCHIVED** — All ML-1 through ML-5 stories are complete as of v0.4.7. This document is preserved for historical context. See `docs/maintenance.md` and `docs/configuration.md` for current lens mode documentation.
+
+---
+
 # Epic Backlog: Mental Model Lens Runs (ML Series)
 
 ## Context

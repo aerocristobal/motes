@@ -2217,6 +2217,7 @@ The original epics above document the foundational design. The following enhance
 | **14: Strata Crystallization** | 13.7, 13.8 | Dream cycle strata-to-mote crystallization; corpus health review | Done |
 | **15: Hierarchical Planning** | — | Parent/child tasks, acceptance criteria, effort sizing, `mote plan/progress/check` (v0.2.0) | Done |
 | **16: Beads Feature Transfer** | — | JSONL import/export, external refs, `--json` flags, scan cache, cluster summarization (v0.3.0) | Done |
+| **17: Lens Mode** | — | ML-1 through ML-5: lens mode architecture, 9 mental model lens prompts, cross-lens reconciliation, `CrossLensAgreement` confidence scoring, per-lens quality observability, vision provenance in review (v0.4.7) | Done |
 
 ---
 

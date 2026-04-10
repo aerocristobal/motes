@@ -19,7 +19,9 @@ mote dream --compare    # A/B comparison of self-consistency voting configs
 A dream run goes through four stages:
 
 1. **PreScan** — Deterministic analysis finds candidates: orphan motes, stale content, overloaded tags, compression opportunities, co-access patterns
-2. **Batch Reasoning** — Candidates are grouped into batches and sent to Claude Sonnet for analysis. Each batch produces draft visions written to `visions_draft.jsonl`. When self-consistency voting is enabled (`self_consistency_runs > 1`), each batch is invoked N times in parallel and only visions that appear in a majority of runs survive — reducing hallucinated visions.
+2. **Batch Reasoning** — Candidates are grouped into batches and sent to Claude Sonnet for analysis. Each batch produces draft visions written to `visions_draft.jsonl`. Two modes are available:
+   - **Self-consistency voting** (`self_consistency_runs > 1`): each batch is invoked N times in parallel and only visions that appear in a majority of runs survive — reducing hallucinated visions.
+   - **Lens mode** (`batching.lens_mode.enabled: true`, recommended): each run applies a distinct mental model lens (`structural`, `survivorship_bias`, `feedback_loops`, etc.) and all findings are preserved as a tagged union. Visions independently flagged by two or more lenses gain `CrossLensAgreement` — a stronger signal than voting, because agreement comes from analytically distinct perspectives.
 3. **Reconciliation** — All draft visions and the lucid log are sent to Claude Opus, which merges overlapping visions, resolves conflicts, and produces finalized visions
 4. **Write** — Finalized visions are written to `visions.jsonl` for review
 
@@ -43,6 +45,12 @@ mote dream --review
 ```
 
 This starts an interactive review. For each vision you can **accept**, **edit**, **reject**, or **defer** (skip for now).
+
+In lens mode, visions display their source lens and any cross-lens agreement:
+
+```
+  Lens:     survivorship_bias [2 lenses agreed: feedback_loops, survivorship_bias]
+```
 
 ### Vision Types
 

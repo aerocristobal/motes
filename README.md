@@ -220,6 +220,7 @@ mote dream --dry-run        # Preview what would be analyzed
 mote dream --review         # Interactive review of pending visions
 mote dream --stats          # Auto-applied vision feedback statistics
 mote dream --quality        # Cross-project quality time-series from global ledger
+mote dream --quality --lens # Per-lens vision breakdown in quality output
 mote dream --compare        # A/B comparison of self-consistency voting configs
 ```
 
@@ -228,6 +229,8 @@ It detects: missing links, contradictions, stale motes, overloaded tags, compres
 The cycle produces draft visions (from Sonnet batches) which are reconciled by Opus into finalized visions in `visions.jsonl`. Review finalized visions with `--review` and accept, edit, reject, or defer each one. See [docs/maintenance.md](docs/maintenance.md) for the full workflow and vision type reference.
 
 **Self-consistency voting:** Set `batching.self_consistency_runs: 3` in `.memory/config.yaml` to invoke each batch 3 times and keep only majority-agreed visions. This reduces hallucinated suggestions at the cost of additional LLM calls. The agreement fraction feeds into confidence scoring. Disabled by default (`1`).
+
+**Lens mode** is an alternative to self-consistency runs: instead of invoking the same prompt N times, each run applies a distinct mental model lens (`structural`, `survivorship_bias`, `feedback_loops`, `confirmation_bias`, `inversion`, `probabilistic`, `first_principles`, `opportunity_cost`, `occams_razor`). All findings are preserved as a tagged union; visions that two or more lenses independently flag gain `CrossLensAgreement`, a stronger confidence signal than voting. Enable with `batching.lens_mode.enabled: true` and `batching.lens_mode.lenses: [...]`. Lens mode and self-consistency runs are mutually exclusive.
 
 ### Import/Export
 
@@ -343,6 +346,7 @@ All configuration lives in `.memory/config.yaml`. See [docs/configuration.md](do
 
 ## Version History
 
+- **v0.4.7** — Lens mode: N parallel LLM runs with distinct mental model lenses (structural, survivorship bias, feedback loops, etc.) instead of redundant self-consistency voting. `CrossLensAgreement` confidence signal. `dream --quality --lens` per-lens breakdown. Vision provenance display in `--review`.
 - **v0.4.6** — Graph integrity: cross-project ref detection (`--cross-project`), `clean-links` command, doctor advisories (link density, chain depth, tag fragmentation)
 - **v0.4.5** — Second-order impact awareness: vision scoring shows downstream impact in `dream --review`
 - **v0.4.4** — Stocks and flows: inflow/outflow metrics in `stats`, bloat detection in `doctor`

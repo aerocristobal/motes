@@ -179,7 +179,9 @@ Controls the headless LLM maintenance cycle.
 | `batching.max_motes_per_batch` | int | `10` | Maximum motes per LLM batch |
 | `batching.clustered_fraction` | float | `0.6` | Fraction of motes in clustered batches |
 | `batching.max_concurrent` | int | `4` | Maximum parallel batch invocations |
-| `batching.self_consistency_runs` | int | `1` | Invoke each batch N times and keep majority-agreed visions. `1` = disabled, `3` = recommended |
+| `batching.self_consistency_runs` | int | `1` | Invoke each batch N times and keep majority-agreed visions. `1` = disabled, `3` = recommended. Mutually exclusive with `lens_mode`. |
+| `batching.lens_mode.enabled` | bool | `false` | Enable lens mode: one run per lens instead of N identical runs. Mutually exclusive with `self_consistency_runs > 1`. |
+| `batching.lens_mode.lenses` | []string | `[]` | Lens names to run. Valid: `structural`, `survivorship_bias`, `feedback_loops`, `confirmation_bias`, `inversion`, `probabilistic`, `first_principles`, `opportunity_cost`, `occams_razor` |
 | `reconciliation.enabled` | bool | `true` | Whether to run Opus reconciliation pass |
 | `reconciliation.max_refetch_motes` | int | `15` | Max motes to re-read during reconciliation |
 
@@ -293,6 +295,25 @@ strata:
     max_augment_corpora: 4
     chunks_per_corpus: 5
 ```
+
+### Lens Mode (Mental Model Triangulation)
+
+Munger's Rule of 3 Models applied to dream analysis — one psychological lens, one causal/economic lens, one structural lens:
+
+```yaml
+dream:
+  batching:
+    lens_mode:
+      enabled: true
+      lenses:
+        - survivorship_bias    # psychological
+        - feedback_loops       # causal
+        - structural           # structural/mathematical
+  reconciliation:
+    enabled: true              # Opus synthesizes across lenses
+```
+
+When two or more lenses independently flag the same vision, that vision receives `CrossLensAgreement` — a stronger confidence signal than self-consistency voting, because the agreement comes from analytically distinct perspectives rather than identical prompts.
 
 ### Research/Writing Project
 

@@ -7,7 +7,7 @@ Developer reference for architecture, storage, and design decisions. For usage i
 1. **Storage Layer** — `.memory/` directory: mote markdown files in `nodes/`, `index.jsonl` edge index, `config.yaml`, `constellations.jsonl`, strata corpora in `strata/`, dream artifacts in `dream/`
 2. **Core Engine** — MoteManager (CRUD), IndexManager (edge index), ScoreEngine (relevance scoring), GraphTraverser (BFS with hop-limited spreading activation), SeedSelector (ambient signal matching), ConfigManager
 3. **Strata Engine** — BM25-based reference knowledge search. StrataManager, Chunker (heading-aware/function-level/sliding-window), BM25Index (~150 LOC). No embeddings, no network.
-4. **Dream Orchestrator** — Headless LLM maintenance cycle. PreScanner (deterministic candidate finding), BatchConstructor, PromptBuilder, ClaudeInvoker (shells out to `claude` CLI), ResponseParser, LucidLog, VisionWriter, VoteVisions (self-consistency voting across N runs per batch)
+4. **Dream Orchestrator** — Headless LLM maintenance cycle. PreScanner (deterministic candidate finding), BatchConstructor, PromptBuilder (builds batch + reconciliation prompts; holds `lensTmpls map[string]*template.Template` for 9 lens variants), ClaudeInvoker (shells out to `claude` CLI), ResponseParser, LucidLog, VisionWriter, VoteVisions (self-consistency voting across N runs per batch, legacy mode), MergeLensResults (tagged union across lens runs — all findings preserved, `CrossLensAgreement` populated when 2+ distinct lenses agree), KnownLenses (validated lens name registry)
 
 ## Three Processing Modes
 
@@ -25,7 +25,8 @@ Developer reference for architecture, storage, and design decisions. For usage i
 - **ID format:** `<scope>-<typechar><base36-timestamp><random-suffix>` (collision-resistant)
 - **Mote types:** task, decision, lesson, context, question, constellation, anchor, explore
 - **Link types:** depends_on/blocks (planning), relates_to, builds_on, contradicts, supersedes, caused_by, informed_by (memory)
-- **Dream vision types:** link_suggestion, contradiction, tag_refinement, staleness, compression, signal, merge_suggestion, action_extraction. The `merge_suggestion` vision merges 3+ redundant motes into one authoritative mote using `supersedes` links (auto-deprecation), with inbound/outbound link migration to the new merged mote. The `action_extraction` vision adds a prescriptive `Action` field to lesson/decision motes that lack one, surfaced prominently in `show`, `context`, and `prime`.
+- **Dream vision types:** link_suggestion, contradiction, tag_refinement, staleness, compression, signal, merge_suggestion, action_extraction, decompose_suggestion.
+- **Lens mode vs voting:** `lens_mode.enabled: true` activates N runs with distinct mental model prompts; results are merged with `MergeLensResults` (tagged union — all visions kept, cross-lens matches tagged). `self_consistency_runs > 1` activates identical-prompt voting with `VoteVisions` (consensus filter — only majority visions kept). Mutually exclusive. The `merge_suggestion` vision merges 3+ redundant motes into one authoritative mote using `supersedes` links (auto-deprecation), with inbound/outbound link migration to the new merged mote. The `action_extraction` vision adds a prescriptive `Action` field to lesson/decision motes that lack one, surfaced prominently in `show`, `context`, and `prime`.
 - **Scoring formula** combines: base weight + edge bonus + status penalty + recency decay + retrieval strength + salience boost + tag specificity + interference penalty
 
 ## Storage Layout
