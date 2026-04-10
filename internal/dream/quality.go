@@ -16,22 +16,23 @@ import (
 
 // QualityEntry is appended to the global ledger after each dream cycle.
 type QualityEntry struct {
-	Timestamp       string  `json:"timestamp"`
-	Project         string  `json:"project"`
-	VotingConfig    string  `json:"voting_config"`
-	Batches         int     `json:"batches"`
-	BatchVisions    int     `json:"batch_visions"`
-	ReconVisions    int     `json:"recon_visions"`
-	ReconFilterRate float64 `json:"recon_filter_rate"`
-	AutoApplied     int     `json:"auto_applied"`
-	Deferred        int     `json:"deferred"`
-	AvgConfidence   float64 `json:"avg_confidence"`
-	AvgAgreement    float64 `json:"avg_agreement"`
-	DurationS       float64 `json:"duration_s"`
-	InputTokens     int     `json:"input_tokens"`
-	OutputTokens    int     `json:"output_tokens"`
-	EstimatedCost   float64 `json:"estimated_cost"`
-	CostPerVision   float64 `json:"cost_per_vision"`
+	Timestamp       string         `json:"timestamp"`
+	Project         string         `json:"project"`
+	VotingConfig    string         `json:"voting_config"`
+	Batches         int            `json:"batches"`
+	BatchVisions    int            `json:"batch_visions"`
+	ReconVisions    int            `json:"recon_visions"`
+	ReconFilterRate float64        `json:"recon_filter_rate"`
+	AutoApplied     int            `json:"auto_applied"`
+	Deferred        int            `json:"deferred"`
+	AvgConfidence   float64        `json:"avg_confidence"`
+	AvgAgreement    float64        `json:"avg_agreement"`
+	DurationS       float64        `json:"duration_s"`
+	InputTokens     int            `json:"input_tokens"`
+	OutputTokens    int            `json:"output_tokens"`
+	EstimatedCost   float64        `json:"estimated_cost"`
+	CostPerVision   float64        `json:"cost_per_vision"`
+	LensBreakdown   map[string]int `json:"lens_breakdown,omitempty"` // per-lens vision counts (lens mode only)
 }
 
 // ConfigComparison holds aggregated stats for a single voting config.

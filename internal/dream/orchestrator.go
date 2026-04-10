@@ -322,8 +322,9 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 	}
 	wg.Wait()
 
-	// Merge results sequentially
+	// Merge results sequentially; tally per-lens vision counts for quality ledger
 	var totalInput, totalOutput, batchVisionCount int
+	lensBreakdown := make(map[string]int)
 	for _, r := range results {
 		if r.err != nil {
 			fmt.Fprintf(os.Stderr, "  warning: batch %d failed: %v\n", r.index+1, r.err)
@@ -337,6 +338,11 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 		totalInput += r.inputTokens
 		totalOutput += r.outputTokens
 		batchVisionCount += len(r.visions)
+		for _, v := range r.visions {
+			if v.LensSource != "" {
+				lensBreakdown[v.LensSource]++
+			}
+		}
 		fmt.Printf("  Batch %d: %d visions\n", r.index+1, len(r.visions))
 	}
 
@@ -346,7 +352,12 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 		fmt.Println("  Reconciliation...")
 		do.logger.Log(LogEntry{Level: "info", Phase: "reconcile", Message: "reconciliation start"})
 		reconStart := time.Now()
-		reconPrompt := do.prompts.BuildReconciliationPrompt(do.lucidLog)
+		var reconPrompt string
+		if do.config.Batching.LensMode.Enabled {
+			reconPrompt = do.prompts.BuildReconciliationPrompt(do.lucidLog, do.config.Batching.LensMode.Lenses...)
+		} else {
+			reconPrompt = do.prompts.BuildReconciliationPrompt(do.lucidLog)
+		}
 		reconResult, err := do.invoker.Invoke(reconPrompt, "opus")
 		if err == nil {
 			finalVisions, _ = do.parser.ParseReconciliationResponse(reconResult.Response)
@@ -406,6 +417,9 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 		OutputTokens:  totalOutput,
 		EstimatedCost: estimatedCost,
 		BatchVisions:  batchVisionCount,
+	}
+	if len(lensBreakdown) > 0 {
+		result.LensBreakdown = lensBreakdown
 	}
 	do.writeRunLog(result, time.Since(start))
 	return result, nil
@@ -673,6 +687,9 @@ func (do *DreamOrchestrator) writeRunLog(result *DreamResult, elapsed time.Durat
 		OutputTokens:    result.OutputTokens,
 		EstimatedCost:   result.EstimatedCost,
 		CostPerVision:   costPerVision,
+	}
+	if len(result.LensBreakdown) > 0 {
+		qe.LensBreakdown = result.LensBreakdown
 	}
 	_ = AppendQualityEntry(qe) // Non-critical
 }

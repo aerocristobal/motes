@@ -201,6 +201,13 @@ func (vr *VisionReviewer) display(v Vision) {
 	if v.Confidence > 0 {
 		fmt.Printf("  Confidence: %.0f%%\n", v.Confidence*100)
 	}
+	if v.LensSource != "" {
+		if len(v.CrossLensAgreement) >= 2 {
+			fmt.Printf("  Lens:     %s [%d lenses agreed: %s]\n", v.LensSource, len(v.CrossLensAgreement), strings.Join(v.CrossLensAgreement, ", "))
+		} else {
+			fmt.Printf("  Lens:     %s\n", v.LensSource)
+		}
+	}
 	fmt.Printf("  Sources:  %s\n", strings.Join(v.SourceMotes, ", "))
 	if len(v.TargetMotes) > 0 {
 		fmt.Printf("  Targets:  %s\n", strings.Join(v.TargetMotes, ", "))

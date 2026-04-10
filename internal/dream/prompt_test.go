@@ -99,15 +99,96 @@ func TestBuildReconciliationPrompt(t *testing.T) {
 }
 
 func TestBuildBatchPrompt_LensFallback(t *testing.T) {
-	// A named lens with no template yet (ML-2 not wired) falls back to all-in-one
+	// An unimplemented lens (e.g. "inversion") falls back to the all-in-one template
+	m := &core.Mote{ID: "m1", Title: "T", Tags: []string{"t"}}
+	reader := func(id string) (*core.Mote, error) { return m, nil }
+	pb := NewPromptBuilder(reader)
+	batch := Batch{Phase: "clustered", MoteIDs: []string{"m1"}, Tasks: []string{"link_review"}}
+	ll := NewLucidLog(2000)
+	result := pb.BuildBatchPrompt(batch, ll, "inversion")
+	if result == "" {
+		t.Error("expected non-empty prompt even for unimplemented lens (fallback to all-in-one)")
+	}
+}
+
+func TestBuildBatchPrompt_StructuralLens(t *testing.T) {
+	m := &core.Mote{ID: "m1", Title: "T", Tags: []string{"t"}}
+	reader := func(id string) (*core.Mote, error) { return m, nil }
+	pb := NewPromptBuilder(reader)
+	batch := Batch{Phase: "clustered", MoteIDs: []string{"m1"}, Tasks: []string{"link_review"}}
+	ll := NewLucidLog(2000)
+	result := pb.BuildBatchPrompt(batch, ll, "structural")
+
+	for _, want := range []string{"Merge Detection", "Action Extraction", "Compression", "Contradiction Detection", "Tag Refinement"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("structural lens: expected %q in prompt", want)
+		}
+	}
+	for _, absent := range []string{"Survivorship Bias", "Feedback Loop", "Confirmation Bias"} {
+		if strings.Contains(result, absent) {
+			t.Errorf("structural lens: %q should not appear in prompt", absent)
+		}
+	}
+}
+
+func TestBuildBatchPrompt_SurvivorshipBiasLens(t *testing.T) {
 	m := &core.Mote{ID: "m1", Title: "T", Tags: []string{"t"}}
 	reader := func(id string) (*core.Mote, error) { return m, nil }
 	pb := NewPromptBuilder(reader)
 	batch := Batch{Phase: "clustered", MoteIDs: []string{"m1"}, Tasks: []string{"link_review"}}
 	ll := NewLucidLog(2000)
 	result := pb.BuildBatchPrompt(batch, ll, "survivorship_bias")
-	if result == "" {
-		t.Error("expected non-empty prompt even for unimplemented lens (fallback to all-in-one)")
+
+	if !strings.Contains(result, "Survivorship Bias") {
+		t.Error("survivorship_bias lens: expected 'Survivorship Bias' in prompt")
+	}
+	if !strings.Contains(result, "survivorship_risk") {
+		t.Error("survivorship_bias lens: expected 'survivorship_risk' link type in prompt")
+	}
+	for _, absent := range []string{"Merge Detection", "Feedback Loop", "Confirmation Bias"} {
+		if strings.Contains(result, absent) {
+			t.Errorf("survivorship_bias lens: %q should not appear in prompt", absent)
+		}
+	}
+}
+
+func TestBuildBatchPrompt_FeedbackLoopsLens(t *testing.T) {
+	m := &core.Mote{ID: "m1", Title: "T", Tags: []string{"t"}}
+	reader := func(id string) (*core.Mote, error) { return m, nil }
+	pb := NewPromptBuilder(reader)
+	batch := Batch{Phase: "clustered", MoteIDs: []string{"m1"}, Tasks: []string{"link_review"}}
+	ll := NewLucidLog(2000)
+	result := pb.BuildBatchPrompt(batch, ll, "feedback_loops")
+
+	for _, want := range []string{"Feedback Loop", "Reinforcing", "Balancing", "leverage point"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("feedback_loops lens: expected %q in prompt", want)
+		}
+	}
+	for _, absent := range []string{"Survivorship Bias", "Merge Detection", "Confirmation Bias"} {
+		if strings.Contains(result, absent) {
+			t.Errorf("feedback_loops lens: %q should not appear in prompt", absent)
+		}
+	}
+}
+
+func TestBuildBatchPrompt_ConfirmationBiasLens(t *testing.T) {
+	m := &core.Mote{ID: "m1", Title: "T", Tags: []string{"t"}}
+	reader := func(id string) (*core.Mote, error) { return m, nil }
+	pb := NewPromptBuilder(reader)
+	batch := Batch{Phase: "clustered", MoteIDs: []string{"m1"}, Tasks: []string{"link_review"}}
+	ll := NewLucidLog(2000)
+	result := pb.BuildBatchPrompt(batch, ll, "confirmation_bias")
+
+	for _, want := range []string{"Confirmation Bias", "one-sided", "contradiction"} {
+		if !strings.Contains(result, want) {
+			t.Errorf("confirmation_bias lens: expected %q in prompt", want)
+		}
+	}
+	for _, absent := range []string{"Survivorship Bias", "Merge Detection", "Feedback Loop"} {
+		if strings.Contains(result, absent) {
+			t.Errorf("confirmation_bias lens: %q should not appear in prompt", absent)
+		}
 	}
 }
 

@@ -33,6 +33,7 @@ var (
 	dreamStructuredLog bool
 	dreamQuality       bool
 	dreamCompare       bool
+	dreamLens          bool
 	dreamProject       string
 	dreamLast          int
 )
@@ -46,6 +47,7 @@ func init() {
 	dreamCmd.Flags().BoolVar(&dreamStructuredLog, "structured-log", false, "Emit JSON log lines to stderr for machine parsing")
 	dreamCmd.Flags().BoolVar(&dreamQuality, "quality", false, "Show cycle quality time-series from global ledger")
 	dreamCmd.Flags().BoolVar(&dreamCompare, "compare", false, "Compare voting configs across all projects")
+	dreamCmd.Flags().BoolVar(&dreamLens, "lens", false, "Show per-lens vision breakdown (use with --quality)")
 	dreamCmd.Flags().StringVar(&dreamProject, "project", "", "Filter quality/compare output by project name")
 	dreamCmd.Flags().IntVar(&dreamLast, "last", 0, "Limit quality output to last N entries")
 	rootCmd.AddCommand(dreamCmd)
@@ -62,7 +64,7 @@ func runDream(cmd *cobra.Command, args []string) error {
 		return runDreamStats(root)
 	}
 	if dreamQuality {
-		return runDreamQuality(dreamProject, dreamLast)
+		return runDreamQuality(dreamProject, dreamLast, dreamLens)
 	}
 	if dreamCompare {
 		return runDreamCompare(dreamProject)
@@ -169,7 +171,7 @@ func runDreamReview(root string, cfg *core.Config) error {
 	return nil
 }
 
-func runDreamQuality(project string, last int) error {
+func runDreamQuality(project string, last int, showLens bool) error {
 	entries, err := dream.ReadQualityLedger()
 	if err != nil {
 		return fmt.Errorf("read quality ledger: %w", err)
@@ -222,6 +224,26 @@ func runDreamQuality(project string, last int) error {
 			e.AvgConfidence*100,
 			formatCost(e.EstimatedCost),
 			formatCost(e.CostPerVision))
+
+		if showLens {
+			if len(e.LensBreakdown) == 0 {
+				fmt.Printf("  Per-lens: N/A (legacy mode)\n")
+			} else {
+				lenses := make([]string, 0, len(e.LensBreakdown))
+				for l := range e.LensBreakdown {
+					lenses = append(lenses, l)
+				}
+				sort.Strings(lenses)
+				for _, l := range lenses {
+					count := e.LensBreakdown[l]
+					warn := ""
+					if count == 0 {
+						warn = " ⚠ 0 findings"
+					}
+					fmt.Printf("  %-22s %d visions%s\n", l+":", count, warn)
+				}
+			}
+		}
 	}
 	return nil
 }

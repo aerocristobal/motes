@@ -24,13 +24,14 @@ type Vision struct {
 
 // DreamResult is the summary returned after a dream run.
 type DreamResult struct {
-	Status        string  `json:"status"` // clean, dry-run, complete, error
-	Batches       int     `json:"batches"`
-	Visions       int     `json:"visions"`
-	InputTokens   int     `json:"input_tokens,omitempty"`
-	OutputTokens  int     `json:"output_tokens,omitempty"`
-	EstimatedCost float64 `json:"estimated_cost,omitempty"`
-	BatchVisions  int     `json:"batch_visions,omitempty"` // Visions before reconciliation
+	Status        string         `json:"status"` // clean, dry-run, complete, error
+	Batches       int            `json:"batches"`
+	Visions       int            `json:"visions"`
+	InputTokens   int            `json:"input_tokens,omitempty"`
+	OutputTokens  int            `json:"output_tokens,omitempty"`
+	EstimatedCost float64        `json:"estimated_cost,omitempty"`
+	BatchVisions  int            `json:"batch_visions,omitempty"` // Visions before reconciliation
+	LensBreakdown map[string]int `json:"lens_breakdown,omitempty"` // per-lens vision counts (lens mode only)
 }
 
 // MotePair identifies two motes for link/contradiction analysis.

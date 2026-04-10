@@ -17,7 +17,7 @@ func ScoreConfidence(v Vision, stats map[string]*FeedbackStats, preScores map[st
 	structure := scoreStructure(v)
 	severity := scoreSeverity(v.Severity)
 	quality := scoreMoteQuality(v, preScores)
-	agreement := scoreAgreement(v.Agreement)
+	agreement := scoreAgreement(v)
 
 	score := wHistory*hist + wStructure*structure + wSeverity*severity + wMoteQuality*quality + wAgreement*agreement
 
@@ -31,13 +31,18 @@ func ScoreConfidence(v Vision, stats map[string]*FeedbackStats, preScores map[st
 	return score
 }
 
-// scoreAgreement returns a 0.0-1.0 score based on self-consistency agreement.
-// When agreement is 0 (self-consistency disabled / single run), returns 1.0 (neutral).
-func scoreAgreement(agreement float64) float64 {
-	if agreement <= 0 {
-		return 1.0 // neutral when voting is disabled
+// scoreAgreement returns a 0.0-1.0 score for the agreement component of a vision.
+// In lens mode (CrossLensAgreement set): returns 0.85 for cross-lens corroboration.
+// In voting mode (Agreement > 0): returns the agreement fraction.
+// In single-run mode (both absent): returns 1.0 (neutral — not penalized for lack of redundancy).
+func scoreAgreement(v Vision) float64 {
+	if len(v.CrossLensAgreement) >= 2 {
+		return 0.85 // strong signal: two analytically distinct lenses agreed
 	}
-	return agreement
+	if v.Agreement > 0 {
+		return v.Agreement
+	}
+	return 1.0 // neutral when neither voting nor lens mode produced agreement
 }
 
 // scoreHistorical returns a 0.0-1.0 score based on past feedback for this vision type.

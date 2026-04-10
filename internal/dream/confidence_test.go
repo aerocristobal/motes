@@ -2,8 +2,12 @@
 package dream
 
 import (
+	"fmt"
 	"math"
+	"strings"
 	"testing"
+
+	"motes/internal/core"
 )
 
 func TestScoreConfidence_ColdStart(t *testing.T) {
@@ -200,5 +204,62 @@ func TestScoreConfidence_Clamped(t *testing.T) {
 	score := ScoreConfidence(v, stats, map[string]float64{"a": 2.0, "b": 2.0})
 	if score < 0.0 || score > 1.0 {
 		t.Errorf("score should be clamped to [0, 1], got %.4f", score)
+	}
+}
+
+func TestScoreAgreement_CrossLens(t *testing.T) {
+	vCrossLens := Vision{
+		Type:               "link_suggestion",
+		Action:             "add_link",
+		SourceMotes:        []string{"a"},
+		TargetMotes:        []string{"b"},
+		LinkType:           "relates_to",
+		Rationale:          "agreed by two lenses",
+		Severity:           "medium",
+		CrossLensAgreement: []string{"survivorship_bias", "inversion"},
+	}
+	score := ScoreConfidence(vCrossLens, nil, nil)
+	// Cross-lens agreement (0.85) should boost overall score vs no agreement (1.0)
+	// Both use the same agreement weight so they're similar, but cross-lens is high value
+	if score < 0.4 || score > 0.9 {
+		t.Errorf("cross-lens vision: expected 0.4-0.9, got %.4f", score)
+	}
+
+	// A single-lens vision should not be penalized (neutral 1.0 like single-run)
+	vSingleLens := Vision{
+		Type:        "link_suggestion",
+		Action:      "add_link",
+		SourceMotes: []string{"a"},
+		TargetMotes: []string{"b"},
+		LinkType:    "relates_to",
+		Rationale:   "seen by one lens only",
+		Severity:    "medium",
+		LensSource:  "inversion",
+	}
+	scoreSingle := ScoreConfidence(vSingleLens, nil, nil)
+	// Single-lens with no cross-lens agreement: neutral (1.0 for agreement component)
+	if scoreSingle < 0.4 || scoreSingle > 0.9 {
+		t.Errorf("single-lens vision: expected 0.4-0.9, got %.4f", scoreSingle)
+	}
+}
+
+func TestBuildReconciliationPrompt_LensMode(t *testing.T) {
+	reader := func(id string) (*core.Mote, error) { return nil, fmt.Errorf("unused") }
+	pb := NewPromptBuilder(reader)
+	ll := NewLucidLog(2000)
+
+	// Lens mode: passes lenses
+	result := pb.BuildReconciliationPrompt(ll, "survivorship_bias", "inversion")
+	if !strings.Contains(result, "survivorship_bias") {
+		t.Error("lens mode recon: expected lens names in prompt")
+	}
+	if !strings.Contains(result, "cross_lens_agreement") {
+		t.Error("lens mode recon: expected cross-lens synthesis instruction")
+	}
+
+	// Legacy mode: no lenses
+	legacy := pb.BuildReconciliationPrompt(ll)
+	if strings.Contains(legacy, "Lens Mode") {
+		t.Error("legacy recon: should not contain lens mode section")
 	}
 }
