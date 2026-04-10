@@ -204,6 +204,42 @@ func TestLoadConfig_DoctorSection(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_LensModeConfig(t *testing.T) {
+	dir := t.TempDir()
+	yamlContent := `dream:
+  batching:
+    lens_mode:
+      enabled: true
+      lenses: ["structural", "survivorship_bias"]
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.Dream.Batching.LensMode.Enabled {
+		t.Error("expected lens_mode.enabled = true")
+	}
+	if len(cfg.Dream.Batching.LensMode.Lenses) != 2 {
+		t.Errorf("expected 2 lenses, got %d", len(cfg.Dream.Batching.LensMode.Lenses))
+	}
+	if cfg.Dream.Batching.LensMode.Lenses[0] != "structural" {
+		t.Errorf("expected first lens 'structural', got %q", cfg.Dream.Batching.LensMode.Lenses[0])
+	}
+}
+
+func TestLoadConfig_LensModeDisabledByDefault(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Dream.Batching.LensMode.Enabled {
+		t.Error("lens_mode should be disabled by default")
+	}
+	if len(cfg.Dream.Batching.LensMode.Lenses) != 0 {
+		t.Errorf("expected empty lenses by default, got %v", cfg.Dream.Batching.LensMode.Lenses)
+	}
+}
+
 func TestLoadConfig_DoctorMissing_UsesDefaults(t *testing.T) {
 	dir := t.TempDir()
 	// No config.yaml — should fall back to defaults

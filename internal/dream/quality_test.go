@@ -56,6 +56,32 @@ func TestVotingConfigLabel(t *testing.T) {
 			},
 			want: "1x-opus",
 		},
+		{
+			name: "lens mode 3 lenses",
+			cfg: core.DreamConfig{
+				Batching: core.BatchingConfig{
+					LensMode: core.LensModeConfig{
+						Enabled: true,
+						Lenses:  []string{"structural", "survivorship_bias", "feedback_loops"},
+					},
+				},
+			},
+			want: "3x-lens[struct,surv,floop]",
+		},
+		{
+			name: "lens mode overrides self_consistency_runs",
+			cfg: core.DreamConfig{
+				Batching: core.BatchingConfig{
+					SelfConsistencyRuns: 3,
+					LensMode: core.LensModeConfig{
+						Enabled: true,
+						Lenses:  []string{"inversion"},
+					},
+				},
+				Provider: core.DreamProvider{Batch: core.ProviderEntry{Model: "claude-sonnet-4-20250514"}},
+			},
+			want: "1x-lens[inv]",
+		},
 	}
 
 	for _, tt := range tests {

@@ -104,12 +104,18 @@ type ProviderEntry struct {
 	Model   string `yaml:"model"`
 }
 
+type LensModeConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	Lenses  []string `yaml:"lenses"`
+}
+
 type BatchingConfig struct {
-	Strategy             string  `yaml:"strategy"`
-	MaxMotesPerBatch     int     `yaml:"max_motes_per_batch"`
-	ClusteredFraction    float64 `yaml:"clustered_fraction"`
-	MaxConcurrent        int     `yaml:"max_concurrent"`
-	SelfConsistencyRuns  int     `yaml:"self_consistency_runs"` // default 1 (disabled), 3 for voting
+	Strategy            string         `yaml:"strategy"`
+	MaxMotesPerBatch    int            `yaml:"max_motes_per_batch"`
+	ClusteredFraction   float64        `yaml:"clustered_fraction"`
+	MaxConcurrent       int            `yaml:"max_concurrent"`
+	SelfConsistencyRuns int            `yaml:"self_consistency_runs"` // default 1 (disabled), 3 for voting; ignored when LensMode.Enabled
+	LensMode            LensModeConfig `yaml:"lens_mode"`
 }
 
 type ReconConfig struct {

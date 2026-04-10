@@ -17,6 +17,20 @@ type PromptBuilder struct {
 	reader    func(string) (*core.Mote, error)
 }
 
+// KnownLenses is the set of recognized lens identifiers.
+// Entries are added as lens prompt implementations are completed (ML-2 stories).
+var KnownLenses = map[string]bool{
+	"structural":        true,
+	"survivorship_bias": true,
+	"feedback_loops":    true,
+	"inversion":         true,
+	"first_principles":  true,
+	"probabilistic":     true,
+	"confirmation_bias": true,
+	"opportunity_cost":  true,
+	"occams_razor":      true,
+}
+
 // NewPromptBuilder creates a prompt builder with mote reader function.
 func NewPromptBuilder(reader func(string) (*core.Mote, error)) *PromptBuilder {
 	funcMap := template.FuncMap{
@@ -46,7 +60,8 @@ type batchPromptData struct {
 }
 
 // BuildBatchPrompt generates the prompt for a single batch.
-func (pb *PromptBuilder) BuildBatchPrompt(batch Batch, ll *LucidLog) string {
+// lens is the cognitive lens to apply; empty string uses the legacy all-in-one prompt.
+func (pb *PromptBuilder) BuildBatchPrompt(batch Batch, ll *LucidLog, lens string) string {
 	var motes []*core.Mote
 	for _, id := range batch.MoteIDs {
 		m, err := pb.reader(id)
@@ -64,11 +79,34 @@ func (pb *PromptBuilder) BuildBatchPrompt(batch Batch, ll *LucidLog) string {
 		Tasks:    batch.Tasks,
 	}
 
+	tmpl := pb.batchTmpl
+	if lens != "" {
+		if lt := lensTemplate(lens); lt != nil {
+			tmpl = lt
+		}
+		// If no template registered yet for this lens (ML-2 in progress), fall back to all-in-one.
+	}
+
 	var buf bytes.Buffer
-	if err := pb.batchTmpl.Execute(&buf, data); err != nil {
+	if err := tmpl.Execute(&buf, data); err != nil {
 		return ""
 	}
 	return buf.String()
+}
+
+// lensTemplate returns the prompt template for the named lens, or nil if not yet implemented.
+// Nil causes BuildBatchPrompt to fall back to the legacy all-in-one template until ML-2
+// implements the lens-specific prompt.
+func lensTemplate(lens string) *template.Template {
+	switch lens {
+	// Lens templates are populated by ML-2 stories as package-level vars:
+	// case "structural":        return structuralTmpl
+	// case "survivorship_bias": return survivorshipTmpl
+	// case "feedback_loops":    return feedbackLoopsTmpl
+	// case "inversion":         return inversionTmpl
+	default:
+		return nil
+	}
 }
 
 // BuildReconciliationPrompt generates the reconciliation prompt from the lucid log.

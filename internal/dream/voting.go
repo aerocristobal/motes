@@ -120,6 +120,60 @@ func mergeAgreedVisions(group []Vision, totalRuns int) Vision {
 	return merged
 }
 
+// MergeLensResults collects visions from multiple lens runs into a tagged union.
+// All visions are preserved (no voting). Visions from different lenses that share
+// the same visionKey have their CrossLensAgreement field populated.
+// Callers must set LensSource on each vision before passing to this function.
+func MergeLensResults(lensRuns [][]Vision) []Vision {
+	if len(lensRuns) == 0 {
+		return nil
+	}
+
+	// Flat union of all visions
+	var all []Vision
+	for _, run := range lensRuns {
+		all = append(all, run...)
+	}
+
+	// Find cross-lens matches: same visionKey, different LensSource values
+	type indexedEntry struct {
+		idx  int
+		lens string
+	}
+	groups := make(map[string][]indexedEntry)
+	for i, v := range all {
+		groups[visionKey(v)] = append(groups[visionKey(v)], indexedEntry{i, v.LensSource})
+	}
+
+	for _, entries := range groups {
+		if len(entries) < 2 {
+			continue
+		}
+		lensSet := make(map[string]bool)
+		for _, e := range entries {
+			if e.lens != "" {
+				lensSet[e.lens] = true
+			}
+		}
+		if len(lensSet) < 2 {
+			continue // multiple visions from same lens — not a cross-lens match
+		}
+		lenses := sortedKeys(lensSet)
+		for _, e := range entries {
+			all[e.idx].CrossLensAgreement = lenses
+		}
+	}
+
+	// Deterministic sort: lens name first, then vision key
+	sort.Slice(all, func(i, j int) bool {
+		ki := all[i].LensSource + "|" + visionKey(all[i])
+		kj := all[j].LensSource + "|" + visionKey(all[j])
+		return ki < kj
+	})
+
+	return all
+}
+
 func sortedKeys(m map[string]bool) []string {
 	if len(m) == 0 {
 		return nil

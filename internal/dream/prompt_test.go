@@ -29,7 +29,7 @@ func TestBuildBatchPrompt_RendersTemplate(t *testing.T) {
 	}
 	ll := NewLucidLog(2000)
 
-	result := pb.BuildBatchPrompt(batch, ll)
+	result := pb.BuildBatchPrompt(batch, ll, "")
 	for _, want := range []string{"test-m1", "Test Decision", "auth, api", "clustered", "link_review"} {
 		if !strings.Contains(result, want) {
 			t.Errorf("expected prompt to contain %q", want)
@@ -53,7 +53,7 @@ func TestBuildBatchPrompt_SkipsMissingMote(t *testing.T) {
 	}
 	ll := NewLucidLog(2000)
 
-	result := pb.BuildBatchPrompt(batch, ll)
+	result := pb.BuildBatchPrompt(batch, ll, "")
 	if !strings.Contains(result, "Good Mote") {
 		t.Error("expected prompt to contain the good mote")
 	}
@@ -74,7 +74,7 @@ func TestBuildBatchPrompt_ContentLinkTask(t *testing.T) {
 	}
 	ll := NewLucidLog(2000)
 
-	result := pb.BuildBatchPrompt(batch, ll)
+	result := pb.BuildBatchPrompt(batch, ll, "")
 	if !strings.Contains(result, "Content Similarity") {
 		t.Error("expected content similarity section for content_link_review task")
 	}
@@ -95,6 +95,19 @@ func TestBuildReconciliationPrompt(t *testing.T) {
 	}
 	if !strings.Contains(result, "test pattern") {
 		t.Error("expected lucid log content in prompt")
+	}
+}
+
+func TestBuildBatchPrompt_LensFallback(t *testing.T) {
+	// A named lens with no template yet (ML-2 not wired) falls back to all-in-one
+	m := &core.Mote{ID: "m1", Title: "T", Tags: []string{"t"}}
+	reader := func(id string) (*core.Mote, error) { return m, nil }
+	pb := NewPromptBuilder(reader)
+	batch := Batch{Phase: "clustered", MoteIDs: []string{"m1"}, Tasks: []string{"link_review"}}
+	ll := NewLucidLog(2000)
+	result := pb.BuildBatchPrompt(batch, ll, "survivorship_bias")
+	if result == "" {
+		t.Error("expected non-empty prompt even for unimplemented lens (fallback to all-in-one)")
 	}
 }
 

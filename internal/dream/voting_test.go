@@ -133,6 +133,46 @@ func TestVoteVisions_Empty(t *testing.T) {
 	}
 }
 
+func TestMergeLensResults_PreservesAll(t *testing.T) {
+	v1 := Vision{Type: "link_suggestion", Action: "add_link", SourceMotes: []string{"a"}, TargetMotes: []string{"b"}, LinkType: "relates_to", Rationale: "r", Severity: "medium", LensSource: "survivorship_bias"}
+	v2 := Vision{Type: "staleness", Action: "deprecate", SourceMotes: []string{"c"}, Rationale: "old", Severity: "low", LensSource: "feedback_loops"}
+	result := MergeLensResults([][]Vision{{v1}, {v2}})
+	if len(result) != 2 {
+		t.Fatalf("expected 2 visions (union), got %d", len(result))
+	}
+}
+
+func TestMergeLensResults_CrossLensAgreement(t *testing.T) {
+	v1 := Vision{Type: "link_suggestion", Action: "add_link", SourceMotes: []string{"a"}, TargetMotes: []string{"b"}, LinkType: "relates_to", Rationale: "r", Severity: "medium", LensSource: "survivorship_bias"}
+	v2 := Vision{Type: "link_suggestion", Action: "add_link", SourceMotes: []string{"a"}, TargetMotes: []string{"b"}, LinkType: "relates_to", Rationale: "r2", Severity: "medium", LensSource: "inversion"}
+	result := MergeLensResults([][]Vision{{v1}, {v2}})
+	if len(result) != 2 {
+		t.Fatalf("expected 2 visions (both preserved), got %d", len(result))
+	}
+	for _, v := range result {
+		if len(v.CrossLensAgreement) != 2 {
+			t.Errorf("expected CrossLensAgreement with 2 entries, got %v", v.CrossLensAgreement)
+		}
+	}
+}
+
+func TestMergeLensResults_SameLensNoCrossMatch(t *testing.T) {
+	v1 := Vision{Type: "staleness", Action: "deprecate", SourceMotes: []string{"a"}, Rationale: "r", Severity: "low", LensSource: "survivorship_bias"}
+	v2 := Vision{Type: "staleness", Action: "deprecate", SourceMotes: []string{"a"}, Rationale: "r", Severity: "low", LensSource: "survivorship_bias"}
+	result := MergeLensResults([][]Vision{{v1}, {v2}})
+	for _, v := range result {
+		if len(v.CrossLensAgreement) > 0 {
+			t.Errorf("same lens should not produce cross-lens agreement, got %v", v.CrossLensAgreement)
+		}
+	}
+}
+
+func TestMergeLensResults_Empty(t *testing.T) {
+	if result := MergeLensResults(nil); result != nil {
+		t.Errorf("expected nil for empty input, got %v", result)
+	}
+}
+
 func TestMergeAgreedVisions_UnionsMotes(t *testing.T) {
 	group := []Vision{
 		{Type: "link_suggestion", Action: "add_link", SourceMotes: []string{"a", "b"}, TargetMotes: []string{"c"}, Rationale: "reason1", Severity: "medium"},

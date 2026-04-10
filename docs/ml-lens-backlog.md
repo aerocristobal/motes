@@ -43,19 +43,31 @@ Existing `self_consistency_runs` config continues to work. When `lens_mode.enabl
 
 ---
 
-## Questions and Decisions Required from Owner
+## Questions and Decisions Required from Product Owner
 
 > **Q1 — Lens count flexibility**: Should lens mode support any number of lenses (2, 3, 5), or enforce exactly 3 for parity with the existing 3x billing model? **Recommendation: Flexible** — list-based config is more powerful and no harder to implement. Projects with different knowledge profiles benefit from different lens counts.
 
+> **A1** - Agree with recommendation. Lens count should be flexible and configurable. The lens count should default at three on initial configuration.
+
 > **Q2 — Structural lens scope**: Should merge detection and action extraction live in the structural lens only, or should each cognitive lens also extract actions from findings in its own domain? E.g., should the survivorship bias lens also extract actions like "Add failure case data for X"? **Recommendation: Structural lens only** — cognitive lenses output cognitive findings; action extraction from those findings can be a downstream step.
+
+> **A2** - Agree with recommendation. Cognitive lenses output cognitive findings
 
 > **Q3 — Lens applicability when nothing found**: If a lens finds nothing applicable in a batch (e.g., no feedback loops detected), should it return an empty result set or a brief "no findings" explanation for the reconciliation context? **Recommendation: Empty set** — reconciliation tokens are wasted on "nothing found" prose.
 
+> **A3** - Agree with recommendation. Retuen an empty result.
+
 > **Q4 — Which cognitive lenses for v1?** Applying Munger's Rule of 3, the recommended v1 set is: one psychological lens (**survivorship bias**, already implemented in prompts), one causal/economic lens (**feedback loops**, already implemented in prompts), and one critical thinking lens (**inversion**, new but well-defined). This produces a genuinely triangulated analysis at no additional cost versus 3x-sonnet.
+
+> **A4** - Agree with recommendation. Implement inversion.
 
 > **Q5 — New mental models in scope for this series?** Inventory review identifies four models ready for full stories beyond the original plan (Inversion, First Principles, Probabilistic Thinking, Confirmation Bias upgrade). **Recommendation: Include all four** — they are analytically distinct and well-grounded in the inventory. See Epic ML-2 for readiness assessment.
 
+> **A5** - Agree with recommendation. Include all four
+
 > **Q6 — Quality ledger migration**: The `--quality` display currently shows `VotingConfig` as `"3x-sonnet"`. Lens mode needs a new label format (e.g., `"3x-lens[surv,floop,inv]"`). **Recommendation: No migration** — old rows display as-is; new rows use the new label format.
+
+> **A6** - Agree with recommendation. No migration.
 
 ---
 
@@ -286,10 +298,32 @@ This lens is analytically distinct from survivorship bias (which looks for missi
 
 **Output vision types:** `survivorship_risk` (reusing for fragile-assumption warnings), `link_suggestion` with `link_type: "assumption_risk"` (new), `add_signal` for knowledge clusters lacking opposing evidence.
 
-**⚠ Needs one decision before user stories:**
-- Should `assumption_risk` be a new link type, or should inversion findings use the existing `survivorship_risk` type? They are related but distinct — survivorship risk is about missing data, assumption risk is about unvalidated extrapolation.
+**Decision resolved (Q7):** `assumption_risk` is a **new link type**. Survivorship risk = missing data; assumption risk = unvalidated extrapolation. Semantically distinct — using the same type would obscure the analytical difference in reconciliation.
 
-**Status: Needs link type decision, otherwise ready for stories**
+**Output vision types:** `link_suggestion` with `link_type: "assumption_risk"`, `add_signal` for clusters lacking opposing evidence.
+
+**Acceptance Criteria:**
+```gherkin
+Given a batch with motes containing strong universal claims
+When the inversion lens analyzes the batch
+Then it produces visions of type link_suggestion with link_type: "assumption_risk"
+  for motes whose claims rest on untested assumptions
+And it produces add_signal visions for knowledge clusters
+  where all motes point toward the same conclusion
+And it does not flag motes that document alternatives or exit criteria
+
+Given a mote states a lesson as a universal principle
+And the mote has no documented failure conditions or counterexamples
+When the inversion lens analyzes it
+Then a vision is produced identifying the untested assumption
+And the vision rationale distinguishes assumption_risk from survivorship_risk
+
+Given a mote documents both assumptions and explicit alternatives considered
+When the inversion lens analyzes it
+Then no assumption_risk vision is produced for that mote
+```
+
+**Status: Ready for stories**
 
 ---
 
@@ -308,9 +342,29 @@ This lens is analytically distinct from survivorship bias (which looks for missi
 
 This is distinct from Occam's Razor (which simplifies) — First Principles decomposes and grounds. The structural lens handles merge candidates (too many motes); First Principles handles decomposition candidates (motes that are too compound or poorly grounded).
 
-**⚠ Needs design before user stories:**
-- What vision type should decomposition suggestions produce? `split` is not a current vision type. Could reuse `merge_suggestion` logic inverted, but a new `decompose_suggestion` type may be cleaner.
-- Risk of overlap with structural lens `merge_suggestion` — need clear boundary: structural finds duplicates, first principles finds over-compressed compounds.
+**Decision resolved (Q8):** New `decompose_suggestion` vision type. Inverse of `merge_suggestion` — structural lens finds duplicates (merge); first principles finds over-compressed compounds (decompose). Clear boundary: structural = duplicate content, first principles = over-compressed semantics.
+
+**Acceptance Criteria:**
+```gherkin
+Given a batch containing compound motes that conflate distinct concepts
+When the first principles lens analyzes the batch
+Then it produces visions of type decompose_suggestion for over-compressed motes
+And each decompose_suggestion vision identifies the distinct concepts to separate
+And it does not produce merge_suggestion visions (structural lens owns that)
+
+Given a mote cites analogy-based reasoning ("we do X because Company Y does X")
+When the first principles lens analyzes it
+Then a decompose_suggestion or add_signal vision is produced
+And the rationale notes missing first-principles grounding
+
+Given a mote references a concept that is never defined elsewhere in the graph
+When the first principles lens analyzes the batch
+Then an add_signal vision is produced flagging the missing foundational mote
+
+Given a mote contains only one well-grounded concept with documented reasoning chain
+When the first principles lens analyzes it
+Then no decompose_suggestion vision is produced for that mote
+```
 
 ---
 
@@ -364,10 +418,29 @@ This differs from survivorship bias (missing failure data) and inversion (untest
 
 **Scope:** Decisions or events documented with outcomes but not alternatives; topics appearing in many motes but lacking lessons; knowledge that would complement what exists but is missing.
 
-**⚠ Needs design before user stories:**
-- What vision types should this lens produce? `knowledge_gap` (suggesting a new mote to create) is not a current vision type. Creating net-new motes from a lens is a significant capability expansion.
-- Should the lens produce suggestions to create motes, or only flag absences for human review?
-- How should reconciliation handle absence claims — Opus cannot verify what's missing, only notice patterns in what's present.
+**Decision resolved (Q9):** Lens flags absences for human review only. Uses `add_signal` with `knowledge_gap:` prefix in rationale. No net-new mote creation — reconciliation evaluates absence patterns from what is present.
+
+**Note:** Implement after v1 lenses (ML-2.1–2.4, ML-2.7) are validated in production.
+
+**Acceptance Criteria:**
+```gherkin
+Given a batch with motes documenting a decision
+And the decision mote records the chosen option but no alternatives
+When the opportunity cost lens analyzes the batch
+Then an add_signal vision is produced noting the absence of alternatives
+And the vision type is add_signal (not a new-mote creation request)
+And the rationale contains "knowledge_gap: alternatives not documented"
+
+Given a topic that appears across many motes but lacks associated lessons
+When the opportunity cost lens identifies the pattern
+Then an add_signal vision is produced for the most-related mote
+  requesting a lesson be authored
+And the rationale contains "knowledge_gap: topic lacks lesson motes"
+
+Given a decision mote that documents both the chosen option and at least two alternatives considered
+When the opportunity cost lens analyzes it
+Then no opportunity cost vision is produced for that mote
+```
 
 ---
 
@@ -379,9 +452,31 @@ This differs from survivorship bias (missing failure data) and inversion (untest
 
 **Scope:** Complements the deterministic complexity thresholds in `mote doctor` but operates semantically. Is this concept modeled at the right level of abstraction? Is this link chain longer than the underlying reasoning requires?
 
-**⚠ Needs design before user stories:**
-- The deterministic doctor advisory already catches structural complexity (avg links, chain depth). What does the LLM lens add that the deterministic check misses? Needs a concrete example.
-- Risk of overlap with `merge_suggestion` vision type already produced by the structural lens. Clear boundary needed.
+**Design resolved:** LLM lens adds semantic complexity detection that deterministic thresholds miss — specifically, link chains longer than the underlying reasoning requires, and abstraction layers that could be collapsed. Uses `decompose_suggestion` vision type (introduced in ML-2.5). Clear boundary: structural lens = duplicate content (merge); Occam's Razor lens = over-complex abstraction (decompose to simplify). Never duplicates doctor's deterministic findings.
+
+**Note:** Implement after v1 lenses validated. Shares `decompose_suggestion` type with ML-2.5.
+
+**Acceptance Criteria:**
+```gherkin
+Given a batch with a mote that is linked to 5+ other motes
+And the link chain is longer than the underlying reasoning requires
+When the Occam's Razor lens analyzes the batch
+Then a decompose_suggestion vision is produced for the over-linked mote
+And the vision rationale explains what abstraction could be collapsed
+
+Given a mote that the deterministic doctor command already flagged for complexity
+When the Occam's Razor lens analyzes the same batch
+Then the lens produces no duplicate vision for the deterministic finding
+And focuses only on semantic complexity not caught by deterministic thresholds
+
+Given a mote with appropriate link complexity matching its conceptual scope
+When the Occam's Razor lens analyzes it
+Then no decompose_suggestion vision is produced for that mote
+
+Given lens name is "occams_razor"
+When BuildBatchPrompt is called
+Then the returned prompt does not produce merge_suggestion visions (structural lens owns that)
+```
 
 ---
 
@@ -477,20 +572,26 @@ The `dream --quality` and `dream --compare` commands need to surface per-lens me
 **I want to** see how many visions each lens produced and how many were applied
 **So that** I can tune which lenses to run and identify underperforming lenses
 
+**Decision resolved (Q10):** Per-lens breakdown via `--lens` flag only. The main table stays compact — inline per-lens columns would overflow standard terminals.
+
 **Acceptance Criteria:**
 ```gherkin
-Given a lens mode cycle completed with 3 lenses
-When mote dream --quality is run
-Then each row shows total visions with a per-lens breakdown available via --lens flag
+Given a lens mode cycle completed with lenses ["structural", "survivorship_bias", "inversion"]
+When mote dream --quality is run without --lens
+Then the table shows total visions per row only
+And no per-lens columns are added to the default view
 
-Given a lens produced 0 visions across all batches
-When mote dream --quality is run with --lens flag
-Then that lens is flagged as producing no findings
+Given mote dream --quality --lens is run
+Then an additional section shows per-lens vision counts and apply rates for each row
+And lenses that produced 0 findings are flagged with a warning indicator
+
+Given a legacy self_consistency_runs row exists in the quality ledger
+When mote dream --quality --lens is run
+Then the legacy row shows "N/A" in the per-lens section
 ```
 
-**⚠ Needs design decision:** Whether per-lens breakdown appears inline in the quality table or requires a `--lens` flag. The table is already wide — inline columns per lens will overflow on standard terminals.
-
-**Status: Needs layout decision before user stories**
+**Critical files:** `internal/dream/quality.go`, `cmd/mote/cmd_dream.go`
+**Status: Ready for user stories**
 
 ---
 
@@ -552,9 +653,8 @@ ML-1 (Architecture) ────────────────────
          ML-5.2 (vision provenance, quick win)
                     │
                     ▼
-         ML-5.1 (quality observability — needs layout decision)
-         ML-2.5 + ML-2.8 + ML-2.9 (first principles, opportunity cost, occam's
-                                     razor — after design questions resolved)
+         ML-5.1 (quality observability)
+         ML-2.5 + ML-2.8 + ML-2.9 (first principles, opportunity cost, occam's razor)
 ```
 
 ML-2.10 (Second-Order Impact) and ML-6 stubs are deferred until scoping is complete.
@@ -571,7 +671,7 @@ ML-2.10 (Second-Order Impact) and ML-6 stubs are deferred until scoping is compl
 | Q4 | Which cognitive lenses for v1? | ML-2 | Survivorship Bias + Feedback Loops + Inversion (Munger's Rule of 3: psychological, causal, critical thinking) |
 | Q5 | New mental models in scope? | ML-2.4–2.7 | Yes — Inversion, First Principles, Probabilistic Thinking, Confirmation Bias upgrade all included |
 | Q6 | Quality ledger migration for old rows? | ML-1.4 | No migration — old rows display as-is |
-| Q7 | Inversion link type — new `assumption_risk` or reuse `survivorship_risk`? | ML-2.4 | New type — semantically distinct |
-| Q8 | First Principles vision type — new `decompose_suggestion` or extend existing? | ML-2.5 | New type — decomposition is the inverse of merge, not the same operation |
-| Q9 | Opportunity Cost lens — should it propose net-new mote creation? | ML-2.8 | Decision needed before design can complete |
-| Q10 | ML-5.1 layout — inline per-lens columns vs. `--lens` flag? | ML-5.1 | `--lens` flag preferred — table is already wide |
+| Q7 | Inversion link type — new `assumption_risk` or reuse `survivorship_risk`? | ML-2.4 | **Resolved: New type** — survivorship risk = missing data; assumption risk = unvalidated extrapolation |
+| Q8 | First Principles vision type — new `decompose_suggestion` or extend existing? | ML-2.5 | **Resolved: New type** — decomposition is the inverse of merge; structural lens owns merge |
+| Q9 | Opportunity Cost lens — should it propose net-new mote creation? | ML-2.8 | **Resolved: No** — `add_signal` with `knowledge_gap:` rationale prefix; no mote creation |
+| Q10 | ML-5.1 layout — inline per-lens columns vs. `--lens` flag? | ML-5.1 | **Resolved: `--lens` flag** — table is already wide; default stays compact |

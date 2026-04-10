@@ -16,8 +16,10 @@ type Vision struct {
 	Rationale   string   `json:"rationale"`
 	Severity    string   `json:"severity"` // low, medium, high
 	Tags        []string `json:"tags,omitempty"`
-	Confidence  float64  `json:"confidence,omitempty"` // 0.0-1.0, deterministic
-	Agreement   float64  `json:"agreement,omitempty"`  // 0.0-1.0, fraction of runs that agreed
+	Confidence         float64  `json:"confidence,omitempty"`          // 0.0-1.0, deterministic
+	Agreement          float64  `json:"agreement,omitempty"`           // 0.0-1.0, fraction of runs that agreed (legacy voting mode)
+	LensSource         string   `json:"lens_source,omitempty"`         // lens that produced this vision (lens mode only)
+	CrossLensAgreement []string `json:"cross_lens_agreement,omitempty"` // other lenses that independently flagged the same vision key
 }
 
 // DreamResult is the summary returned after a dream run.

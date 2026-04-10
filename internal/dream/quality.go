@@ -47,6 +47,15 @@ type ConfigComparison struct {
 
 // VotingConfigLabel builds a human-readable label from the dream config.
 func VotingConfigLabel(cfg core.DreamConfig) string {
+	if cfg.Batching.LensMode.Enabled {
+		lenses := cfg.Batching.LensMode.Lenses
+		abbrs := make([]string, len(lenses))
+		for i, l := range lenses {
+			abbrs[i] = lensAbbreviation(l)
+		}
+		return fmt.Sprintf("%dx-lens[%s]", len(lenses), strings.Join(abbrs, ","))
+	}
+
 	scRuns := cfg.Batching.SelfConsistencyRuns
 	if scRuns <= 0 {
 		scRuns = 1
@@ -70,6 +79,28 @@ func VotingConfigLabel(cfg core.DreamConfig) string {
 		return "1x-" + short
 	}
 	return fmt.Sprintf("%dx-%s", scRuns, short)
+}
+
+// lensAbbreviation returns the short label used in quality ledger lens mode entries.
+func lensAbbreviation(lens string) string {
+	abbrevs := map[string]string{
+		"structural":        "struct",
+		"survivorship_bias": "surv",
+		"feedback_loops":    "floop",
+		"inversion":         "inv",
+		"first_principles":  "fp",
+		"probabilistic":     "prob",
+		"confirmation_bias": "conf",
+		"opportunity_cost":  "opp",
+		"occams_razor":      "occam",
+	}
+	if a, ok := abbrevs[lens]; ok {
+		return a
+	}
+	if len(lens) > 5 {
+		return lens[:5]
+	}
+	return lens
 }
 
 // globalLedgerPath returns the path to ~/.claude/memory/dream_quality.jsonl.

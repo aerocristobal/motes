@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -82,6 +83,11 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 
 	start := time.Now()
 
+	// Validate lens config before doing any work
+	if err := validateLensConfig(do.config.Batching.LensMode); err != nil {
+		return nil, err
+	}
+
 	// Stage 1: Pre-scan (deterministic, no LLM)
 	candidates, err := do.scanner.Scan()
 	if err != nil {
@@ -148,10 +154,76 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 			})
 
 			batchStart := time.Now()
-			prompt := do.prompts.BuildBatchPrompt(batch, do.lucidLog)
 
-			if scRuns == 1 {
-				// Single run (no voting)
+			lensMode := do.config.Batching.LensMode
+			if lensMode.Enabled {
+				// Lens mode: one run per lens, collect tagged union (no voting)
+				type lensRunResult struct {
+					lens         string
+					visions      []Vision
+					updates      LucidLogUpdates
+					inputTokens  int
+					outputTokens int
+					err          error
+				}
+				lensResults := make([]lensRunResult, len(lensMode.Lenses))
+				var lensWg sync.WaitGroup
+				for l, lensName := range lensMode.Lenses {
+					lensWg.Add(1)
+					go func(l int, lensName string) {
+						defer lensWg.Done()
+						prompt := do.prompts.BuildBatchPrompt(batch, do.lucidLog, lensName)
+						ir, err := do.invoker.Invoke(prompt, "sonnet")
+						if err != nil {
+							lensResults[l] = lensRunResult{lens: lensName, err: err}
+							return
+						}
+						visions, updates, parseErr := do.parser.ParseBatchResponse(ir.Response)
+						if parseErr != nil && strings.Contains(parseErr.Error(), "no JSON found") {
+							do.logFailedResponse(i+1, ir.Response)
+						}
+						for vi := range visions {
+							visions[vi].LensSource = lensName
+						}
+						lensResults[l] = lensRunResult{lens: lensName, visions: visions, updates: updates, inputTokens: ir.InputTokens, outputTokens: ir.OutputTokens}
+					}(l, lensName)
+				}
+				lensWg.Wait()
+
+				var allLensVisions [][]Vision
+				var mergedUpdates LucidLogUpdates
+				var batchInput, batchOutput int
+				for _, lr := range lensResults {
+					if lr.err != nil {
+						fmt.Fprintf(os.Stderr, "  warning: lens %q failed for batch %d: %v\n", lr.lens, i+1, lr.err)
+						continue
+					}
+					allLensVisions = append(allLensVisions, lr.visions)
+					batchInput += lr.inputTokens
+					batchOutput += lr.outputTokens
+					mergedUpdates.ObservedPatterns = append(mergedUpdates.ObservedPatterns, lr.updates.ObservedPatterns...)
+					mergedUpdates.Tensions = append(mergedUpdates.Tensions, lr.updates.Tensions...)
+					mergedUpdates.VisionsSummary = append(mergedUpdates.VisionsSummary, lr.updates.VisionsSummary...)
+					mergedUpdates.Interrupts = append(mergedUpdates.Interrupts, lr.updates.Interrupts...)
+					mergedUpdates.StrataHealth = append(mergedUpdates.StrataHealth, lr.updates.StrataHealth...)
+				}
+
+				merged := MergeLensResults(allLensVisions)
+				do.logger.Log(LogEntry{
+					Level:        "info",
+					Phase:        batch.Phase,
+					BatchIndex:   i + 1,
+					Message:      "batch complete (lens mode)",
+					VisionCount:  len(merged),
+					DurationMs:   time.Since(batchStart).Milliseconds(),
+					InputTokens:  batchInput,
+					OutputTokens: batchOutput,
+				})
+				results[i] = batchResult{index: i, visions: merged, updates: mergedUpdates, inputTokens: batchInput, outputTokens: batchOutput}
+
+			} else if scRuns == 1 {
+				// Single run (no voting, legacy mode)
+				prompt := do.prompts.BuildBatchPrompt(batch, do.lucidLog, "")
 				ir, err := do.invoker.Invoke(prompt, "sonnet")
 				if err != nil {
 					do.logger.Log(LogEntry{
@@ -181,7 +253,8 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 				})
 				results[i] = batchResult{index: i, visions: visions, updates: updates, inputTokens: ir.InputTokens, outputTokens: ir.OutputTokens, err: err}
 			} else {
-				// Self-consistency: invoke N times, vote on results
+				// Self-consistency: invoke N times, vote on results (legacy mode)
+				prompt := do.prompts.BuildBatchPrompt(batch, do.lucidLog, "")
 				type runResult struct {
 					visions      []Vision
 					updates      LucidLogUpdates
@@ -220,7 +293,6 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 					candidates = append(candidates, rr.visions)
 					batchInputTokens += rr.inputTokens
 					batchOutputTokens += rr.outputTokens
-					// Merge lucid log updates from all runs
 					mergedUpdates.ObservedPatterns = append(mergedUpdates.ObservedPatterns, rr.updates.ObservedPatterns...)
 					mergedUpdates.Tensions = append(mergedUpdates.Tensions, rr.updates.Tensions...)
 					mergedUpdates.VisionsSummary = append(mergedUpdates.VisionsSummary, rr.updates.VisionsSummary...)
@@ -503,6 +575,28 @@ func (do *DreamOrchestrator) logFailedResponse(batch int, raw string) {
 	defer f.Close()
 	f.Write(line)
 	f.Write([]byte{'\n'})
+}
+
+// validateLensConfig checks that all named lenses are recognized before the dream cycle starts.
+func validateLensConfig(lm core.LensModeConfig) error {
+	if !lm.Enabled {
+		return nil
+	}
+	for _, name := range lm.Lenses {
+		if !KnownLenses[name] {
+			return fmt.Errorf("unknown lens %q: valid lenses are %v", name, sortedLensNames())
+		}
+	}
+	return nil
+}
+
+func sortedLensNames() []string {
+	names := make([]string, 0, len(KnownLenses))
+	for k := range KnownLenses {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // scopeFromRoot derives the project name from the .memory root path.
