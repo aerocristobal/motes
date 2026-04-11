@@ -142,19 +142,20 @@ func TestValidateWeight(t *testing.T) {
 }
 
 func TestValidateEnum(t *testing.T) {
-	allowedStatuses := []string{"active", "deprecated", "completed", "archived"}
+	allowedStatuses := []string{"active", "in_progress", "deprecated", "completed", "archived"}
 
 	tests := []struct {
 		value   string
 		wantErr bool
 	}{
 		{"active", false},
+		{"in_progress", false},
 		{"deprecated", false},
 		{"completed", false},
 		{"archived", false},
-		{"", true},         // empty
-		{"invalid", true},  // not in allowed values
-		{"ACTIVE", true},   // case sensitive
+		{"", true},        // empty
+		{"invalid", true}, // not in allowed values
+		{"ACTIVE", true},  // case sensitive
 	}
 
 	for _, tt := range tests {

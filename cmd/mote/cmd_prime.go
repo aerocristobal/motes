@@ -158,10 +158,10 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 		return runPrimeResume(root, mm, motes, args)
 	}
 
-	// Get active tasks sorted by weight
+	// Get live tasks (active + in_progress) sorted by weight
 	var activeTasks []*core.Mote
 	for _, m := range motes {
-		if m.Type == "task" && m.Status == "active" {
+		if m.Type == "task" && core.IsLive(m.Status) {
 			activeTasks = append(activeTasks, m)
 		}
 	}
@@ -169,13 +169,13 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 		return activeTasks[i].Weight > activeTasks[j].Weight
 	})
 
-	// Fallback: no active tasks → show top 5 by weight
+	// Fallback: no live tasks → show top 5 by weight
 	if len(activeTasks) == 0 {
 		fmt.Println("No active tasks. Showing top motes by weight:")
 		fmt.Println()
 		var active []*core.Mote
 		for _, m := range motes {
-			if m.Status == "active" {
+			if core.IsLive(m.Status) {
 				active = append(active, m)
 			}
 		}
@@ -333,7 +333,7 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 					if seen[sr.DocID] {
 						continue
 					}
-					if m, ok := moteByID[sr.DocID]; ok && m.Status == "active" {
+					if m, ok := moteByID[sr.DocID]; ok && core.IsLive(m.Status) {
 						seen[sr.DocID] = true
 						contentEchoes = append(contentEchoes, core.ScoredMote{
 							Mote:  m,
@@ -671,10 +671,10 @@ func runPrimeResume(root string, mm *core.MoteManager, motes []*core.Mote, args 
 	// Read session access batch to find accessed mote IDs
 	accessedIDs := readAccessBatchIDs(root)
 
-	// Active tasks
+	// Live tasks (active + in_progress)
 	var activeTasks []*core.Mote
 	for _, m := range motes {
-		if m.Type == "task" && m.Status == "active" {
+		if m.Type == "task" && core.IsLive(m.Status) {
 			activeTasks = append(activeTasks, m)
 		}
 	}
@@ -701,7 +701,7 @@ func runPrimeResume(root string, mm *core.MoteManager, motes []*core.Mote, args 
 		fmt.Println("## Session context (accessed this session)")
 		fmt.Println()
 		for id := range accessedIDs {
-			if m, ok := moteByID[id]; ok && m.Status == "active" {
+			if m, ok := moteByID[id]; ok && core.IsLive(m.Status) {
 				fmt.Printf("  %s (%s) — %s\n", m.ID, m.Type, m.Title)
 			}
 		}

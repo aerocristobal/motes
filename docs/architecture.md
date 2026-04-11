@@ -80,7 +80,7 @@ type Mote struct {
     // Identity
     ID     string `yaml:"id"`
     Type   string `yaml:"type"`    // task|decision|lesson|context|question|constellation|anchor|explore
-    Status string `yaml:"status"`  // active|deprecated|archived|completed
+    Status string `yaml:"status"`  // active|in_progress|deprecated|archived|completed
     Title  string `yaml:"title"`
     Tags   []string `yaml:"tags"`
     Weight float64  `yaml:"weight"` // 0.0-1.0

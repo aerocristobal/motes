@@ -32,7 +32,7 @@ var (
 )
 
 func init() {
-	updateCmd.Flags().StringVar(&updateStatus, "status", "", "New status (active|completed|archived|deprecated)")
+	updateCmd.Flags().StringVar(&updateStatus, "status", "", "New status (active|in_progress|completed|archived|deprecated)")
 	updateCmd.Flags().StringVar(&updateTitle, "title", "", "New title")
 	updateCmd.Flags().Float64Var(&updateWeight, "weight", 0, "New weight (0.0-1.0)")
 	updateCmd.Flags().StringSliceVar(&updateAddTag, "add-tag", nil, "Tag to append (repeatable)")
@@ -208,10 +208,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 
 			// R5: tag-overlap link suggestions
 			if len(completedMote.Tags) > 0 {
-				activeTasks, _ := mm.List(core.ListFilters{Type: "task", Status: "active"})
+				liveTasks, _ := mm.List(core.ListFilters{Type: "task"})
 				var suggestions []*core.Mote
-				for _, t := range activeTasks {
-					if t.ID == moteID {
+				for _, t := range liveTasks {
+					if t.ID == moteID || !core.IsLive(t.Status) {
 						continue
 					}
 					if tagOverlapCount(completedMote.Tags, t.Tags) > 0 {

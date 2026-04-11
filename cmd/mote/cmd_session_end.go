@@ -330,7 +330,7 @@ func runSessionEndInner(cmd *cobra.Command, args []string) error {
 			var enriched int
 			for _, id := range sessionMoteIDs {
 				m, ok := moteMap[id]
-				if !ok || m.Status != "active" {
+				if !ok || !core.IsLive(m.Status) {
 					continue
 				}
 				if core.CountConcepts(m) >= 2 {

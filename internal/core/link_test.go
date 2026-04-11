@@ -406,6 +406,64 @@ func TestListReady_OnlyActiveTasks(t *testing.T) {
 	}
 }
 
+func TestListReady_ExcludesInProgress(t *testing.T) {
+	_, mm, _ := setupTestLink(t)
+
+	a, _ := mm.Create("task", "Queued task", CreateOpts{})
+	b, _ := mm.Create("task", "Started task", CreateOpts{})
+	mm.Update(b.ID, UpdateOpts{Status: StringPtr("in_progress")})
+
+	motes, err := mm.List(ListFilters{Ready: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the active task should be ready; in_progress is already started.
+	if len(motes) != 1 {
+		t.Fatalf("expected 1 ready task, got %d", len(motes))
+	}
+	if motes[0].ID != a.ID {
+		t.Errorf("expected active task %s to be ready, got %s", a.ID, motes[0].ID)
+	}
+}
+
+func TestListReady_BlockedByInProgressDep(t *testing.T) {
+	_, mm, im := setupTestLink(t)
+
+	blocked, _ := mm.Create("task", "Waiting", CreateOpts{})
+	blocker, _ := mm.Create("task", "In flight", CreateOpts{})
+
+	mm.Link(blocked.ID, "depends_on", blocker.ID, im)
+	mm.Update(blocker.ID, UpdateOpts{Status: StringPtr("in_progress")})
+
+	motes, err := mm.List(ListFilters{Ready: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// blocked must NOT be ready while its dep is in_progress.
+	for _, m := range motes {
+		if m.ID == blocked.ID {
+			t.Errorf("task %s should NOT be ready (blocker is in_progress)", blocked.ID)
+		}
+	}
+
+	// Completing the blocker unblocks the dependent.
+	mm.Update(blocker.ID, UpdateOpts{Status: StringPtr("completed")})
+	motes, err = mm.List(ListFilters{Ready: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, m := range motes {
+		if m.ID == blocked.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("task %s should be ready after blocker completed", blocked.ID)
+	}
+}
+
 func TestRebuild_BuiltByRef(t *testing.T) {
 	root, mm, _ := setupTestLink(t)
 

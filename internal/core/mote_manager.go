@@ -592,7 +592,9 @@ func (mm *MoteManager) Children(parentID string) ([]*Mote, error) {
 	return children, nil
 }
 
-// transitiveReady returns true if all transitive dependencies are non-active.
+// transitiveReady returns true if no transitive dependency is still live.
+// A "live" dep (active or in_progress) means the work isn't finished yet,
+// so the dependent task cannot be picked up.
 func transitiveReady(m *Mote, moteMap map[string]*Mote) bool {
 	visited := map[string]bool{m.ID: true}
 	queue := make([]string, len(m.DependsOn))
@@ -610,7 +612,7 @@ func transitiveReady(m *Mote, moteMap map[string]*Mote) bool {
 		if !ok {
 			return false // can't verify, assume not ready
 		}
-		if dep.Status == "active" {
+		if IsLive(dep.Status) {
 			return false
 		}
 		// Continue BFS through this dep's dependencies

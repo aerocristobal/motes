@@ -450,6 +450,27 @@ func TestUpdate_InvalidStatus(t *testing.T) {
 	}
 }
 
+func TestUpdate_InProgressStatus(t *testing.T) {
+	_, mm := setupTestMemory(t)
+	m, err := mm.Create("task", "title", CreateOpts{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mm.Update(m.ID, UpdateOpts{Status: StringPtr("in_progress")}); err != nil {
+		t.Fatalf("expected in_progress to be accepted, got %v", err)
+	}
+	got, err := mm.Read(m.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "in_progress" {
+		t.Errorf("status = %q, want in_progress", got.Status)
+	}
+	if got.StatusChangedAt == nil {
+		t.Error("StatusChangedAt should be set after status change")
+	}
+}
+
 func TestUpdate_InvalidWeight(t *testing.T) {
 	_, mm := setupTestMemory(t)
 	m, err := mm.Create("task", "title", CreateOpts{})

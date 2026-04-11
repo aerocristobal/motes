@@ -235,8 +235,8 @@ func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.Edge
 			})
 		}
 
-		// Deprecated blockers: active motes depending on deprecated motes
-		if m.Status == "active" {
+		// Deprecated blockers: live motes depending on deprecated motes
+		if core.IsLive(m.Status) {
 			for _, depID := range m.DependsOn {
 				if dep, ok := moteMap[depID]; ok && dep.Status == "deprecated" {
 					issues = append(issues, doctorIssue{
@@ -248,12 +248,12 @@ func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.Edge
 			}
 		}
 
-		// Stale motes: active with last_accessed > threshold days or nil
+		// Stale motes: live with last_accessed > threshold days or nil
 		stalenessThreshold := cfg.Dream.PreScan.StalenessThresholdDays
 		if stalenessThreshold <= 0 {
 			stalenessThreshold = 180
 		}
-		if m.Status == "active" {
+		if core.IsLive(m.Status) {
 			if m.LastAccessed == nil {
 				issues = append(issues, doctorIssue{
 					Category: "stale",
@@ -271,10 +271,10 @@ func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.Edge
 		}
 	}
 
-	// Test/scratch motes: active motes with test-like titles
+	// Test/scratch motes: live motes with test-like titles
 	testPrefixes := []string{"test ", "access test", "tag test", "scratch "}
 	for _, m := range motes {
-		if m.Status != "active" {
+		if !core.IsLive(m.Status) {
 			continue
 		}
 		lower := strings.ToLower(m.Title)

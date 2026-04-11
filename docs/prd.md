@@ -25,7 +25,7 @@ A hybrid strata integration (Epic 13) extends the system with reference knowledg
 | **Constellation** | A cluster of related motes organized around a common theme. Constellations are motes themselves (type=constellation) that act as hubs in the graph. | `mote constellation list`, `mote constellation synthesize` |
 | **Anchor** | A mote (type=anchor) that bridges the nebula to a strata corpus. When an anchor scores high enough during retrieval, it triggers a strata query. | `mote add --type=anchor` |
 | **Strata** | Deep, stable reference knowledge stores (API docs, specs, guides, codebases). Layered bedrock beneath the living nebula. Chunked, embedded, and searchable. | `mote strata add`, `mote strata query` |
-| **Pulse** | A filtered view of active task motes — the nebula's current heartbeat of work in progress. Not a separate concept; a lens on existing motes. | `mote pulse` (alias for `mote ls --status=active --type=task`) |
+| **Pulse** | A filtered view of queued (`active`) task motes — what to pick up next. Tasks currently in flight use the separate `in_progress` status and are visible via `mote ls --status=in_progress`. | `mote pulse` (alias for `mote ls --status=active --type=task`) |
 | **Dream** | The periodic maintenance cycle where a headless LLM reviews the nebula holistically — discovering latent connections, detecting contradictions, evolving constellations, and proposing crystallizations. Runs outside active sessions. | `mote dream`, `mote dream --review` |
 | **Vision** | A proposed change produced by the dream cycle. Visions are never applied automatically — they require human or in-session Claude review. | `mote dream --review` presents visions |
 | **Lucid Log** | The accumulating context document maintained across dream batches. Ensures later batches reason with awareness of earlier discoveries. | `.memory/dream/lucid.json` |
@@ -1954,7 +1954,7 @@ And suggests the simplest option (Ollama with nomic-embed-text)
 ```yaml
 id: proj-L1a2b3c4
 type: lesson          # task | decision | lesson | context | question | constellation | anchor | explore
-status: active        # active | deprecated | archived | completed
+status: active        # active | in_progress | deprecated | archived | completed
 title: "OAuth token refresh requires x-api-key header"
 tags: [oauth, anthropic, litellm, patch-required]
 weight: 0.9           # 0.0–1.0, manually assigned importance

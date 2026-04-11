@@ -47,7 +47,7 @@ func init() {
 	addCmd.Flags().StringSliceVar(&addAccept, "accept", nil, "Acceptance criterion (repeatable)")
 	addCmd.Flags().StringVar(&addSize, "size", "", "Effort size (xs|s|m|l|xl)")
 	addCmd.Flags().StringSliceVar(&addRefs, "ref", nil, "External reference (format: provider:id[:url], repeatable)")
-	addCmd.Flags().StringVar(&addStatus, "status", "", "Initial status (active|completed|archived|deprecated)")
+	addCmd.Flags().StringVar(&addStatus, "status", "", "Initial status (active|in_progress|completed|archived|deprecated)")
 	addCmd.Flags().BoolVar(&addLocal, "local", false, "Force local storage for knowledge types (decision, lesson, explore, context, question)")
 	addCmd.Flags().BoolVar(&addForce, "force", false, "Bypass security scan blocks (for false positives)")
 	addCmd.Flags().BoolVar(&addQuiet, "quiet", false, "Suppress security scan warnings on stderr")
@@ -215,12 +215,12 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		_ = rebuildMoteBM25(root, allMotes)
 	}
 
-	// Warn if parent already has many active children
+	// Warn if parent already has many live children
 	if addParent != "" {
 		if children, err := mm.Children(addParent); err == nil {
 			activeCount := 0
 			for _, c := range children {
-				if c.Status == "active" {
+				if core.IsLive(c.Status) {
 					activeCount++
 				}
 			}
