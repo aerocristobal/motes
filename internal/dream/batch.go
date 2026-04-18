@@ -22,7 +22,7 @@ func NewBatchConstructor(cfg core.BatchingConfig, reader func(string) (*core.Mot
 func (bc *BatchConstructor) Build(candidates *ScanResult) []Batch {
 	maxPerBatch := bc.config.MaxMotesPerBatch
 	if maxPerBatch <= 0 {
-		maxPerBatch = 25
+		maxPerBatch = 50
 	}
 	clusteredFrac := bc.config.ClusteredFraction
 	if clusteredFrac <= 0 {

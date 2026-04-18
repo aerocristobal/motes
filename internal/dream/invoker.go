@@ -49,11 +49,11 @@ type ClaudeInvoker struct {
 func NewClaudeInvoker(cfg core.DreamProvider) *ClaudeInvoker {
 	batchModel := cfg.Batch.Model
 	if batchModel == "" {
-		batchModel = "claude-sonnet-4-20250514"
+		batchModel = "claude-sonnet-4-6"
 	}
 	reconModel := cfg.Reconciliation.Model
 	if reconModel == "" {
-		reconModel = "claude-opus-4-20250514"
+		reconModel = "claude-opus-4-6"
 	}
 	return &ClaudeInvoker{
 		batchModel:  batchModel,
