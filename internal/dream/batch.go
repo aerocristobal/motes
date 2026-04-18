@@ -22,7 +22,7 @@ func NewBatchConstructor(cfg core.BatchingConfig, reader func(string) (*core.Mot
 func (bc *BatchConstructor) Build(candidates *ScanResult) []Batch {
 	maxPerBatch := bc.config.MaxMotesPerBatch
 	if maxPerBatch <= 0 {
-		maxPerBatch = 10
+		maxPerBatch = 25
 	}
 	clusteredFrac := bc.config.ClusteredFraction
 	if clusteredFrac <= 0 {
@@ -190,6 +190,19 @@ func (bc *BatchConstructor) Build(candidates *ScanResult) []Batch {
 
 	// Ensure merge cluster co-location: all members of each cluster must be in the same batch
 	batches = ensureMergeCoLocation(batches, candidates.MergeCandidates, moteTaskMap)
+
+	// Apply MaxBatches cap: prefer clustered batches (higher information density)
+	maxBatches := bc.config.MaxBatches
+	if maxBatches > 0 && len(batches) > maxBatches {
+		// Stable sort: clustered batches first, then interleaved
+		sort.SliceStable(batches, func(i, j int) bool {
+			if batches[i].Phase == "clustered" && batches[j].Phase != "clustered" {
+				return true
+			}
+			return false
+		})
+		batches = batches[:maxBatches]
+	}
 
 	return batches
 }

@@ -67,8 +67,8 @@ func TestDefaultConfig_Populated(t *testing.T) {
 	if cfg.Dream.ScheduleHintDays != 2 {
 		t.Errorf("ScheduleHintDays: got %d, want 2", cfg.Dream.ScheduleHintDays)
 	}
-	if cfg.Dream.Batching.MaxMotesPerBatch != 10 {
-		t.Errorf("MaxMotesPerBatch: got %d, want 10", cfg.Dream.Batching.MaxMotesPerBatch)
+	if cfg.Dream.Batching.MaxMotesPerBatch != 25 {
+		t.Errorf("MaxMotesPerBatch: got %d, want 25", cfg.Dream.Batching.MaxMotesPerBatch)
 	}
 
 	// Strata

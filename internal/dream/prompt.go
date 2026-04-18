@@ -3,6 +3,7 @@ package dream
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"text/template"
 	"time"
@@ -46,6 +47,18 @@ func NewPromptBuilder(reader func(string) (*core.Mote, error)) *PromptBuilder {
 			}
 			return false
 		},
+		"hasMoteType": func(motes []*core.Mote, types ...string) bool {
+			typeSet := make(map[string]bool, len(types))
+			for _, t := range types {
+				typeSet[t] = true
+			}
+			for _, m := range motes {
+				if typeSet[m.Type] {
+					return true
+				}
+			}
+			return false
+		},
 	}
 	pb := &PromptBuilder{reader: reader}
 	pb.batchTmpl = template.Must(template.New("batch").Funcs(funcMap).Parse(batchPromptTmpl))
@@ -76,6 +89,19 @@ type batchPromptData struct {
 	Tasks    []string
 }
 
+// maxBodyWords is the word limit for mote bodies in batch prompts.
+// Longer bodies are truncated to reduce token consumption.
+const maxBodyWords = 200
+
+// truncateBody limits a mote body to maxBodyWords, appending a note if truncated.
+func truncateBody(body string) string {
+	words := strings.Fields(body)
+	if len(words) <= maxBodyWords {
+		return body
+	}
+	return strings.Join(words[:maxBodyWords], " ") + fmt.Sprintf("\n[...truncated, %d more words]", len(words)-maxBodyWords)
+}
+
 // BuildBatchPrompt generates the prompt for a single batch.
 // lens is the cognitive lens to apply; empty string uses the legacy all-in-one prompt.
 func (pb *PromptBuilder) BuildBatchPrompt(batch Batch, ll *LucidLog, lens string) string {
@@ -85,11 +111,15 @@ func (pb *PromptBuilder) BuildBatchPrompt(batch Batch, ll *LucidLog, lens string
 		if err != nil {
 			continue
 		}
+		// Truncate long bodies to reduce token consumption
+		m.Body = truncateBody(m.Body)
 		motes = append(motes, m)
 	}
 
+	// Omit lucid log from batch prompts — batches run in parallel so cross-batch
+	// state is stale. The lucid log is only useful for reconciliation.
 	data := batchPromptData{
-		LucidLog: ll.Serialize(),
+		LucidLog: "",
 		Phase:    batch.Phase,
 		Cluster:  batch.PrimaryCluster,
 		Motes:    motes,
@@ -148,15 +178,14 @@ func formatTime(t *time.Time) string {
 }
 
 var batchPromptTmpl = `You are performing dream cycle maintenance on a mote nebula.
-
+{{if .LucidLog}}
 ## Lucid Log
 {{.LucidLog}}
-
+{{end}}
 ## Batch ({{.Phase}}: {{.Cluster}})
 {{range .Motes}}
 ### {{.ID}} — {{.Title}}
-Type: {{.Type}} | Origin: {{.Origin}} | Weight: {{printf "%.2f" .Weight}} | Tags: {{joinTags .Tags}}
-Last accessed: {{formatTime .LastAccessed}} | Access count: {{.AccessCount}}
+Type: {{.Type}} | Tags: {{joinTags .Tags}}
 
 {{.Body}}
 ---
@@ -211,6 +240,7 @@ Produce an action_extraction vision:
 Skip motes whose body does not contain a clear prescriptive statement.
 {{end}}
 
+{{if hasMoteType .Motes "lesson" "decision" "context"}}
 ## Survivorship Bias Guard
 For any lesson, decision, or context mote, check whether the body presents conclusions based
 only on visible outcomes (successes, survivors, returning cases) while ignoring the unobserved
@@ -231,7 +261,7 @@ When two or more motes in this batch both show survivorship bias on the same top
 a link_suggestion vision with link_type: "survivorship_risk" connecting them — so the pattern
 surfaces in reconciliation and becomes navigable in the graph.
 Only flag cases grounded in the body text; do not flag motes that explicitly acknowledge their limitations.
-
+{{end}}
 IMPORTANT: Respond with ONLY a single JSON object, no other text. Do not wrap in markdown code fences.
 
 Required format:
@@ -338,14 +368,14 @@ If no visions, respond with: {"visions": []}
 
 // lensPromptHeader is the shared mote display block used by all lens templates.
 const lensPromptHeader = `
+{{if .LucidLog}}
 ## Lucid Log
 {{.LucidLog}}
-
+{{end}}
 ## Batch ({{.Phase}}: {{.Cluster}})
 {{range .Motes}}
 ### {{.ID}} — {{.Title}}
-Type: {{.Type}} | Origin: {{.Origin}} | Weight: {{printf "%.2f" .Weight}} | Tags: {{joinTags .Tags}}
-Last accessed: {{formatTime .LastAccessed}} | Access count: {{.AccessCount}}
+Type: {{.Type}} | Tags: {{joinTags .Tags}}
 
 {{.Body}}
 ---

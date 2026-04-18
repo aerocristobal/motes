@@ -346,11 +346,21 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 		fmt.Printf("  Batch %d: %d visions\n", r.index+1, len(r.visions))
 	}
 
-	// Stage 3: Reconciliation (Claude Opus)
+	// Stage 3: Reconciliation
+	// Skip for very small batch counts; use Sonnet instead of Opus for moderate counts.
 	var finalVisions []Vision
-	if do.config.Reconciliation.Enabled {
-		fmt.Println("  Reconciliation...")
-		do.logger.Log(LogEntry{Level: "info", Phase: "reconcile", Message: "reconciliation start"})
+	batchCount := len(batches)
+	skipThreshold := do.config.Reconciliation.SkipThreshold
+	sonnetThreshold := do.config.Reconciliation.SonnetThreshold
+
+	shouldReconcile := do.config.Reconciliation.Enabled && batchCount > skipThreshold
+	if shouldReconcile {
+		reconModel := "opus"
+		if sonnetThreshold > 0 && batchCount <= sonnetThreshold {
+			reconModel = "sonnet"
+		}
+		fmt.Printf("  Reconciliation (%s, %d batches)...\n", reconModel, batchCount)
+		do.logger.Log(LogEntry{Level: "info", Phase: "reconcile", Message: fmt.Sprintf("reconciliation start (model=%s)", reconModel)})
 		reconStart := time.Now()
 		var reconPrompt string
 		if do.config.Batching.LensMode.Enabled {
@@ -358,7 +368,7 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 		} else {
 			reconPrompt = do.prompts.BuildReconciliationPrompt(do.lucidLog)
 		}
-		reconResult, err := do.invoker.Invoke(reconPrompt, "opus")
+		reconResult, err := do.invoker.Invoke(reconPrompt, reconModel)
 		if err == nil {
 			finalVisions, _ = do.parser.ParseReconciliationResponse(reconResult.Response)
 			totalInput += reconResult.InputTokens
@@ -377,6 +387,9 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 			DurationMs:  time.Since(reconStart).Milliseconds(),
 		})
 	} else {
+		if do.config.Reconciliation.Enabled && batchCount <= skipThreshold {
+			fmt.Printf("  Reconciliation skipped (%d batches <= skip threshold %d)\n", batchCount, skipThreshold)
+		}
 		finalVisions = do.visions.ReadDrafts()
 	}
 

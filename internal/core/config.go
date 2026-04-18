@@ -112,6 +112,7 @@ type LensModeConfig struct {
 type BatchingConfig struct {
 	Strategy            string         `yaml:"strategy"`
 	MaxMotesPerBatch    int            `yaml:"max_motes_per_batch"`
+	MaxBatches          int            `yaml:"max_batches"` // hard cap on total batch count; 0 = unlimited
 	ClusteredFraction   float64        `yaml:"clustered_fraction"`
 	MaxConcurrent       int            `yaml:"max_concurrent"`
 	SelfConsistencyRuns int            `yaml:"self_consistency_runs"` // default 1 (disabled), 3 for voting; ignored when LensMode.Enabled
@@ -119,8 +120,10 @@ type BatchingConfig struct {
 }
 
 type ReconConfig struct {
-	Enabled        bool `yaml:"enabled"`
-	MaxRefetchMotes int  `yaml:"max_refetch_motes"`
+	Enabled             bool `yaml:"enabled"`
+	MaxRefetchMotes     int  `yaml:"max_refetch_motes"`
+	SonnetThreshold     int  `yaml:"sonnet_threshold"`     // batch count at or below which Sonnet is used instead of Opus; 0 = always use configured model
+	SkipThreshold       int  `yaml:"skip_threshold"`       // batch count at or below which reconciliation is skipped entirely; 0 = never skip
 }
 
 type PreScanConfig struct {
@@ -242,12 +245,15 @@ func DefaultConfig() *Config {
 			},
 			Batching: BatchingConfig{
 				Strategy:          "hybrid",
-				MaxMotesPerBatch:  10,
+				MaxMotesPerBatch:  25,
+				MaxBatches:        20,
 				ClusteredFraction: 0.6,
 			},
 			Reconciliation: ReconConfig{
-				Enabled:        true,
+				Enabled:         true,
 				MaxRefetchMotes: 15,
+				SkipThreshold:   3,
+				SonnetThreshold: 10,
 			},
 			PreScan: PreScanConfig{
 				LinkCandidateMinSharedTags: 3,
