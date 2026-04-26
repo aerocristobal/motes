@@ -161,14 +161,14 @@ func TestEnsureClaudeHooks_CreatesNew(t *testing.T) {
 	}
 
 	hooks := settings["hooks"].(map[string]interface{})
-	if !hookEventHasCommand(hooks, "SessionStart", "mote prime --hook --mode=startup") {
-		t.Error("expected SessionStart hook with startup mode")
+	if !hookEventHasCommand(hooks, "SessionStart", claudeAgentKindPrefix+"mote prime --hook --mode=startup") {
+		t.Error("expected SessionStart hook with startup mode (kind-prefixed)")
 	}
-	if !hookEventHasCommand(hooks, "PreCompact", "mote prime --hook --mode=compact") {
-		t.Error("expected PreCompact hook with compact mode")
+	if !hookEventHasCommand(hooks, "PreCompact", claudeAgentKindPrefix+"mote prime --hook --mode=compact") {
+		t.Error("expected PreCompact hook with compact mode (kind-prefixed)")
 	}
-	if !hookEventHasCommand(hooks, "UserPromptSubmit", "mote prompt-context") {
-		t.Error("expected UserPromptSubmit hook with mote prompt-context")
+	if !hookEventHasCommand(hooks, "UserPromptSubmit", claudeAgentKindPrefix+"mote prompt-context") {
+		t.Error("expected UserPromptSubmit hook with mote prompt-context (kind-prefixed)")
 	}
 }
 
@@ -206,7 +206,7 @@ func TestEnsureClaudeHooks_MergesExisting(t *testing.T) {
 	}
 
 	// PreCompact should be added
-	if !hookEventHasCommand(hooks, "PreCompact", "mote prime --hook --mode=compact") {
+	if !hookEventHasCommand(hooks, "PreCompact", claudeAgentKindPrefix+"mote prime --hook --mode=compact") {
 		t.Error("expected PreCompact hook to be added")
 	}
 

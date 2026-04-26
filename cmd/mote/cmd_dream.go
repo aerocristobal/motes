@@ -153,6 +153,14 @@ func runDream(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+
+	// Regenerate the cross-agent MOTES.md index. Failure here is non-fatal —
+	// the dream cycle's actual work is already done.
+	if gRoot, err := core.GlobalRoot(); err == nil {
+		if err := core.GenerateMotesIndex(gRoot); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: regenerate MOTES.md: %v\n", err)
+		}
+	}
 	return nil
 }
 

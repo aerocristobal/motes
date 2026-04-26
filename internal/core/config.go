@@ -93,9 +93,18 @@ type DreamConfig struct {
 }
 
 type DreamProvider struct {
-	Batch          ProviderEntry `yaml:"batch"`
-	Reconciliation ProviderEntry `yaml:"reconciliation"`
-	RateLimitRPM   int           `yaml:"rate_limit_rpm"` // 0 = unlimited
+	Batch          ProviderEntry            `yaml:"batch"`
+	Reconciliation ProviderEntry            `yaml:"reconciliation"`
+	RateLimitRPM   int                      `yaml:"rate_limit_rpm"` // 0 = unlimited
+	PerAgent       map[string]AgentProvider `yaml:"per_agent,omitempty"`
+}
+
+// AgentProvider overrides batch and/or reconciliation entries for a specific
+// agent kind (claude, codex, gemini, or a custom MOTE_AGENT_KIND value).
+// Pointer fields allow partial overrides — nil means "leave the base alone."
+type AgentProvider struct {
+	Batch          *ProviderEntry `yaml:"batch,omitempty"`
+	Reconciliation *ProviderEntry `yaml:"reconciliation,omitempty"`
 }
 
 type ProviderEntry struct {
@@ -135,6 +144,18 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf(
 			"dream.provider.reconciliation.backend %q is not recognized; valid values: %v",
 			cfg.Dream.Provider.Reconciliation.Backend, ValidProviderBackends)
+	}
+	for kind, ap := range cfg.Dream.Provider.PerAgent {
+		if ap.Batch != nil && !isValidBackend(ap.Batch.Backend) {
+			return fmt.Errorf(
+				"dream.provider.per_agent.%s.batch.backend %q is not recognized; valid values: %v",
+				kind, ap.Batch.Backend, ValidProviderBackends)
+		}
+		if ap.Reconciliation != nil && !isValidBackend(ap.Reconciliation.Backend) {
+			return fmt.Errorf(
+				"dream.provider.per_agent.%s.reconciliation.backend %q is not recognized; valid values: %v",
+				kind, ap.Reconciliation.Backend, ValidProviderBackends)
+		}
 	}
 	return nil
 }
@@ -359,18 +380,67 @@ func SaveConfig(root string, cfg *Config) error {
 	return AtomicWrite(filepath.Join(root, "config.yaml"), data, 0644)
 }
 
-// LoadConfig reads config from .memory/config.yaml, falling back to defaults.
+// LoadConfig reads config in layers, last wins:
+//
+//  1. DefaultConfig() — built-in defaults.
+//  2. <GlobalRoot>/config.yaml — user-wide defaults (e.g. "always use gemini-vertex").
+//  3. <root>/config.yaml — project overrides.
+//  4. dream.provider.per_agent[MOTE_AGENT_KIND] — per-agent overrides applied
+//     to dream.provider.batch and .reconciliation.
+//
+// Missing files at layers 2 or 3 are not errors. Layer 4 only fires when
+// MOTE_AGENT_KIND is set and the matching per_agent entry exists.
 func LoadConfig(root string) (*Config, error) {
-	data, err := os.ReadFile(filepath.Join(root, "config.yaml"))
-	if err != nil {
-		return DefaultConfig(), nil
-	}
 	cfg := DefaultConfig()
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("bad config: %w", err)
+
+	if globalRoot, err := GlobalRoot(); err == nil {
+		if err := mergeConfigFile(cfg, filepath.Join(globalRoot, "config.yaml")); err != nil {
+			return nil, fmt.Errorf("global config: %w", err)
+		}
 	}
+
+	if err := mergeConfigFile(cfg, filepath.Join(root, "config.yaml")); err != nil {
+		return nil, fmt.Errorf("project config: %w", err)
+	}
+
+	applyAgentOverrides(cfg, ResolveAgentKind())
+
 	if err := validateConfig(cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// mergeConfigFile overlays a YAML config file onto cfg. Missing files are not
+// an error — they simply leave cfg unchanged. Malformed YAML is.
+func mergeConfigFile(cfg *Config, path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return fmt.Errorf("bad config %s: %w", path, err)
+	}
+	return nil
+}
+
+// applyAgentOverrides copies any per-agent provider entries onto the base
+// dream.provider fields when MOTE_AGENT_KIND matches.
+func applyAgentOverrides(cfg *Config, kind string) {
+	if kind == "" || cfg.Dream.Provider.PerAgent == nil {
+		return
+	}
+	override, ok := cfg.Dream.Provider.PerAgent[kind]
+	if !ok {
+		return
+	}
+	if override.Batch != nil {
+		cfg.Dream.Provider.Batch = *override.Batch
+	}
+	if override.Reconciliation != nil {
+		cfg.Dream.Provider.Reconciliation = *override.Reconciliation
+	}
 }

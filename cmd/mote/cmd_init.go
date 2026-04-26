@@ -21,7 +21,7 @@ var initCmd = &cobra.Command{
 var initGlobal bool
 
 func init() {
-	initCmd.Flags().BoolVar(&initGlobal, "global", false, "Initialize global memory at ~/.claude/memory/")
+	initCmd.Flags().BoolVar(&initGlobal, "global", false, "Initialize global memory at ~/.motes/")
 	rootCmd.AddCommand(initCmd)
 }
 
@@ -100,7 +100,10 @@ func runInitProject() error {
 }
 
 func runInitGlobal() error {
-	root := globalRoot()
+	root, err := core.GlobalRoot()
+	if err != nil {
+		return err
+	}
 	fmt.Printf("Initialized global memory at %s\n", root)
 
 	created, err := ensureDir(filepath.Join(root, "nodes"))

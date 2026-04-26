@@ -104,15 +104,13 @@ func lensAbbreviation(lens string) string {
 	return lens
 }
 
-// globalLedgerPath returns the path to ~/.claude/memory/dream_quality.jsonl.
+// globalLedgerPath returns the path to <GlobalRoot>/dream_quality.jsonl.
 func globalLedgerPath() (string, error) {
-	globalDir, err := core.GlobalNodesDir()
+	root, err := core.GlobalRoot()
 	if err != nil {
 		return "", err
 	}
-	// GlobalNodesDir returns ~/.claude/memory/nodes/, go up one level
-	memDir := filepath.Dir(globalDir)
-	return filepath.Join(memDir, "dream_quality.jsonl"), nil
+	return filepath.Join(root, "dream_quality.jsonl"), nil
 }
 
 // AppendQualityEntry writes a single entry to the global quality ledger.

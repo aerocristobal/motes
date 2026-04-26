@@ -14,7 +14,7 @@ var migrateGlobalCmd = &cobra.Command{
 	Use:   "migrate-global",
 	Short: "Migrate local knowledge motes to global storage",
 	Long: `Moves existing project-local knowledge motes (decision, lesson, explore, context, question)
-to the global store at ~/.claude/memory/nodes/. Task, constellation, and anchor motes remain local.
+to the global store at ~/.motes/nodes/. Task, constellation, and anchor motes remain local.
 
 Rewrites IDs from project scope to global scope, updates edges in all affected motes,
 and leaves forwarding tombstones in the local store. Safe to run multiple times (idempotent).`,

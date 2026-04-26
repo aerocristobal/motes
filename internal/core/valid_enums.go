@@ -8,7 +8,7 @@ var (
 	ValidOrigins  = []string{"normal", "failure", "revert", "hotfix", "discovery"}
 	ValidSizes    = []string{"xs", "s", "m", "l", "xl"}
 
-	// KnowledgeTypes are mote types that default to global storage (~/.claude/memory/nodes/).
+	// KnowledgeTypes are mote types that default to global storage (~/.motes/nodes/).
 	// Task, constellation, and anchor types remain project-local.
 	KnowledgeTypes = map[string]bool{
 		"decision": true, "lesson": true, "explore": true,

@@ -36,3 +36,17 @@ func TestResolveAgentID_FallbackFormat(t *testing.T) {
 		t.Fatalf("fallback ID should contain '-', got %q", id)
 	}
 }
+
+func TestResolveAgentKind_FromEnv(t *testing.T) {
+	t.Setenv("MOTE_AGENT_KIND", "codex")
+	if got := ResolveAgentKind(); got != "codex" {
+		t.Errorf("ResolveAgentKind() = %q, want %q", got, "codex")
+	}
+}
+
+func TestResolveAgentKind_EmptyWhenUnset(t *testing.T) {
+	t.Setenv("MOTE_AGENT_KIND", "")
+	if got := ResolveAgentKind(); got != "" {
+		t.Errorf("ResolveAgentKind() = %q, want empty", got)
+	}
+}

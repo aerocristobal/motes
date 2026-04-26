@@ -91,7 +91,7 @@ To set up global (cross-project) memory:
 mote onboard --global
 ```
 
-This creates `~/.claude/memory/` with the same structure as project memory. If `~/.beads/` exists, global beads issues are imported too.
+This creates `~/.motes/` with the same structure as project memory. If `~/.beads/` exists, global beads issues are imported too. Existing users with motes content under the legacy `~/.claude/memory/` are migrated automatically on the first `mote` command — only motes-owned files move; Claude's auto-memory (`MEMORY.md` and top-level `*.md`) is left in place.
 
 Use `mote promote <id>` to copy project-local motes to the global layer for cross-project access.
 

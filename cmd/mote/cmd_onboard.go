@@ -70,7 +70,7 @@ var (
 )
 
 func init() {
-	onboardCmd.Flags().BoolVar(&onboardGlobal, "global", false, "Onboard the global layer (~/.claude/memory/)")
+	onboardCmd.Flags().BoolVar(&onboardGlobal, "global", false, "Onboard the global layer (~/.motes/)")
 	onboardCmd.Flags().BoolVar(&onboardDryRun, "dry-run", false, "Show what would happen without writing")
 	onboardCmd.Flags().BoolVar(&onboardIncludeClosed, "include-closed", false, "Also import closed beads/github issues (default: open only)")
 	onboardCmd.Flags().BoolVar(&onboardCleanup, "cleanup", false, "Remove .beads/ after successful import")
@@ -285,6 +285,13 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 			ensureGeminiSettings(filepath.Join(home, ".gemini"), true)
 		}
 		ensureMoteSkills(home, true)
+		ensureClaudeGlobalShim(home, true)
+		if codexEnabled(home) {
+			ensureCodexGlobalShim(home, true)
+		}
+		if geminiEnabled(home) {
+			ensureGeminiGlobalShim(home, true)
+		}
 		ensurePreCommitHook(cwd, true)
 		return nil
 	}
@@ -331,6 +338,21 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 	// Install skills (writes to ~/.agents/skills too when codex or gemini is enabled)
 	if err := ensureMoteSkills(home, false); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
+	}
+
+	// Install per-agent global shims pointing at MOTES.md.
+	if err := ensureClaudeGlobalShim(home, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: claude shim: %v\n", err)
+	}
+	if codexEnabled(home) {
+		if err := ensureCodexGlobalShim(home, false); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: codex shim: %v\n", err)
+		}
+	}
+	if geminiEnabled(home) {
+		if err := ensureGeminiGlobalShim(home, false); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: gemini shim: %v\n", err)
+		}
 	}
 
 	// Install pre-commit hook
@@ -489,7 +511,10 @@ func runOnboardProject() error {
 }
 
 func runOnboardGlobal() error {
-	gRoot := globalRoot()
+	gRoot, err := core.GlobalRoot()
+	if err != nil {
+		return err
+	}
 
 	// --- Detection ---
 	fmt.Println("Detecting global sources...")
@@ -507,9 +532,9 @@ func runOnboardGlobal() error {
 		fmt.Println("  ~/.beads/              not found")
 	}
 	if memoryDirExists {
-		fmt.Println("  ~/.claude/memory/      exists")
+		fmt.Printf("  %s   exists\n", gRoot)
 	} else {
-		fmt.Println("  ~/.claude/memory/      will create")
+		fmt.Printf("  %s   will create\n", gRoot)
 	}
 
 	home, _ := os.UserHomeDir()
@@ -631,6 +656,26 @@ func runOnboardGlobal() error {
 		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
 	}
 
+	// --- Install per-agent global shims ---
+	if err := ensureClaudeGlobalShim(home, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: claude shim: %v\n", err)
+	}
+	if codexEnabled(home) {
+		if err := ensureCodexGlobalShim(home, false); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: codex shim: %v\n", err)
+		}
+	}
+	if geminiEnabled(home) {
+		if err := ensureGeminiGlobalShim(home, false); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: gemini shim: %v\n", err)
+		}
+	}
+
+	// --- Seed MOTES.md index ---
+	if err := core.GenerateMotesIndex(gRoot); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: MOTES.md generation: %v\n", err)
+	}
+
 	fmt.Printf("\nGlobal onboarding complete: %d motes created.\n", totalCreated)
 
 	globalBeadsDir := filepath.Join(home, ".beads")
@@ -717,20 +762,24 @@ type hookSpec struct {
 	command string
 }
 
+// claudeAgentKindPrefix is prefixed to every Claude-installed mote hook command
+// so that LoadConfig can apply per-agent provider overrides.
+const claudeAgentKindPrefix = "MOTE_AGENT_KIND=claude "
+
 // desiredHooks returns the full set of hooks mote should install.
 func desiredHooks() []hookSpec {
 	return []hookSpec{
 		// Differentiated SessionStart modes
-		{"SessionStart", "startup", "mote prime --hook --mode=startup"},
-		{"SessionStart", "resume", "mote prime --hook --mode=resume"},
-		{"SessionStart", "compact", "mote prime --hook --mode=compact"},
-		{"SessionStart", "clear", "mote prime --hook --mode=startup"},
+		{"SessionStart", "startup", claudeAgentKindPrefix + "mote prime --hook --mode=startup"},
+		{"SessionStart", "resume", claudeAgentKindPrefix + "mote prime --hook --mode=resume"},
+		{"SessionStart", "compact", claudeAgentKindPrefix + "mote prime --hook --mode=compact"},
+		{"SessionStart", "clear", claudeAgentKindPrefix + "mote prime --hook --mode=startup"},
 		// PreCompact stays as-is
-		{"PreCompact", "", "mote prime --hook --mode=compact"},
+		{"PreCompact", "", claudeAgentKindPrefix + "mote prime --hook --mode=compact"},
 		// UserPromptSubmit for per-prompt context
-		{"UserPromptSubmit", "", "mote prompt-context"},
+		{"UserPromptSubmit", "", claudeAgentKindPrefix + "mote prompt-context"},
 		// Stop hook for guaranteed session-end
-		{"Stop", "", "mote session-end --hook"},
+		{"Stop", "", claudeAgentKindPrefix + "mote session-end --hook"},
 	}
 }
 
@@ -812,11 +861,36 @@ func ensureClaudeHooks(claudeDir string, dryRun bool) error {
 	return nil
 }
 
-// migrateOldHooks removes old catch-all "mote prime" (without --hook) entries
-// from SessionStart and PreCompact so they can be replaced by differentiated hooks.
+// migrateOldHooks removes obsolete mote-managed hook entries so they can be
+// replaced by current desiredHooks(). Two categories of obsolete entries:
+//
+//  1. Catch-all "mote prime" (no flags) — predates the differentiated mode
+//     hooks. Stripped from SessionStart and PreCompact only.
+//  2. Un-prefixed mote commands matching the old form of any currently-desired
+//     hook — predates the MOTE_AGENT_KIND=claude prefix added for layered
+//     config's per-agent overrides. Stripped across all events.
 func migrateOldHooks(hooks map[string]interface{}) {
-	for _, eventName := range []string{"SessionStart", "PreCompact"} {
-		entries, ok := hooks[eventName].([]interface{})
+	// Collect the un-prefixed forms of currently-desired commands so we can
+	// recognize and strip them.
+	unprefixedDesired := map[string]bool{}
+	for _, spec := range desiredHooks() {
+		unprefixed := strings.TrimPrefix(spec.command, claudeAgentKindPrefix)
+		if unprefixed != spec.command {
+			unprefixedDesired[unprefixed] = true
+		}
+	}
+
+	isObsolete := func(cmd string) bool {
+		if cmd == "mote prime" {
+			return true
+		}
+		return unprefixedDesired[cmd]
+	}
+
+	// Iterate every event so the prefix migration covers UserPromptSubmit and
+	// Stop too (not just SessionStart/PreCompact).
+	for eventName, raw := range hooks {
+		entries, ok := raw.([]interface{})
 		if !ok {
 			continue
 		}
@@ -832,19 +906,19 @@ func migrateOldHooks(hooks map[string]interface{}) {
 				kept = append(kept, entry)
 				continue
 			}
-			isOld := false
+			drop := false
 			for _, h := range hooksList {
 				hMap, ok := h.(map[string]interface{})
 				if !ok {
 					continue
 				}
 				cmd, _ := hMap["command"].(string)
-				if cmd == "mote prime" {
-					isOld = true
+				if isObsolete(cmd) {
+					drop = true
 					break
 				}
 			}
-			if !isOld {
+			if !drop {
 				kept = append(kept, entry)
 			}
 		}
@@ -916,6 +990,11 @@ func hookEventHasMatcherCommand(hooks map[string]interface{}, eventName, matcher
 	return false
 }
 
+// codexAgentKindPrefix is prefixed to every Codex-installed mote hook command
+// so that LoadConfig can apply per-agent provider overrides keyed on
+// MOTE_AGENT_KIND=codex.
+const codexAgentKindPrefix = "MOTE_AGENT_KIND=codex "
+
 // desiredCodexHooks returns the hook entries Codex should install.
 //
 // Codex's SessionStart matchers are startup, resume, clear (no separate
@@ -925,9 +1004,9 @@ func hookEventHasMatcherCommand(hooks map[string]interface{}, eventName, matcher
 // observed worst-case session-end runtime visible to anyone reading the file.
 func desiredCodexHooks() []codexHookSpec {
 	return []codexHookSpec{
-		{event: "SessionStart", matcher: "startup|resume|clear", command: "mote prime --hook --mode=startup", statusMessage: "Loading mote context"},
-		{event: "UserPromptSubmit", matcher: "", command: "mote prompt-context"},
-		{event: "Stop", matcher: "", command: "mote session-end --hook", timeout: 600, statusMessage: "Flushing mote session state"},
+		{event: "SessionStart", matcher: "startup|resume|clear", command: codexAgentKindPrefix + "mote prime --hook --mode=startup", statusMessage: "Loading mote context"},
+		{event: "UserPromptSubmit", matcher: "", command: codexAgentKindPrefix + "mote prompt-context"},
+		{event: "Stop", matcher: "", command: codexAgentKindPrefix + "mote session-end --hook", timeout: 600, statusMessage: "Flushing mote session state"},
 	}
 }
 
@@ -1093,6 +1172,11 @@ type geminiHookSpec struct {
 	timeoutMs int
 }
 
+// geminiAgentKindPrefix is prefixed to every Gemini-installed mote hook command
+// so that LoadConfig can apply per-agent provider overrides keyed on
+// MOTE_AGENT_KIND=gemini.
+const geminiAgentKindPrefix = "MOTE_AGENT_KIND=gemini "
+
 // desiredGeminiHooks returns the hook entries Gemini CLI should install.
 //
 // Three differences from desiredCodexHooks:
@@ -1105,11 +1189,11 @@ type geminiHookSpec struct {
 func desiredGeminiHooks() []geminiHookSpec {
 	return []geminiHookSpec{
 		{event: "SessionStart", matcher: "startup|resume|clear",
-			name: "mote-prime", command: "mote prime --hook --mode=startup", timeoutMs: 60000},
+			name: "mote-prime", command: geminiAgentKindPrefix + "mote prime --hook --mode=startup", timeoutMs: 60000},
 		{event: "BeforeAgent", matcher: "",
-			name: "mote-prompt-context", command: "mote prompt-context", timeoutMs: 30000},
+			name: "mote-prompt-context", command: geminiAgentKindPrefix + "mote prompt-context", timeoutMs: 30000},
 		{event: "SessionEnd", matcher: "",
-			name: "mote-session-end", command: "mote session-end --hook", timeoutMs: 300000},
+			name: "mote-session-end", command: geminiAgentKindPrefix + "mote session-end --hook", timeoutMs: 300000},
 	}
 }
 

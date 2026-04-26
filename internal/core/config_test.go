@@ -399,3 +399,189 @@ func TestLoadConfig_DoctorMissing_UsesDefaults(t *testing.T) {
 		t.Errorf("MaxAvgLinks: got %f, want 8.0 (default)", cfg.Doctor.MaxAvgLinks)
 	}
 }
+
+// --- Layered config and per-agent overrides ---
+
+func TestLoadConfig_GlobalOverlayApplies(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MOTE_GLOBAL_ROOT", "")
+	t.Setenv("MOTE_AGENT_KIND", "")
+
+	globalDir := home + "/.motes"
+	if err := os.MkdirAll(globalDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	globalCfg := []byte("dream:\n  provider:\n    batch:\n      backend: gemini\n      auth: vertex-ai\n      model: gemini-2.0-flash\n      options:\n        gcp_project: my-proj\n")
+	if err := os.WriteFile(globalDir+"/config.yaml", globalCfg, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	projectDir := t.TempDir()
+	cfg, err := LoadConfig(projectDir)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Dream.Provider.Batch.Backend != "gemini" {
+		t.Errorf("global overlay not applied: %q", cfg.Dream.Provider.Batch.Backend)
+	}
+}
+
+func TestLoadConfig_ProjectOverridesGlobal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MOTE_GLOBAL_ROOT", "")
+	t.Setenv("MOTE_AGENT_KIND", "")
+
+	globalDir := home + "/.motes"
+	os.MkdirAll(globalDir, 0755)
+	os.WriteFile(globalDir+"/config.yaml", []byte("dream:\n  provider:\n    batch:\n      backend: gemini\n      auth: vertex-ai\n      model: gemini-2.0-flash\n      options:\n        gcp_project: x\n"), 0644)
+
+	projectDir := t.TempDir()
+	os.WriteFile(projectDir+"/config.yaml", []byte("dream:\n  provider:\n    batch:\n      backend: openai\n      auth: OPENAI_API_KEY\n      model: gpt-4o\n"), 0644)
+
+	cfg, err := LoadConfig(projectDir)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Dream.Provider.Batch.Backend != "openai" {
+		t.Errorf("project should override global; got %q", cfg.Dream.Provider.Batch.Backend)
+	}
+}
+
+func TestLoadConfig_PerAgentOverrideApplied(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MOTE_GLOBAL_ROOT", "")
+	t.Setenv("MOTE_AGENT_KIND", "codex")
+
+	globalDir := home + "/.motes"
+	os.MkdirAll(globalDir, 0755)
+	os.WriteFile(globalDir+"/config.yaml", []byte(`dream:
+  provider:
+    batch:
+      backend: gemini
+      auth: vertex-ai
+      model: gemini-2.0-flash
+      options:
+        gcp_project: x
+    per_agent:
+      codex:
+        batch:
+          backend: openai
+          auth: OPENAI_API_KEY
+          model: gpt-4o
+`), 0644)
+
+	cfg, err := LoadConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Dream.Provider.Batch.Backend != "openai" {
+		t.Errorf("per_agent codex override not applied; got %q", cfg.Dream.Provider.Batch.Backend)
+	}
+	if cfg.Dream.Provider.Batch.Model != "gpt-4o" {
+		t.Errorf("per_agent codex model not applied; got %q", cfg.Dream.Provider.Batch.Model)
+	}
+}
+
+func TestLoadConfig_PerAgentNotApplied_WhenKindMismatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MOTE_GLOBAL_ROOT", "")
+	t.Setenv("MOTE_AGENT_KIND", "claude") // not codex
+
+	globalDir := home + "/.motes"
+	os.MkdirAll(globalDir, 0755)
+	os.WriteFile(globalDir+"/config.yaml", []byte(`dream:
+  provider:
+    batch:
+      backend: gemini
+      auth: vertex-ai
+      model: gemini-2.0-flash
+      options:
+        gcp_project: x
+    per_agent:
+      codex:
+        batch:
+          backend: openai
+          auth: OPENAI_API_KEY
+          model: gpt-4o
+`), 0644)
+
+	cfg, err := LoadConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Dream.Provider.Batch.Backend != "gemini" {
+		t.Errorf("non-matching kind should not trigger override; got %q", cfg.Dream.Provider.Batch.Backend)
+	}
+}
+
+func TestLoadConfig_PerAgentRejectsInvalidBackend(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MOTE_GLOBAL_ROOT", "")
+	t.Setenv("MOTE_AGENT_KIND", "")
+
+	globalDir := home + "/.motes"
+	os.MkdirAll(globalDir, 0755)
+	os.WriteFile(globalDir+"/config.yaml", []byte(`dream:
+  provider:
+    batch:
+      backend: claude-cli
+      auth: oauth
+      model: claude-sonnet-4-6
+    per_agent:
+      codex:
+        batch:
+          backend: not-a-real-backend
+          auth: OPENAI_API_KEY
+          model: gpt-4o
+`), 0644)
+
+	if _, err := LoadConfig(t.TempDir()); err == nil {
+		t.Error("expected error for invalid per_agent backend")
+	}
+}
+
+func TestLoadConfig_PerAgentPartialOverride(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("MOTE_GLOBAL_ROOT", "")
+	t.Setenv("MOTE_AGENT_KIND", "codex")
+
+	globalDir := home + "/.motes"
+	os.MkdirAll(globalDir, 0755)
+	// per_agent.codex only overrides batch, not reconciliation.
+	os.WriteFile(globalDir+"/config.yaml", []byte(`dream:
+  provider:
+    batch:
+      backend: gemini
+      auth: vertex-ai
+      model: gemini-flash
+      options:
+        gcp_project: x
+    reconciliation:
+      backend: claude-cli
+      auth: oauth
+      model: claude-opus-4-6
+    per_agent:
+      codex:
+        batch:
+          backend: openai
+          auth: OPENAI_API_KEY
+          model: gpt-4o
+`), 0644)
+
+	cfg, err := LoadConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if cfg.Dream.Provider.Batch.Backend != "openai" {
+		t.Errorf("batch should be overridden to openai; got %q", cfg.Dream.Provider.Batch.Backend)
+	}
+	if cfg.Dream.Provider.Reconciliation.Backend != "claude-cli" {
+		t.Errorf("reconciliation should remain claude-cli; got %q", cfg.Dream.Provider.Reconciliation.Backend)
+	}
+}

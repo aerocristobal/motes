@@ -22,11 +22,6 @@ func init() {
 	rootCmd.AddCommand(promoteCmd)
 }
 
-func globalRoot() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude", "memory")
-}
-
 func runPromote(cmd *cobra.Command, args []string) error {
 	root := mustFindRoot()
 	mm := core.NewMoteManager(root)
@@ -57,8 +52,11 @@ func runPromote(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("mote %s already promoted to %s", source.ID, source.PromotedTo)
 	}
 
-	// Ensure global memory directory exists
-	gRoot := globalRoot()
+	// Resolve and ensure the global memory directory exists.
+	gRoot, err := core.GlobalRoot()
+	if err != nil {
+		return fmt.Errorf("resolve global root: %w", err)
+	}
 	globalNodesDir := filepath.Join(gRoot, "nodes")
 	if err := os.MkdirAll(globalNodesDir, 0755); err != nil {
 		return fmt.Errorf("create global memory dir: %w", err)

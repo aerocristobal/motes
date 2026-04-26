@@ -377,13 +377,13 @@ func TestInit_InstallsHooksAndSkills(t *testing.T) {
 	var settings map[string]interface{}
 	json.Unmarshal(data, &settings)
 	hooks := settings["hooks"].(map[string]interface{})
-	if !hookEventHasCommand(hooks, "SessionStart", "mote prime --hook --mode=startup") {
+	if !hookEventHasCommand(hooks, "SessionStart", claudeAgentKindPrefix+"mote prime --hook --mode=startup") {
 		t.Error("expected SessionStart hook with startup mode after init")
 	}
-	if !hookEventHasCommand(hooks, "PreCompact", "mote prime --hook --mode=compact") {
+	if !hookEventHasCommand(hooks, "PreCompact", claudeAgentKindPrefix+"mote prime --hook --mode=compact") {
 		t.Error("expected PreCompact hook with compact mode after init")
 	}
-	if !hookEventHasCommand(hooks, "UserPromptSubmit", "mote prompt-context") {
+	if !hookEventHasCommand(hooks, "UserPromptSubmit", claudeAgentKindPrefix+"mote prompt-context") {
 		t.Error("expected UserPromptSubmit hook after init")
 	}
 

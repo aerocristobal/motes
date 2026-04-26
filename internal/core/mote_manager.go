@@ -17,7 +17,7 @@ import (
 
 type MoteManager struct {
 	root           string
-	globalRoot     string // Override for global nodes dir; empty = default (~/.claude/memory/nodes)
+	globalRoot     string // Override for global nodes dir; empty = default (~/.motes/nodes/)
 	cache          *ReadCache
 	accessBatchMux sync.Mutex // Protects access batch operations
 	audit          *AuditLogger
@@ -71,7 +71,7 @@ func NewMoteManager(root string) *MoteManager {
 }
 
 // SetGlobalRoot overrides the global nodes directory. Used by tests to avoid
-// writing to ~/.claude/memory/nodes/.
+// writing to ~/.motes/nodes/.
 func (mm *MoteManager) SetGlobalRoot(dir string) {
 	mm.globalRoot = dir
 }
@@ -150,21 +150,71 @@ func (mm *MoteManager) nodesDir() string {
 	return filepath.Join(mm.root, "nodes")
 }
 
-// GlobalNodesDir returns the global mote storage path (~/.claude/memory/nodes/)
-// and ensures the directory exists. If MOTE_GLOBAL_ROOT is set, uses that instead.
-func GlobalNodesDir() (string, error) {
+// GlobalRoot returns the resolved global memory root directory and ensures it
+// exists. Resolution order:
+//
+//  1. MOTE_GLOBAL_ROOT env var (highest priority — used by tests).
+//  2. ~/.motes/ if it already contains motes-owned content.
+//  3. ~/.claude/memory/ if it contains motes-owned content (legacy install) —
+//     also triggers a one-time lazy migration to ~/.motes/. After successful
+//     migration, the new path becomes authoritative.
+//  4. ~/.motes/ (default for fresh installs).
+func GlobalRoot() (string, error) {
 	if override := os.Getenv("MOTE_GLOBAL_ROOT"); override != "" {
-		dir := filepath.Join(override, "nodes")
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return "", fmt.Errorf("create global nodes dir: %w", err)
+		if err := os.MkdirAll(override, 0755); err != nil {
+			return "", fmt.Errorf("create global root: %w", err)
 		}
-		return dir, nil
+		return override, nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("get home dir: %w", err)
 	}
-	dir := filepath.Join(home, ".claude", "memory", "nodes")
+	motesPath := filepath.Join(home, ".motes")
+	legacyPath := filepath.Join(home, ".claude", "memory")
+
+	if hasMotesContent(motesPath) {
+		return motesPath, nil
+	}
+	if hasMotesContent(legacyPath) {
+		if _, err := MigrateLegacyGlobal(legacyPath, motesPath); err != nil {
+			// On migration failure, fall back to legacy path so we don't lose data.
+			fmt.Fprintf(os.Stderr, "motes: legacy migration failed: %v; using %s\n", err, legacyPath)
+			return legacyPath, nil
+		}
+		return motesPath, nil
+	}
+	if err := os.MkdirAll(motesPath, 0755); err != nil {
+		return "", fmt.Errorf("create global root: %w", err)
+	}
+	return motesPath, nil
+}
+
+// hasMotesContent reports whether dir exists and contains motes-owned files
+// (a populated nodes/ dir or an index.jsonl). Auto-memory files (MEMORY.md,
+// top-level *.md, etc.) do NOT count as motes content.
+func hasMotesContent(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	if entries, err := os.ReadDir(filepath.Join(dir, "nodes")); err == nil && len(entries) > 0 {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(dir, "index.jsonl")); err == nil {
+		return true
+	}
+	return false
+}
+
+// GlobalNodesDir returns the global mote storage path (<GlobalRoot>/nodes/) and
+// ensures the directory exists.
+func GlobalNodesDir() (string, error) {
+	root, err := GlobalRoot()
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Join(root, "nodes")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return "", fmt.Errorf("create global nodes dir: %w", err)
 	}
