@@ -754,3 +754,225 @@ func TestEnsureMoteSkills_RespectsExplicitCodexFlag(t *testing.T) {
 		t.Errorf("agents skill should be installed when --codex flag set: %v", err)
 	}
 }
+
+// --- Gemini CLI settings tests ---
+
+func TestEnsureGeminiSettings_CreatesNew(t *testing.T) {
+	geminiDir := t.TempDir()
+	if err := ensureGeminiSettings(geminiDir, false); err != nil {
+		t.Fatalf("ensureGeminiSettings: %v", err)
+	}
+
+	settingsPath := filepath.Join(geminiDir, "settings.json")
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatalf("settings.json should be created: %v", err)
+	}
+	var settings map[string]interface{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("settings.json should be valid JSON: %v", err)
+	}
+
+	hooks, _ := settings["hooks"].(map[string]interface{})
+	if hooks == nil {
+		t.Fatal("hooks key missing from settings")
+	}
+	for _, evt := range []string{"SessionStart", "BeforeAgent", "SessionEnd"} {
+		if _, ok := hooks[evt]; !ok {
+			t.Errorf("expected %s hook, missing", evt)
+		}
+	}
+
+	// SessionEnd must carry the explicit 300000ms timeout — Gemini's 60s
+	// default would kill the heavy mote session-end --hook flush.
+	endEntries := hooks["SessionEnd"].([]interface{})
+	endHook := endEntries[0].(map[string]interface{})["hooks"].([]interface{})[0].(map[string]interface{})
+	if endHook["timeout"] != float64(300000) {
+		t.Errorf("SessionEnd timeout: got %v, want 300000 (ms)", endHook["timeout"])
+	}
+
+	// context.fileName must include both GEMINI.md and AGENTS.md
+	ctx, _ := settings["context"].(map[string]interface{})
+	if ctx == nil {
+		t.Fatal("context key missing")
+	}
+	fileNames, _ := ctx["fileName"].([]interface{})
+	if !stringInArray(fileNames, "GEMINI.md") {
+		t.Errorf("context.fileName missing GEMINI.md: %v", fileNames)
+	}
+	if !stringInArray(fileNames, "AGENTS.md") {
+		t.Errorf("context.fileName missing AGENTS.md: %v", fileNames)
+	}
+}
+
+func TestEnsureGeminiSettings_Idempotent(t *testing.T) {
+	geminiDir := t.TempDir()
+	if err := ensureGeminiSettings(geminiDir, false); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+	first, _ := os.ReadFile(filepath.Join(geminiDir, "settings.json"))
+
+	if err := ensureGeminiSettings(geminiDir, false); err != nil {
+		t.Fatalf("second install: %v", err)
+	}
+	second, _ := os.ReadFile(filepath.Join(geminiDir, "settings.json"))
+
+	if string(first) != string(second) {
+		t.Errorf("ensureGeminiSettings not idempotent\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+}
+
+func TestEnsureGeminiSettings_PreservesUserHooks(t *testing.T) {
+	geminiDir := t.TempDir()
+	settingsPath := filepath.Join(geminiDir, "settings.json")
+	preexisting := `{
+  "hooks": {
+    "BeforeTool": [
+      {"matcher": "write_.*", "hooks": [{"name": "audit", "type": "command", "command": "/usr/local/bin/audit.sh"}]}
+    ]
+  }
+}`
+	if err := os.WriteFile(settingsPath, []byte(preexisting), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureGeminiSettings(geminiDir, false); err != nil {
+		t.Fatalf("ensureGeminiSettings: %v", err)
+	}
+
+	data, _ := os.ReadFile(settingsPath)
+	if !strings.Contains(string(data), "audit.sh") {
+		t.Error("preexisting BeforeTool audit hook should survive")
+	}
+	if !strings.Contains(string(data), "mote prime") {
+		t.Error("mote hooks should be added alongside existing ones")
+	}
+}
+
+func TestEnsureGeminiSettings_PreservesUserContextFileNames(t *testing.T) {
+	geminiDir := t.TempDir()
+	settingsPath := filepath.Join(geminiDir, "settings.json")
+	preexisting := `{"context": {"fileName": ["MY_RULES.md"]}}`
+	if err := os.WriteFile(settingsPath, []byte(preexisting), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureGeminiSettings(geminiDir, false); err != nil {
+		t.Fatalf("ensureGeminiSettings: %v", err)
+	}
+
+	data, _ := os.ReadFile(settingsPath)
+	for _, want := range []string{"MY_RULES.md", "GEMINI.md", "AGENTS.md"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("context.fileName missing %q after merge:\n%s", want, data)
+		}
+	}
+}
+
+func TestEnsureGeminiSettings_SkillsPathsArePreserved(t *testing.T) {
+	// A user-defined SessionStart hook that ALREADY runs mote prime
+	// should not be duplicated (idempotency edge case).
+	geminiDir := t.TempDir()
+	settingsPath := filepath.Join(geminiDir, "settings.json")
+	preexisting := `{
+  "hooks": {
+    "SessionStart": [
+      {"matcher": "startup|resume|clear", "hooks": [{"name": "mote-prime", "type": "command", "command": "mote prime --hook --mode=startup", "timeout": 60000}]}
+    ]
+  }
+}`
+	if err := os.WriteFile(settingsPath, []byte(preexisting), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureGeminiSettings(geminiDir, false); err != nil {
+		t.Fatalf("ensureGeminiSettings: %v", err)
+	}
+	data, _ := os.ReadFile(settingsPath)
+	count := strings.Count(string(data), `"mote prime --hook --mode=startup"`)
+	if count != 1 {
+		t.Errorf("mote-prime command should appear exactly once after re-install, got %d", count)
+	}
+}
+
+func TestStringInArray(t *testing.T) {
+	tests := []struct {
+		arr    []interface{}
+		needle string
+		want   bool
+	}{
+		{[]interface{}{"a", "b", "c"}, "b", true},
+		{[]interface{}{"a", "b"}, "z", false},
+		{[]interface{}{}, "a", false},
+		{nil, "a", false},
+		{[]interface{}{1, "a"}, "a", true}, // mixed types: only string match counts
+	}
+	for _, tt := range tests {
+		if got := stringInArray(tt.arr, tt.needle); got != tt.want {
+			t.Errorf("stringInArray(%v, %q) = %v, want %v", tt.arr, tt.needle, got, tt.want)
+		}
+	}
+}
+
+// --- Shared agents-skills install condition tests ---
+
+func TestEnsureMoteSkills_AgentsPathOnGeminiOnly(t *testing.T) {
+	home := t.TempDir()
+	// Create ~/.gemini/ to trigger geminiEnabled(); no ~/.codex/
+	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	onboardCodex = false
+	onboardGemini = false
+
+	if err := ensureMoteSkills(home, false); err != nil {
+		t.Fatalf("ensureMoteSkills: %v", err)
+	}
+	for _, expected := range []string{
+		filepath.Join(home, ".claude", "skills", "mote-capture", "SKILL.md"),
+		filepath.Join(home, ".agents", "skills", "mote-capture", "SKILL.md"),
+	} {
+		if _, err := os.Stat(expected); err != nil {
+			t.Errorf("expected skill at %s: %v", expected, err)
+		}
+	}
+}
+
+func TestAgentsSkillsEnabled_FlagsAndAutoDetect(t *testing.T) {
+	tests := []struct {
+		name       string
+		codexFlag  bool
+		geminiFlag bool
+		hasCodex   bool
+		hasGemini  bool
+		want       bool
+	}{
+		{"none", false, false, false, false, false},
+		{"codex flag only", true, false, false, false, true},
+		{"gemini flag only", false, true, false, false, true},
+		{"both flags", true, true, false, false, true},
+		{"codex auto-detect", false, false, true, false, true},
+		{"gemini auto-detect", false, false, false, true, true},
+		{"both auto-detect", false, false, true, true, true},
+		{"flag + autodetect", true, false, false, true, true},
+	}
+	defer func() {
+		onboardCodex = false
+		onboardGemini = false
+	}()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			home := t.TempDir()
+			onboardCodex = tt.codexFlag
+			onboardGemini = tt.geminiFlag
+			if tt.hasCodex {
+				os.MkdirAll(filepath.Join(home, ".codex"), 0755)
+			}
+			if tt.hasGemini {
+				os.MkdirAll(filepath.Join(home, ".gemini"), 0755)
+			}
+			if got := agentsSkillsEnabled(home); got != tt.want {
+				t.Errorf("agentsSkillsEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

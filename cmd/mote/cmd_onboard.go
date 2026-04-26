@@ -66,6 +66,7 @@ var (
 	onboardRepo          string
 	onboardPhaseParents  bool
 	onboardCodex         bool
+	onboardGemini        bool
 )
 
 func init() {
@@ -77,6 +78,7 @@ func init() {
 	onboardCmd.Flags().StringVar(&onboardRepo, "repo", "", "GitHub repo (owner/repo) for --from=github")
 	onboardCmd.Flags().BoolVar(&onboardPhaseParents, "phase-parents", false, "Create parent task motes per phase label (github import)")
 	onboardCmd.Flags().BoolVar(&onboardCodex, "codex", false, "Install OpenAI Codex hooks at ~/.codex/ and skills at ~/.agents/skills/ (auto-enabled if ~/.codex/ exists)")
+	onboardCmd.Flags().BoolVar(&onboardGemini, "gemini", false, "Install Gemini CLI hooks at ~/.gemini/settings.json and skills at ~/.agents/skills/ (auto-enabled if ~/.gemini/ exists)")
 	rootCmd.AddCommand(onboardCmd)
 }
 
@@ -90,6 +92,26 @@ func codexEnabled(homeDir string) bool {
 		return true
 	}
 	return false
+}
+
+// geminiEnabled returns true when the user explicitly opted in via --gemini,
+// or when ~/.gemini/ already exists (auto-detect).
+func geminiEnabled(homeDir string) bool {
+	if onboardGemini {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(homeDir, ".gemini")); err == nil {
+		return true
+	}
+	return false
+}
+
+// agentsSkillsEnabled is true when either Codex or Gemini CLI is enabled.
+// Both honor ~/.agents/skills/ at higher precedence than their own tool-
+// specific paths (~/.codex/skills/ doesn't exist; ~/.gemini/skills/ is
+// dominated by ~/.agents/skills/), so the install logic is shared.
+func agentsSkillsEnabled(homeDir string) bool {
+	return codexEnabled(homeDir) || geminiEnabled(homeDir)
 }
 
 func runOnboard(cmd *cobra.Command, args []string) error {
@@ -259,6 +281,9 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 		if codexEnabled(home) {
 			ensureCodexHooks(filepath.Join(home, ".codex"), true)
 		}
+		if geminiEnabled(home) {
+			ensureGeminiSettings(filepath.Join(home, ".gemini"), true)
+		}
 		ensureMoteSkills(home, true)
 		ensurePreCommitHook(cwd, true)
 		return nil
@@ -296,7 +321,14 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 		}
 	}
 
-	// Install skills (writes to ~/.agents/skills too when codex is enabled)
+	// Install Gemini CLI hooks + context.fileName when --gemini set or ~/.gemini/ exists
+	if geminiEnabled(home) {
+		if err := ensureGeminiSettings(filepath.Join(home, ".gemini"), false); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: gemini settings installation: %v\n", err)
+		}
+	}
+
+	// Install skills (writes to ~/.agents/skills too when codex or gemini is enabled)
 	if err := ensureMoteSkills(home, false); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
 	}
@@ -357,6 +389,9 @@ func runOnboardProject() error {
 		ensureClaudeHooks(claudeDir, true)
 		if codexEnabled(home) {
 			ensureCodexHooks(filepath.Join(home, ".codex"), true)
+		}
+		if geminiEnabled(home) {
+			ensureGeminiSettings(filepath.Join(home, ".gemini"), true)
 		}
 		ensureMoteSkills(home, true)
 		if onboardCleanup && dirExists(filepath.Join(cwd, ".beads")) {
@@ -501,6 +536,9 @@ func runOnboardGlobal() error {
 		if codexEnabled(home) {
 			ensureCodexHooks(filepath.Join(home, ".codex"), true)
 		}
+		if geminiEnabled(home) {
+			ensureGeminiSettings(filepath.Join(home, ".gemini"), true)
+		}
 		ensureMoteSkills(home, true)
 		if onboardCleanup && dirExists(filepath.Join(home, ".beads")) {
 			fmt.Println("  Would remove ~/.beads/")
@@ -578,6 +616,13 @@ func runOnboardGlobal() error {
 	if codexEnabled(home) {
 		if err := ensureCodexHooks(filepath.Join(home, ".codex"), false); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: codex hooks installation: %v\n", err)
+		}
+	}
+
+	// --- Install Gemini CLI settings (when --gemini set or ~/.gemini/ exists) ---
+	if geminiEnabled(home) {
+		if err := ensureGeminiSettings(filepath.Join(home, ".gemini"), false); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: gemini settings installation: %v\n", err)
 		}
 	}
 
@@ -1036,13 +1081,164 @@ func ensureCodexFeatureFlag(codexDir string, dryRun bool) error {
 	return nil
 }
 
+// geminiHookSpec carries the Gemini CLI hook fields. Distinct from hookSpec
+// (Claude) and codexHookSpec because Gemini's timeouts are in milliseconds
+// rather than seconds, and the spec includes a `name` field for /hooks panel
+// management. Keeping the type separate avoids leaking units across ecosystems.
+type geminiHookSpec struct {
+	event     string
+	matcher   string
+	name      string
+	command   string
+	timeoutMs int
+}
+
+// desiredGeminiHooks returns the hook entries Gemini CLI should install.
+//
+// Three differences from desiredCodexHooks:
+//   - BeforeAgent (Gemini's name for the user-prompt-submit lifecycle moment)
+//     instead of UserPromptSubmit.
+//   - SessionEnd (per-session) instead of Stop (per-turn). Mote's session-end
+//     does heavy work; firing once per session is preferable.
+//   - Timeouts in milliseconds. Gemini's default is 60000ms; we set 300000ms
+//     on SessionEnd because the flush regularly takes 2-3 minutes.
+func desiredGeminiHooks() []geminiHookSpec {
+	return []geminiHookSpec{
+		{event: "SessionStart", matcher: "startup|resume|clear",
+			name: "mote-prime", command: "mote prime --hook --mode=startup", timeoutMs: 60000},
+		{event: "BeforeAgent", matcher: "",
+			name: "mote-prompt-context", command: "mote prompt-context", timeoutMs: 30000},
+		{event: "SessionEnd", matcher: "",
+			name: "mote-session-end", command: "mote session-end --hook", timeoutMs: 300000},
+	}
+}
+
+// ensureGeminiSettings installs hooks and configures context.fileName in
+// ~/.gemini/settings.json. Idempotent: existing hook entries are left alone,
+// missing ones are appended. context.fileName is augmented to include
+// GEMINI.md and AGENTS.md without removing any user-defined entries.
+//
+// Gemini CLI uses settings.json (like Claude), not a separate hooks.json
+// (like Codex), so this function merges into a JSON file with multiple
+// top-level keys.
+func ensureGeminiSettings(geminiDir string, dryRun bool) error {
+	settingsPath := filepath.Join(geminiDir, "settings.json")
+
+	var settings map[string]interface{}
+	data, err := os.ReadFile(settingsPath)
+	if os.IsNotExist(err) {
+		settings = map[string]interface{}{}
+	} else if err != nil {
+		return fmt.Errorf("read gemini settings.json: %w", err)
+	} else {
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return fmt.Errorf("parse gemini settings.json: %w", err)
+		}
+	}
+
+	hooks, _ := settings["hooks"].(map[string]interface{})
+	if hooks == nil {
+		hooks = map[string]interface{}{}
+	}
+
+	var installed []string
+	for _, spec := range desiredGeminiHooks() {
+		if hookEventHasMatcherCommand(hooks, spec.event, spec.matcher, spec.command) {
+			continue
+		}
+		hookCmd := map[string]interface{}{
+			"name":    spec.name,
+			"type":    "command",
+			"command": spec.command,
+			"timeout": spec.timeoutMs,
+		}
+		entry := map[string]interface{}{
+			"hooks": []interface{}{hookCmd},
+		}
+		if spec.matcher != "" {
+			entry["matcher"] = spec.matcher
+		}
+		existing, _ := hooks[spec.event].([]interface{})
+		hooks[spec.event] = append(existing, entry)
+		installed = append(installed, fmt.Sprintf("%s[%s]", spec.event, spec.matcher))
+	}
+
+	// Merge context.fileName — preserve user entries; ensure GEMINI.md and
+	// AGENTS.md are present.
+	ctx, _ := settings["context"].(map[string]interface{})
+	if ctx == nil {
+		ctx = map[string]interface{}{}
+	}
+	fileNames, _ := ctx["fileName"].([]interface{})
+	contextChanged := false
+	for _, want := range []string{"GEMINI.md", "AGENTS.md"} {
+		if !stringInArray(fileNames, want) {
+			fileNames = append(fileNames, want)
+			contextChanged = true
+		}
+	}
+	if contextChanged {
+		ctx["fileName"] = fileNames
+	}
+
+	if len(installed) == 0 && !contextChanged {
+		return nil
+	}
+
+	if dryRun {
+		if len(installed) > 0 {
+			fmt.Printf("  Would install gemini hooks: %s\n", strings.Join(installed, ", "))
+		}
+		if contextChanged {
+			fmt.Printf("  Would configure gemini context.fileName: %v\n", fileNames)
+		}
+		return nil
+	}
+
+	settings["hooks"] = hooks
+	settings["context"] = ctx
+
+	newData, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal gemini settings: %w", err)
+	}
+	newData = append(newData, '\n')
+
+	if err := os.MkdirAll(geminiDir, 0755); err != nil {
+		return fmt.Errorf("create gemini dir: %w", err)
+	}
+	if err := core.AtomicWrite(settingsPath, newData, 0644); err != nil {
+		return fmt.Errorf("write gemini settings.json: %w", err)
+	}
+	for _, name := range installed {
+		fmt.Printf("  installed gemini hook: %s\n", name)
+	}
+	if contextChanged {
+		fmt.Printf("  configured gemini context.fileName: %v\n", fileNames)
+	}
+	return nil
+}
+
+// stringInArray returns true if needle (a string) appears in arr. Used for
+// idempotency on context.fileName entries. Case-sensitive — Gemini CLI
+// treats filenames case-sensitively on case-sensitive filesystems.
+func stringInArray(arr []interface{}, needle string) bool {
+	for _, v := range arr {
+		if s, ok := v.(string); ok && s == needle {
+			return true
+		}
+	}
+	return false
+}
+
 // ensureMoteSkills installs mote skill files at every active skills location.
-// Always writes to ~/.claude/skills/ (Claude Code). When Codex is enabled
-// (--codex flag or ~/.codex/ present), also writes to ~/.agents/skills/, the
-// path Codex scans per the open agent skills standard.
+// Always writes to ~/.claude/skills/ (Claude Code). When either Codex or
+// Gemini CLI is enabled (--codex, --gemini, or auto-detect of ~/.codex/ or
+// ~/.gemini/), also writes to ~/.agents/skills/ — the path both tools scan
+// per the open agent skills standard.
 func ensureMoteSkills(homeDir string, dryRun bool) error {
 	targets := []string{filepath.Join(homeDir, ".claude", "skills")}
-	if codexEnabled(homeDir) {
+	if agentsSkillsEnabled(homeDir) {
 		targets = append(targets, filepath.Join(homeDir, ".agents", "skills"))
 	}
 	for _, dir := range targets {
