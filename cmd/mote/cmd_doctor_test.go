@@ -739,3 +739,76 @@ func TestDoctorChecks_KnownPrefixBrokenLink(t *testing.T) {
 		t.Errorf("expected broken_link for same-project missing mote %s, got none", ghostID)
 	}
 }
+
+func TestProviderAdvisories_ClaudeCLISilent(t *testing.T) {
+	cfg := core.DefaultConfig()
+	if got := runDoctorProviderAdvisories(cfg); len(got) != 0 {
+		t.Errorf("default (claude-cli) config should produce no advisories, got: %v", got)
+	}
+}
+
+func TestProviderAdvisories_OpenAIMissingAuth(t *testing.T) {
+	cfg := core.DefaultConfig()
+	cfg.Dream.Provider.Batch = core.ProviderEntry{Backend: "openai", Model: "gpt-4o"}
+	got := runDoctorProviderAdvisories(cfg)
+	if len(got) == 0 {
+		t.Fatal("expected advisory for empty openai auth")
+	}
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "batch.auth is empty") {
+		t.Errorf("advisory should mention empty auth: %v", got)
+	}
+}
+
+func TestProviderAdvisories_OpenAIUnsetEnvVar(t *testing.T) {
+	const varName = "MOTES_TEST_OPENAI_NEVER_SET"
+	cfg := core.DefaultConfig()
+	cfg.Dream.Provider.Batch = core.ProviderEntry{Backend: "openai", Auth: varName, Model: "gpt-4o"}
+	got := runDoctorProviderAdvisories(cfg)
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, varName) {
+		t.Errorf("advisory should mention the unset env var: %v", got)
+	}
+}
+
+func TestProviderAdvisories_GeminiMissingProject(t *testing.T) {
+	cfg := core.DefaultConfig()
+	cfg.Dream.Provider.Batch = core.ProviderEntry{
+		Backend: "gemini",
+		Auth:    "vertex-ai",
+		Model:   "gemini-2.5-flash",
+	}
+	got := runDoctorProviderAdvisories(cfg)
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "gcp_project") {
+		t.Errorf("advisory should mention gcp_project: %v", got)
+	}
+}
+
+func TestProviderAdvisories_GeminiNonVertexAuth(t *testing.T) {
+	cfg := core.DefaultConfig()
+	cfg.Dream.Provider.Batch = core.ProviderEntry{
+		Backend: "gemini",
+		Auth:    "GEMINI_API_KEY",
+		Model:   "gemini-2.5-flash",
+		Options: map[string]string{"gcp_project": "p"},
+	}
+	got := runDoctorProviderAdvisories(cfg)
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "vertex-ai") {
+		t.Errorf("advisory should explain vertex-ai requirement: %v", got)
+	}
+}
+
+func TestProviderAdvisories_BothStagesChecked(t *testing.T) {
+	cfg := core.DefaultConfig()
+	cfg.Dream.Provider.Batch = core.ProviderEntry{Backend: "openai"} // missing auth + model
+	cfg.Dream.Provider.Reconciliation = core.ProviderEntry{Backend: "openai"}
+	got := runDoctorProviderAdvisories(cfg)
+	if !strings.Contains(strings.Join(got, "\n"), "batch.auth") {
+		t.Errorf("advisories should reference batch stage: %v", got)
+	}
+	if !strings.Contains(strings.Join(got, "\n"), "reconciliation.auth") {
+		t.Errorf("advisories should reference reconciliation stage: %v", got)
+	}
+}

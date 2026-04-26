@@ -113,6 +113,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 
 	issues := runDoctorChecks(mm, im, idx, moteMap, cfg)
 	advisories := runDoctorAdvisories(idx, moteMap, cfg)
+	advisories = append(advisories, runDoctorProviderAdvisories(cfg)...)
 
 	// Separate cross_project_ref advisories from integrity errors.
 	var errorIssues, crossRefs []doctorIssue
@@ -566,6 +567,91 @@ func runDoctorAdvisories(idx *core.EdgeIndex, moteMap map[string]*core.Mote, cfg
 	}
 
 	return advisories
+}
+
+// runDoctorProviderAdvisories returns config-level warnings about the dream
+// LLM provider configuration. These are non-fatal — they alert the user to
+// likely-broken setups before the next dream run discovers them at runtime.
+//
+// All checks are local: no network calls, no shell-outs. The intent is that
+// running `mote doctor` on a fresh machine flags the obvious mistakes (forgot
+// to set OPENAI_API_KEY, didn't fill in gcp_project) without depending on
+// internet access.
+func runDoctorProviderAdvisories(cfg *core.Config) []string {
+	var advisories []string
+	for _, stage := range []struct {
+		name  string
+		entry core.ProviderEntry
+	}{
+		{"batch", cfg.Dream.Provider.Batch},
+		{"reconciliation", cfg.Dream.Provider.Reconciliation},
+	} {
+		advisories = append(advisories, providerStageAdvisories(stage.name, stage.entry)...)
+	}
+	return advisories
+}
+
+func providerStageAdvisories(stage string, entry core.ProviderEntry) []string {
+	var out []string
+	prefix := "dream.provider." + stage
+	switch entry.Backend {
+	case "", "claude-cli":
+		// claude-cli takes its credentials from the claude binary itself; the
+		// auth field is decorative. Nothing to advise on.
+	case "openai":
+		if entry.Auth == "" {
+			out = append(out, fmt.Sprintf(
+				"%s.auth is empty; set it to the env var holding your OpenAI key (e.g. OPENAI_API_KEY).", prefix))
+		} else if looksLikeProviderEnvVar(entry.Auth) && os.Getenv(entry.Auth) == "" {
+			out = append(out, fmt.Sprintf(
+				"%s.auth=%q but $%s is not set; export it before running mote dream.",
+				prefix, entry.Auth, entry.Auth))
+		}
+		if entry.Model == "" {
+			out = append(out, fmt.Sprintf("%s.model is empty; set it to an OpenAI model id (e.g. gpt-4o).", prefix))
+		}
+	case "gemini":
+		if entry.Auth != "vertex-ai" {
+			out = append(out, fmt.Sprintf(
+				"%s.auth=%q is not supported; only %q (Vertex AI ADC) works for the gemini backend in this release.",
+				prefix, entry.Auth, "vertex-ai"))
+		}
+		if entry.Options["gcp_project"] == "" {
+			out = append(out, fmt.Sprintf("%s.options.gcp_project is required for the gemini backend.", prefix))
+		}
+		if entry.Model == "" {
+			out = append(out, fmt.Sprintf("%s.model is empty; set it to a Gemini model id (e.g. gemini-2.5-flash).", prefix))
+		}
+	default:
+		// Unknown backends are blocked at config-load time, but emit an advisory
+		// in case a user is staring at `mote doctor` output mid-edit.
+		out = append(out, fmt.Sprintf(
+			"%s.backend=%q is not recognized (valid: claude-cli, openai, gemini).",
+			prefix, entry.Backend))
+	}
+	return out
+}
+
+// looksLikeProviderEnvVar mirrors the heuristic in internal/dream/auth.go's
+// looksLikeEnvVarName. Duplicated here rather than exported because the
+// detection rule is intentionally narrow and may diverge later (e.g. if doctor
+// wants to be stricter than runtime).
+func looksLikeProviderEnvVar(s string) bool {
+	if s == "" {
+		return false
+	}
+	hasUnderscore := false
+	for _, r := range s {
+		switch {
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_':
+			hasUnderscore = true
+		default:
+			return false
+		}
+	}
+	return hasUnderscore
 }
 
 // maxDependsOnDepth returns the maximum depth of any depends_on chain in the graph.

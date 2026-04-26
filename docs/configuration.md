@@ -173,8 +173,15 @@ Controls the headless LLM maintenance cycle.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `schedule_hint_days` | int | `2` | Suggested interval between dream runs |
-| `provider.batch.model` | string | `claude-sonnet-4-20250514` | Model for batch analysis |
-| `provider.reconciliation.model` | string | `claude-opus-4-20250514` | Model for cross-batch reconciliation |
+| `provider.batch.backend` | string | `claude-cli` | LLM backend for batch reasoning. See [Provider Backends](#provider-backends) below |
+| `provider.batch.auth` | string | `oauth` | Credential — env var name (recommended), literal value, or `vertex-ai` for Gemini ADC |
+| `provider.batch.model` | string | `claude-sonnet-4-6` | Model identifier as the backend expects it |
+| `provider.batch.options` | map | `{}` | Backend-specific options (e.g. `gcp_project`, `gcp_region` for Gemini) |
+| `provider.reconciliation.backend` | string | `claude-cli` | Same as batch — can differ from batch backend |
+| `provider.reconciliation.auth` | string | `oauth` | Same as batch |
+| `provider.reconciliation.model` | string | `claude-opus-4-6` | Model for cross-batch reconciliation |
+| `provider.reconciliation.options` | map | `{}` | Same as batch |
+| `provider.rate_limit_rpm` | int | `0` | Requests/minute cap shared across stages. `0` = unlimited |
 | `batching.strategy` | string | `hybrid` | `hybrid` = 60% tag-clustered + 40% interleaved |
 | `batching.max_motes_per_batch` | int | `10` | Maximum motes per LLM batch |
 | `batching.clustered_fraction` | float | `0.6` | Fraction of motes in clustered batches |
@@ -199,6 +206,18 @@ Controls the headless LLM maintenance cycle.
 |-------|---------|-------------|
 | `journal.max_tokens` | `2000` | Token budget for lucid log (cross-batch context) |
 | `interrupts.high_severity_mote_pct` | `20` | % of motes with high-severity issues to trigger interrupt |
+
+#### Provider Backends
+
+The dream cycle dispatches to one of three LLM backends, configured per stage so batch and reconciliation can use different providers.
+
+| Backend | Auth Format | Required Options | Notes |
+|---------|-------------|------------------|-------|
+| `claude-cli` | `oauth` (literal placeholder) | none | Shells out to the `claude` CLI binary. The default — works inside Claude Code with no extra setup. |
+| `openai` | env var name (e.g. `OPENAI_API_KEY`) holding `sk-…`, or literal key | none | Calls `https://api.openai.com/v1/chat/completions`. Works with any OpenAI account. |
+| `gemini` | `vertex-ai` (sentinel — uses Application Default Credentials via `gcloud auth print-access-token`) | `gcp_project`; `gcp_region` (default `us-central1`); optional `safety_threshold` (default `BLOCK_ONLY_HIGH`) | Calls Vertex AI's `generateContent` endpoint. Requires `gcloud` on PATH and a Google Cloud project with the Vertex AI API enabled. API-key auth (`generativelanguage.googleapis.com`) is not currently supported. |
+
+**Security:** prefer env var names over literal credentials in `provider.auth`. The env-var-name heuristic recognizes `UPPERCASE_WITH_UNDERSCORES` strings and errors out clearly when the named var isn't exported, so a typo never gets sent to the API as a credential.
 
 ### strata
 
@@ -384,4 +403,72 @@ dream:
 strata:
   context_augment:
     enabled: false
+```
+
+### OpenAI Backend
+
+For users without the `claude` CLI. Requires `OPENAI_API_KEY` to be exported:
+
+```yaml
+dream:
+  provider:
+    batch:
+      backend: openai
+      auth: OPENAI_API_KEY      # env var name; resolved at runtime
+      model: gpt-4o-mini        # cheap/fast for batch reasoning
+    reconciliation:
+      backend: openai
+      auth: OPENAI_API_KEY
+      model: gpt-4o             # higher capability for reconciliation
+    rate_limit_rpm: 60
+```
+
+Run with:
+
+```bash
+export OPENAI_API_KEY=sk-...
+mote dream
+```
+
+### Gemini (Vertex AI) Backend
+
+For users with a Google Cloud project. Requires `gcloud` on PATH and ADC configured (`gcloud auth application-default login`):
+
+```yaml
+dream:
+  provider:
+    batch:
+      backend: gemini
+      auth: vertex-ai           # sentinel: use Application Default Credentials
+      model: gemini-2.5-flash
+      options:
+        gcp_project: my-gcp-project
+        gcp_region: us-central1
+        safety_threshold: BLOCK_ONLY_HIGH   # optional; default
+    reconciliation:
+      backend: gemini
+      auth: vertex-ai
+      model: gemini-2.5-pro
+      options:
+        gcp_project: my-gcp-project
+        gcp_region: us-central1
+```
+
+Bearer tokens are fetched from `gcloud auth print-access-token` per request. Tokens are short-lived (~1h); gcloud caches and refreshes them transparently.
+
+### Mixed Backends
+
+Batch and reconciliation can use different providers — useful when one model is cheap-but-capable for batches and another is best-in-class for reconciliation:
+
+```yaml
+dream:
+  provider:
+    batch:
+      backend: openai
+      auth: OPENAI_API_KEY
+      model: gpt-4o-mini
+    reconciliation:
+      backend: claude-cli
+      auth: oauth
+      model: claude-opus-4-6
 ```
