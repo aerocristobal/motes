@@ -4,7 +4,7 @@
 
 **Motes** is an AI-native context and memory system where knowledge and planning are stored as atomic units ("motes") linked in two dimensions: dependency links (for planning/execution ordering) and semantic links (for thematic memory connections). Unlike linear MEMORY.md files loaded wholesale into context, motes load selectively via graph traversal — surfacing the most relevant knowledge for the current task and scaling the context budget to match task complexity rather than applying a fixed cap.
 
-Planning and memory are unified: when a task completes, it crystallizes into a permanent mote — a deliberate consolidation process modeled on how the brain replays and strengthens short-term experiences into long-term memory during sleep. Past decisions, lessons, and plans remain queryable and shape future work. The graph is Obsidian-compatible for visual exploration.
+Planning and memory are unified: when a task completes, it crystallizes into a permanent mote — a deliberate consolidation process modeled on how the brain replays and strengthens short-term experiences into long-term memory during sleep. Past decisions, lessons, and plans remain queryable and shape future work. Wikilinks (`[[id]]`) connect motes in body text and are resolved during search and graph traversal.
 
 The system operates in three distinct processing modes — mirroring waking cognition, session transitions, and sleep — to separate time-critical retrieval from deep nebula maintenance. Deterministic scoring handles the hot path, while periodic LLM-driven "dream cycles" (Epic 12) perform the judgment-heavy work: discovering latent connections, detecting semantic contradictions, evolving constellations, and compressing stale knowledge. Claude Opus handles reconciliation and synthesis; Claude Sonnet handles focused batch reasoning.
 
@@ -64,7 +64,7 @@ A hybrid strata integration (Epic 13) extends the system with reference knowledg
 | Preserve planning knowledge on issue close | Every significant issue close produces a mote candidate |
 | Preserve relevant exploration findings from planning sessions | Explore-heavy sessions produce explore mote candidates at session end; key findings are captured, not just decisions |
 | Enable emergent constellation discovery | After 20 motes, `mote constellation synthesize` finds 3+ natural constellations |
-| Obsidian graph view works with no setup | Open `.memory/` as vault, all links resolve |
+| Wikilinks resolve across motes | `[[id]]` references in body text are followed during search and graph traversal |
 | Retrieval improves with use | Motes accessed across 3+ sessions score measurably higher than unaccessed peers |
 | Nebula stays sharp as it grows | At 100+ motes, `mote prime` output quality remains comparable to a 20-nebula |
 | Contradictions surface proactively | 100% of `contradicts` pairs are flagged during context loading |
@@ -115,7 +115,6 @@ The mote system separates work into three processing modes, each matched to a di
 - **Claude (AI agent)**: Primary creator and consumer of motes; runs context loading, creates motes mid-session, reviews dream visions
 - **User (human)**: Reviews/approves crystallization candidates, approves constellation synthesis, manually creates high-value motes, reviews dream visions
 - **Dream cycle (headless Claude)**: Periodic nebula maintenance — discovers latent connections, detects contradictions, evolves constellations, proposes archival
-- **Obsidian viewer**: Passive exploration role via visual graph
 
 ---
 
@@ -672,22 +671,21 @@ Then that cluster is skipped (no duplicate constellation motes)
 
 ---
 
-#### Story 5.3 — Constellation Motes Appear in Obsidian Graph as Hubs
+#### Story 5.3 — Constellation Motes Act as Graph Hubs
 
-**As a** user viewing the Obsidian graph
-**I want** constellation motes to be visually distinguishable as hubs
-**So that** the nebula's cluster structure is immediately apparent
+**As a** user exploring the knowledge graph
+**I want** constellation motes to function as high-connectivity hubs
+**So that** the nebula's cluster structure is apparent during traversal
 
 **Acceptance Criteria:**
 
 ```gherkin
 Given constellation motes exist with relates_to links to member motes
-When the .memory/ directory is opened as an Obsidian vault
+When the graph is traversed via mote context or mote search
 Then:
   - Constellation motes have more connections than non-constellation motes
-  - Constellation motes appear as visual hubs in Obsidian's graph view
   - Wikilinks in constellation mote bodies resolve to member mote files
-  - No Obsidian plugin is required for this to work
+  - Constellation motes serve as bridges between related clusters
 ```
 
 ---
@@ -812,47 +810,9 @@ And exit code is non-zero if any issues are found
 
 ---
 
-### Epic 8: Obsidian Compatibility
+### Epic 8: ~~Obsidian Compatibility~~ (Deprecated)
 
----
-
-#### Story 8.1 — Open Motes Directory as Obsidian Vault
-
-**As a** user
-**I want to** open `.memory/` as an Obsidian vault with no configuration
-**So that** I can visually explore the nebula without any setup
-
-**Acceptance Criteria:**
-
-```gherkin
-Given .memory/nodes/ contains mote .md files with wikilinks in their bodies
-When the .memory/ directory is opened as an Obsidian vault
-Then:
-  - All mote files appear in Obsidian's file explorer
-  - [[mote-id]] wikilinks in bodies resolve to the correct mote files
-  - YAML frontmatter renders in Obsidian's Properties panel
-  - Graph view shows motes as nodes and wikilinks as edges
-  - No plugin installation is required
-```
-
----
-
-#### Story 8.2 — Global + Project Vault
-
-**As a** user
-**I want to** see both project-local motes and global motes in a single Obsidian vault
-**So that** I can explore cross-project connections visually
-
-**Acceptance Criteria:**
-
-```gherkin
-Given project motes in .memory/nodes/ and global motes in ~/.claude/memory/nodes/
-When both directories are added to an Obsidian vault configuration
-Then:
-  - Both sets of motes appear in the vault
-  - Cross-scope links (project mote linking to global mote by ID) resolve correctly
-  - Graph view shows cross-scope edges
-```
+> **Deprecated.** Motes uses standard markdown + YAML frontmatter + `[[wikilinks]]`, which remains compatible with any markdown viewer. Dedicated Obsidian vault support (pre-configured `.obsidian/` directory, graph view testing) is no longer actively maintained. Wikilink resolution is core mote functionality and is unaffected.
 
 ---
 
@@ -1940,7 +1900,7 @@ And suggests the simplest option (Ollama with nomic-embed-text)
 | **Performance** | `mote prime` and `mote context` complete in < 2 seconds for < 500 motes (including strata augmentation if triggered). Dream cycle completes in < 10 minutes for < 500 motes. |
 | **Git-friendly** | All files are plain text, mergeable with standard git tooling. Dream visions are JSONL. |
 | **Portability** | Works on Linux, macOS; no OS-specific APIs |
-| **Obsidian compatibility** | No Obsidian plugin required; standard vault format |
+| **Standard formats** | Plain markdown + YAML frontmatter + `[[wikilinks]]`; compatible with any markdown tooling |
 | **Atomicity** | index.jsonl writes are atomic (write to temp, rename); access_count updates are batched; dream visions are written atomically |
 | **Resilience** | Malformed mote files produce warnings, not crashes. Dream cycle batch failures do not abort the pipeline — failed batches are logged and skipped. |
 | **Tunability** | All scoring and dream parameters are configurable via `.memory/config.yaml` |
@@ -2206,7 +2166,7 @@ The original epics above document the foundational design. The following enhance
 | **3: Context Loading** | 4.1-4.4 | `mote context` and `mote prime` with full scoring formula; ambient priming signals | Done |
 | **4: Issue Bridge** | 6.1-6.2 | `mote crystallize` working; automatic salience classification on crystallization | Done |
 | **5: Nebula Health** | 7.2, 4.5 | `mote doctor` with contradiction and tag audit checks; `mote tags audit` | Done |
-| **6: Constellation Discovery** | 5.1-5.3, 8.1-8.2 | `mote constellation synthesize`; Obsidian graph view working | Done |
+| **6: Constellation Discovery** | 5.1-5.3 | `mote constellation synthesize`; constellation hubs working | Done |
 | **7: Global Layer** | 10.1 | `mote promote`; cross-project memory active | Done |
 | **8: Retrieval Adaptation** | 11.1-11.3, 4.6 | Access pattern tracking; salience automation; contradiction surfacing; `mote stats` dashboard | Done |
 | **9: Dream Cycle MVP** | 12.1, 12.2, 12.3, 12.6, 12.7 | `mote dream` pipeline with lucid log, hybrid batching, vision review; manual + cron invocation | Done |
