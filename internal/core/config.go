@@ -117,7 +117,7 @@ type ProviderEntry struct {
 // ValidProviderBackends lists the backend identifiers accepted by NewInvoker.
 // An empty string is also accepted for backward compatibility with config files
 // predating the multi-provider rollout — it resolves to "claude-cli".
-var ValidProviderBackends = []string{"claude-cli", "openai", "gemini"}
+var ValidProviderBackends = []string{"claude-cli", "openai", "gemini", "codex-cli", "gemini-cli"}
 
 func isValidBackend(backend string) bool {
 	if backend == "" {

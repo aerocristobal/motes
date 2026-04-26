@@ -13,6 +13,8 @@ This document covers setup, troubleshooting, cost guidance, and how to add a new
 | `claude-cli` (default) | Whatever `claude` CLI is configured with | `claude` shells out to Anthropic | `claude` binary on PATH |
 | `openai` | API key (env var name or literal) | HTTPS to `api.openai.com` | None — uses Go stdlib `net/http` |
 | `gemini` | Vertex AI ADC (gcloud OAuth token) | HTTPS to `*-aiplatform.googleapis.com` | `gcloud` on PATH; GCP project with Vertex AI enabled |
+| `codex-cli` | Whatever `codex` CLI is logged in as (Sign in with ChatGPT or API key) | `codex` shells out to OpenAI | `codex` binary on PATH (`codex login` already run) |
+| `gemini-cli` | Whatever `gemini` CLI is logged in as (Login with Google or API key) | `gemini` shells out to Google | `gemini` binary on PATH (already authenticated) |
 
 All three satisfy the same `Invoker` contract:
 
@@ -112,6 +114,62 @@ mote dream
 **API-key path** (`generativelanguage.googleapis.com`) is intentionally not supported in v0.4.11. If you need it, see "Adding a New Provider" below or open an issue.
 
 **Implementation:** `internal/dream/gemini_invoker.go`. See [`GEMINI.md`](../GEMINI.md) for Gemini-specific tuning advice.
+
+### `codex-cli` (OpenAI Codex CLI delegation)
+
+```yaml
+dream:
+  provider:
+    batch:
+      backend: codex-cli
+      auth: oauth                   # placeholder — codex handles its own auth
+      model: gpt-5-codex            # optional; empty falls through to codex's default
+    reconciliation:
+      backend: codex-cli
+      auth: oauth
+      model: gpt-5-codex
+```
+
+**Setup:**
+```bash
+npm install -g @openai/codex     # or brew install --cask codex
+codex login                       # Sign in with ChatGPT (OAuth) or API key
+which codex                       # confirm on PATH
+mote dream
+```
+
+**Auth flow:** Motes never reads `~/.codex/auth.json` directly. Each invocation shells out to `codex exec --skip-git-repo-check --ephemeral --output-last-message <tmp> [-m <model>] -` with the prompt on stdin; the CLI handles OAuth (or API-key) auth and token refresh internally. The trade-off vs the `openai` backend is per-call subprocess startup (~50–200 ms); dream cycles run infrequently (default `schedule_hint_days: 2`) so this is rarely a hotspot.
+
+**Implementation:** `internal/dream/codex_invoker.go`.
+
+### `gemini-cli` (Gemini CLI delegation)
+
+```yaml
+dream:
+  provider:
+    batch:
+      backend: gemini-cli
+      auth: oauth                   # placeholder — gemini handles its own auth
+      model: gemini-2.5-flash       # optional; empty falls through to gemini's default
+    reconciliation:
+      backend: gemini-cli
+      auth: oauth
+      model: gemini-2.5-pro
+```
+
+**Setup:**
+```bash
+# Install the Gemini CLI (see https://geminicli.com)
+gemini                            # first run prompts Login with Google
+which gemini                      # confirm on PATH
+mote dream
+```
+
+**Auth flow:** Motes never reads `~/.gemini/oauth_creds.json` directly. Each invocation shells out to `gemini -p <prompt> -o text [-m <model>]`; the CLI handles OAuth (or API-key) auth and token refresh internally. The JSON-only system directive is prepended to the prompt body (Gemini CLI has no `--system-prompt` flag).
+
+**When to choose `gemini-cli` vs `gemini`:** Use `gemini-cli` if you've already done Login with Google for the CLI and don't want a separate gcloud / Vertex AI setup. Use `gemini` (Vertex AI ADC) if you need fine-grained GCP project routing, billing controls, or higher rate limits.
+
+**Implementation:** `internal/dream/gemini_cli_invoker.go`.
 
 ---
 
@@ -218,7 +276,19 @@ mote dream              # real call; observe cost line in output
 
 ### `unknown dream provider backend "..."`
 
-Backend value isn't in the allowlist. Valid values: `claude-cli`, `openai`, `gemini`, or empty (defaults to `claude-cli`).
+Backend value isn't in the allowlist. Valid values: `claude-cli`, `openai`, `gemini`, `codex-cli`, `gemini-cli`, or empty (defaults to `claude-cli`).
+
+### `codex-cli backend requires the codex CLI on PATH`
+
+The `codex` binary isn't installed or isn't in `$PATH`. Install via `npm install -g @openai/codex` (or `brew install --cask codex`) and run `codex login` once.
+
+### `gemini-cli backend requires the gemini CLI on PATH`
+
+The `gemini` binary isn't installed or isn't in `$PATH`. Install per https://geminicli.com and run it once interactively to complete Login with Google.
+
+### `codex invocation failed` / `gemini invocation failed`
+
+The CLI exited non-zero. The error includes its stderr — most often this is an auth issue (run `codex login` / re-authenticate gemini) or a sandbox / approval prompt that motes can't answer non-interactively. Re-run with the CLI directly to see the underlying issue.
 
 ### `auth %q looks like an environment variable name but is not set`
 

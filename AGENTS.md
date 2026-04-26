@@ -56,7 +56,7 @@ of record.
 
 ## LLM backend
 
-The dream cycle is the only LLM-using subsystem. It supports three backends
+The dream cycle is the only LLM-using subsystem. It supports five backends
 configurable per stage in `.memory/config.yaml`:
 
 | Backend | Auth | Notes |
@@ -64,6 +64,8 @@ configurable per stage in `.memory/config.yaml`:
 | `claude-cli` | `oauth` placeholder | Default. Shells out to the `claude` binary. |
 | `openai` | env var name (e.g. `OPENAI_API_KEY`) or literal | Calls `api.openai.com/v1/chat/completions`. |
 | `gemini` | `vertex-ai` sentinel | Vertex AI ADC via `gcloud auth print-access-token`. Requires `gcp_project` in `options`. |
+| `codex-cli` | `oauth` placeholder | Shells out to `codex exec`; inherits whatever `codex login` set up. |
+| `gemini-cli` | `oauth` placeholder | Shells out to `gemini -p`; inherits whatever the gemini CLI is logged in as. |
 
 Full reference: `docs/providers.md`.
 

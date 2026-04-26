@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -598,6 +599,18 @@ func providerStageAdvisories(stage string, entry core.ProviderEntry) []string {
 	case "", "claude-cli":
 		// claude-cli takes its credentials from the claude binary itself; the
 		// auth field is decorative. Nothing to advise on.
+	case "codex-cli":
+		if _, err := exec.LookPath("codex"); err != nil {
+			out = append(out, fmt.Sprintf(
+				"%s.backend=%q but the codex CLI is not on PATH; install it from https://developers.openai.com/codex and run `codex login`.",
+				prefix, entry.Backend))
+		}
+	case "gemini-cli":
+		if _, err := exec.LookPath("gemini"); err != nil {
+			out = append(out, fmt.Sprintf(
+				"%s.backend=%q but the gemini CLI is not on PATH; install it from https://geminicli.com and run it once to authenticate.",
+				prefix, entry.Backend))
+		}
 	case "openai":
 		if entry.Auth == "" {
 			out = append(out, fmt.Sprintf(
@@ -626,7 +639,7 @@ func providerStageAdvisories(stage string, entry core.ProviderEntry) []string {
 		// Unknown backends are blocked at config-load time, but emit an advisory
 		// in case a user is staring at `mote doctor` output mid-edit.
 		out = append(out, fmt.Sprintf(
-			"%s.backend=%q is not recognized (valid: claude-cli, openai, gemini).",
+			"%s.backend=%q is not recognized (valid: claude-cli, openai, gemini, codex-cli, gemini-cli).",
 			prefix, entry.Backend))
 	}
 	return out

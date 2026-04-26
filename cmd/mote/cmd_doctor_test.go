@@ -800,6 +800,28 @@ func TestProviderAdvisories_GeminiNonVertexAuth(t *testing.T) {
 	}
 }
 
+func TestProviderAdvisories_CodexCLIBinaryMissing(t *testing.T) {
+	t.Setenv("PATH", "")
+	cfg := core.DefaultConfig()
+	cfg.Dream.Provider.Batch = core.ProviderEntry{Backend: "codex-cli", Auth: "oauth", Model: "gpt-5-codex"}
+	got := runDoctorProviderAdvisories(cfg)
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "codex CLI is not on PATH") {
+		t.Errorf("advisory should warn about missing codex binary: %v", got)
+	}
+}
+
+func TestProviderAdvisories_GeminiCLIBinaryMissing(t *testing.T) {
+	t.Setenv("PATH", "")
+	cfg := core.DefaultConfig()
+	cfg.Dream.Provider.Batch = core.ProviderEntry{Backend: "gemini-cli", Auth: "oauth", Model: "gemini-2.5-flash"}
+	got := runDoctorProviderAdvisories(cfg)
+	joined := strings.Join(got, "\n")
+	if !strings.Contains(joined, "gemini CLI is not on PATH") {
+		t.Errorf("advisory should warn about missing gemini binary: %v", got)
+	}
+}
+
 func TestProviderAdvisories_BothStagesChecked(t *testing.T) {
 	cfg := core.DefaultConfig()
 	cfg.Dream.Provider.Batch = core.ProviderEntry{Backend: "openai"} // missing auth + model

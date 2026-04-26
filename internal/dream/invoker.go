@@ -42,9 +42,13 @@ func NewInvoker(entry core.ProviderEntry, rateLimitRPM int) (Invoker, error) {
 		return NewOpenAIInvoker(entry, rateLimitRPM)
 	case "gemini":
 		return NewGeminiInvoker(entry, rateLimitRPM)
+	case "codex-cli":
+		return NewCodexInvoker(entry, rateLimitRPM)
+	case "gemini-cli":
+		return NewGeminiCLIInvoker(entry, rateLimitRPM)
 	default:
 		return nil, fmt.Errorf(
-			"unknown dream provider backend %q (valid: claude-cli, openai, gemini)",
+			"unknown dream provider backend %q (valid: claude-cli, openai, gemini, codex-cli, gemini-cli)",
 			entry.Backend)
 	}
 }
