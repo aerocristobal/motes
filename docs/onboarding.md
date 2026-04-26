@@ -69,9 +69,13 @@ mote onboard --include-closed
 
 `mote init` and `mote onboard` automatically:
 
-- **Install Claude Code hooks** — `SessionStart` and `PreCompact` hooks for `mote prime` in `~/.claude/settings.json`
-- **Install mote skills** — `mote-capture` and `mote-retrieve` skills to `~/.claude/skills/`
+- **Install Claude Code hooks** — `SessionStart`, `PreCompact`, `UserPromptSubmit`, and `Stop` hooks in `~/.claude/settings.json`
+- **Install mote skills** — `mote-capture`, `mote-retrieve`, `mote-plan`, `mote-subagent` to `~/.claude/skills/`
 - **Migrate bd hooks** — Replaces `bd prime` → `mote prime` and `bd sync` → `mote session-end` in existing hooks
+- **Install Codex hooks** (when `~/.codex/` is detected, or `--codex` is passed) — `SessionStart`, `UserPromptSubmit`, `Stop` in `~/.codex/hooks.json`; sets the `codex_hooks = true` feature flag in `~/.codex/config.toml`; mote skills also written to `~/.agents/skills/`. See [CODEX.md](../CODEX.md).
+- **Install Gemini CLI settings** (when `~/.gemini/` is detected, or `--gemini` is passed) — `SessionStart`, `BeforeAgent`, `SessionEnd` in `~/.gemini/settings.json` (with `300000ms` timeout on `SessionEnd` because Gemini's 60s default would kill the heavy flush); `context.fileName` configured to load both `GEMINI.md` and `AGENTS.md`; mote skills also written to `~/.agents/skills/`. See [GEMINI.md](../GEMINI.md).
+
+The `~/.agents/skills/` install is shared between Codex and Gemini CLI — both honor that path at higher precedence than their tool-specific defaults, so one install reaches both.
 
 ### Post-onboard cleanup
 

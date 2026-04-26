@@ -104,7 +104,19 @@ When you run `mote prime` or `mote context`, motes are scored by combining:
 | **Warm path** | < 10s | In-session | Crystallization prompts, link suggestions |
 | **Dream cycle** | 1-10min | Headless batches | Semantic analysis, link inference, constellation evolution |
 
-The dream cycle works with multiple LLM backends — `claude-cli` (default), `openai` (Chat Completions), or `gemini` (Vertex AI ADC). Each stage (batch reasoning, reconciliation) is configured independently, so you can mix providers. See [docs/providers.md](docs/providers.md) for setup, and [AGENTS.md](AGENTS.md) (cross-agent), [CLAUDE.md](CLAUDE.md), [CODEX.md](CODEX.md), [GEMINI.md](GEMINI.md) for agent-specific guides.
+The dream cycle works with multiple LLM backends — `claude-cli` (default), `openai` (Chat Completions), or `gemini` (Vertex AI ADC). Each stage (batch reasoning, reconciliation) is configured independently, so you can mix providers. See [docs/providers.md](docs/providers.md) for setup.
+
+### Agent Integration
+
+Motes installs the same lifecycle workflow (session-start priming, per-prompt context, session-end flushing, mote skills) for three AI coding agents — they wire up automatically when `mote onboard` detects each tool's config directory:
+
+| Agent | Config | Hooks file | Skills path | Reads instruction file |
+|-------|--------|-----------|-------------|------------------------|
+| Claude Code | `~/.claude/` (always) | `~/.claude/settings.json` | `~/.claude/skills/` | `CLAUDE.md` |
+| OpenAI Codex | `~/.codex/` or `--codex` | `~/.codex/hooks.json` | `~/.agents/skills/` | `AGENTS.md` (per Codex spec) |
+| Gemini CLI | `~/.gemini/` or `--gemini` | `~/.gemini/settings.json` | `~/.agents/skills/` | `GEMINI.md` (imports `@AGENTS.md`) |
+
+[AGENTS.md](AGENTS.md) is the cross-agent working contract; agent-specific tooling notes live in [CLAUDE.md](CLAUDE.md), [CODEX.md](CODEX.md), and [GEMINI.md](GEMINI.md). Reference settings: [docs/example-settings-json.md](docs/example-settings-json.md), [docs/example-codex-config.md](docs/example-codex-config.md), [docs/example-gemini-config.md](docs/example-gemini-config.md).
 
 ## CLI Reference
 
@@ -284,9 +296,13 @@ For guidance on when to run each command and a suggested maintenance schedule, s
 mote onboard                        # Auto-detect and migrate beads/MEMORY.md
 mote onboard --global               # Set up global cross-project memory
 mote onboard --dry-run              # Preview without writing
+mote onboard --codex                # Also install Codex hooks (~/.codex/hooks.json) and skills at ~/.agents/skills/
+mote onboard --gemini               # Also install Gemini CLI settings (~/.gemini/settings.json with hooks + context.fileName) and skills at ~/.agents/skills/
 mote migrate MEMORY.md              # Convert flat markdown to motes
 mote migrate MEMORY.md --dry-run    # Preview without writing
 ```
+
+`mote onboard` always installs Claude Code integration (`~/.claude/settings.json` hooks, `~/.claude/skills/`). The Codex and Gemini CLI flags are auto-enabled when `~/.codex/` or `~/.gemini/` already exist, so existing users of those tools don't need to pass the flag. See [CODEX.md](CODEX.md), [GEMINI.md](GEMINI.md), [docs/example-codex-config.md](docs/example-codex-config.md), and [docs/example-gemini-config.md](docs/example-gemini-config.md) for the wired-up settings.
 
 ## Storage Layout
 
