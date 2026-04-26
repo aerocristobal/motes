@@ -1,52 +1,67 @@
-# GEMINI.md — Working with Motes from Gemini Code Assist
+# GEMINI.md — Working with motes from Gemini CLI
 
-This file is the entry point for **Google Gemini Code Assist** (and other Gemini-family agents — Gemini CLI, Vertex AI Agent Builder, etc.) when operating in this repository or in any project that uses motes as its memory system.
+Loaded into context at every Gemini CLI session start. The full working
+agreements live in [AGENTS.md](AGENTS.md), imported below; this file
+adds Gemini-CLI-specific tooling notes only.
 
-For agent-agnostic conventions, see [AGENTS.md](AGENTS.md). For Claude Code specifics, see [CLAUDE.md](CLAUDE.md).
-
----
-
-## TL;DR
-
-1. **Read [README.md](README.md), then [AGENTS.md](AGENTS.md).** Those define the workflow contract and project conventions.
-2. **Use `mote` for all task and knowledge tracking.** No ad-hoc TODOs, no in-tree task lists.
-3. **You can drive the dream cycle with Gemini itself** — see "Configuring Motes to Use Gemini" below.
-4. **Tests must pass:** `go vet ./... && go test ./...`.
-5. **Push your work** before declaring a session done.
+@AGENTS.md
 
 ---
 
-## Project Overview (Motes-Specific)
+## Gemini CLI specifics
 
-Motes is an AI-native context and memory system written in Go. Knowledge is stored as atomic units (motes) — markdown files with YAML frontmatter under `.memory/nodes/`. The CLI is `mote`. There is no database. The only LLM-using subsystem is the **dream cycle** (`internal/dream/`), a headless background pipeline that performs semantic analysis, link inference, and constellation evolution.
+### Hooks
 
-The dream cycle dispatches through an `Invoker` interface (`internal/dream/invoker.go`) that supports three backends:
+- Configured in `~/.gemini/settings.json` (user) or `.gemini/settings.json` (project).
+- The repo ships a working `.gemini/settings.json` at the root with three hooks:
+  - `SessionStart` (matchers `startup|resume|clear`) → `mote prime --hook --mode=startup`
+  - `BeforeAgent` → `mote prompt-context` (Gemini's analog of Claude's `UserPromptSubmit`)
+  - `SessionEnd` → `mote session-end --hook` with explicit **300000ms timeout**
+- `mote onboard --gemini` installs the same three hooks at `~/.gemini/settings.json`. Auto-detected when `~/.gemini/` exists.
+- **Timeouts are in milliseconds.** Gemini's default is 60000ms (60s); the `mote session-end --hook` flush regularly takes 2–3 minutes on large projects, so we set 300000ms explicitly. Without it the hook gets killed mid-flight.
+- See [`docs/example-gemini-config.md`](docs/example-gemini-config.md) for the full reference.
+- Manage with `/hooks panel`, `/hooks enable-all`, `/hooks disable <name>`.
 
-- `claude-cli` — shells out to Anthropic's `claude` CLI
-- `openai` — HTTP client against OpenAI Chat Completions
-- `gemini` — HTTP client against Vertex AI's `generateContent` API
+### Skills
 
-Read [docs/internals.md](docs/internals.md) for the architectural overview, then [docs/providers.md](docs/providers.md) for backend setup.
+- Skills live at `.agents/skills/<name>/SKILL.md`. Gemini CLI scans this path at higher precedence than `.gemini/skills/`. **The same path Codex uses** — one install, both agents discover them.
+- `mote onboard --gemini` (or `--codex`, or auto-detect of either tool) writes the four motes skills:
+  - `mote-capture` — knowledge capture with tag suggestions
+  - `mote-retrieve` — graph traversal vs full-text vs strata routing
+  - `mote-plan` — multi-step parent + child task decomposition
+  - `mote-subagent` — concise context-retrieval instructions for sub-agents
+- Manage with `gemini skills list/install/disable` or the `/skills` slash command.
+- Activation requires explicit user consent on the first call (Gemini shows a confirmation prompt with the skill's name, purpose, and folder path).
+
+### `/memory` workflow
+
+- `/memory show` — display the loaded GEMINI.md + AGENTS.md (after `@AGENTS.md` import expansion)
+- `/memory reload` — re-scan after editing either file
+- `/memory add <text>` — appends to your global `~/.gemini/GEMINI.md`
+
+### `context.fileName` configuration
+
+The repo's `.gemini/settings.json` configures `context.fileName: ["GEMINI.md", "AGENTS.md"]` so both files load. `mote onboard --gemini` writes the same setting at the user tier, preserving any user-defined entries.
+
+Without this setting, Gemini CLI loads only `GEMINI.md` — but the `@AGENTS.md` import line at the top of this file inlines AGENTS.md anyway, so coverage is the same. The setting just ensures AGENTS.md is also picked up directly when nested AGENTS.md overrides exist in subdirectories (Codex-spec discovery).
+
+### Hook environment
+
+Mote's `--hook` flags read `cwd` from stdin and ignore the rest, so they work unchanged. For reference, Gemini CLI sets:
+
+- `GEMINI_PROJECT_DIR`, `GEMINI_CWD`, `GEMINI_SESSION_ID`
+- `CLAUDE_PROJECT_DIR` (alias, for cross-tool compat)
 
 ---
 
-## Configuring Motes to Use Gemini
+## Gemini as the dream-cycle backend
 
-The `gemini` backend uses **Vertex AI** with **Application Default Credentials** (ADC). API-key auth (`generativelanguage.googleapis.com`) is intentionally not supported in v0.4.11 — open an issue if you need it.
+Separate concern from Gemini CLI driving you as the agent. The dream cycle (`mote dream`) can use Gemini's Vertex AI API regardless of which agent is writing code. Full setup at [`docs/providers.md` § gemini (Vertex AI ADC)](docs/providers.md#gemini-vertex-ai-adc).
 
-### Prerequisites
-
-1. A Google Cloud project with the Vertex AI API enabled.
-2. The `gcloud` CLI on `PATH`.
-3. ADC configured:
-   ```bash
-   gcloud auth application-default login
-   gcloud auth print-access-token | head -c 20    # confirm a token is retrievable
-   ```
-
-### `.memory/config.yaml`
+Short version:
 
 ```yaml
+# .memory/config.yaml
 dream:
   provider:
     batch:
@@ -55,166 +70,50 @@ dream:
       model: gemini-2.5-flash
       options:
         gcp_project: your-gcp-project
-        gcp_region: us-central1                # default if omitted
-        safety_threshold: BLOCK_ONLY_HIGH      # default if omitted
-    reconciliation:
-      backend: gemini
-      auth: vertex-ai
-      model: gemini-2.5-pro
-      options:
-        gcp_project: your-gcp-project
-        gcp_region: us-central1
-    rate_limit_rpm: 60                         # 0 = unlimited
 ```
-
-Run it:
 
 ```bash
-mote dream                  # full cycle
-mote dream --dry-run        # preview without LLM calls
-mote dream --review         # interactive vision review
+gcloud auth application-default login
+mote dream
 ```
-
-### Tier-to-Model Mapping
-
-The orchestrator now constructs a separate invoker per stage, so the legacy "tier" parameter is purely informational. The mapping you care about:
-
-| Stage | Reads from | Recommended Gemini model |
-|-------|-----------|--------------------------|
-| Batch reasoning | `dream.provider.batch.model` | `gemini-2.5-flash` (cheap, fast, runs many times in parallel) |
-| Reconciliation | `dream.provider.reconciliation.model` | `gemini-2.5-pro` (single high-capability pass) |
-
-### Safety Settings
-
-All four Vertex AI harm categories (HARASSMENT, HATE_SPEECH, SEXUALLY_EXPLICIT, DANGEROUS_CONTENT) are set to `safety_threshold` from your config. Default is `BLOCK_ONLY_HIGH` — permissive enough that technical content in mote bodies doesn't trigger false positives. Valid values:
-
-- `BLOCK_NONE`
-- `BLOCK_ONLY_HIGH` (default)
-- `BLOCK_MEDIUM_AND_ABOVE`
-- `BLOCK_LOW_AND_ABOVE`
-
-A `finishReason: SAFETY | RECITATION | PROHIBITED_CONTENT` response is treated as a **non-retryable** error — `RetryPolicy` will not waste attempts on a deterministic block. The error string contains `"gemini response blocked"` so it shows up clearly in logs.
-
-### Cost Estimation
-
-`mote dream` prints an estimated cost line that uses the configured model and the per-million-token rates in `internal/dream/pricing.go`. As of 2026-04-25:
-
-| Model | Input $/MTok | Output $/MTok |
-|-------|--------------|----------------|
-| `gemini-2.5-flash` | 0.30 | 2.50 |
-| `gemini-2.5-pro` | 1.25 | 10.0 |
-
-These are sourced from `cloud.google.com/vertex-ai/pricing`. If they drift, update the table and the date in `pricing.go`.
-
-### Verifying Setup
-
-```bash
-mote doctor                 # advisories: missing gcp_project, wrong auth value, etc.
-```
-
-Expected silence on a correctly configured machine; clear actionable messages otherwise.
 
 ---
 
-## Workflow for Gemini Agents
+## Long-context tuning
 
-### 1. Before Coding — Create a Task Mote
-
-```bash
-mote add --type=task --title="Short summary" --tag=topic --body "What and why"
-```
-
-For multi-step work, use `mote plan <parent-id> --child "..." --child "..."` to create a hierarchy.
-
-### 2. While Coding — Capture Knowledge
-
-When you discover something non-obvious:
-
-```bash
-mote add --type=lesson --title="..." --body "..." --tag=...
-mote link <new-id> caused_by <task-id>
-```
-
-### 3. On Errors — Search First
-
-```bash
-mote search "<error fragment>" --type=lesson
-```
-
-### 4. After Coding — Quality Gates + Push
-
-```bash
-go vet ./...
-go test ./...
-mote update <task-id> --status=completed
-git add <files>
-git commit -m "..."
-git push
-```
-
-A session is **not done** until `git push` succeeds.
-
----
-
-## Gemini-Specific Notes
-
-### Long-Context Strengths
-
-Gemini's large context window (1M+ tokens) is well-suited to motes' dream cycle, which constructs prompts containing:
-
-- The lucid log (cross-batch context, capped at `dream.journal.max_tokens` — default 2000)
-- A batch of motes (up to 50 by default — see `dream.batching.max_motes_per_batch`)
-- The pre-scan candidates (link suggestions, contradictions, stale flags)
-
-You can comfortably increase batch size when running on Gemini if your project has many small motes:
+Gemini's large context window (1M+ tokens for 2.5 Pro) is well-suited to motes' dream cycle. If you use Gemini as both the agent and the dream-cycle backend on a project with many small motes, you can comfortably increase the batch size:
 
 ```yaml
+# .memory/config.yaml
 dream:
   batching:
     max_motes_per_batch: 100   # default 50
     max_batches: 24            # default 12
 ```
 
-### JSON-Only Output Contract
-
-The `internal/dream/parser.go` expects a single JSON object response. The Gemini invoker sets:
-
-```json
-"generationConfig": { "responseMimeType": "application/json" }
-```
-
-— which makes Gemini emit JSON natively. If you see "no JSON found" warnings in `dream/failed_responses.jsonl`, check that:
-
-- Your model supports `responseMimeType` (most 2.5+ models do)
-- No safety filter is partial-blocking the response
-
-### Function Calling / Tool Use
-
-Motes does **not** use Gemini's function-calling features. The dream cycle is single-turn JSON generation. There is no agentic loop inside the cycle itself.
-
-If you want to add tool-use, that's a substantial architectural change — open a `decision` mote first.
+The `internal/dream/gemini_invoker.go` invoker sets `responseMimeType: application/json` in `generationConfig`, so Gemini emits JSON natively and motes' parser sees no "no JSON found" warnings. If you do see them in `dream/failed_responses.jsonl`, the safety filter is the most likely cause — check `response_preview`.
 
 ---
 
-## Common Gemini-Specific Pitfalls
+## Troubleshooting
 
-| Symptom | Likely Cause | Fix |
+| Symptom | Likely cause | Fix |
 |---------|--------------|-----|
-| `gemini auth=vertex-ai requires gcloud CLI on PATH` | gcloud not installed | Install Google Cloud SDK |
-| `gcloud auth print-access-token failed` | ADC not configured | `gcloud auth application-default login` |
-| `gemini HTTP 403 ... permission denied` | Vertex AI API not enabled or service account lacks `aiplatform.user` role | Enable API and grant role |
-| `gemini response blocked: SAFETY` | Safety filter triggered on mote body content | Lower the threshold (e.g. `BLOCK_NONE` for technical-only projects), or rephrase the offending mote |
-| `gemini HTTP 429` | Quota exceeded | Lower `rate_limit_rpm`; request quota increase |
-| Empty visions output | `responseMimeType` not honored, or model returned a refusal that isn't a hard safety block | Inspect `dream/failed_responses.jsonl` |
+| Hooks don't fire | `mote` not on `$PATH` | `which mote` should succeed; install via `make install` |
+| Hook killed before completing | Default 60s timeout exceeded | Set explicit `timeout` in ms — we use 300000ms for SessionEnd |
+| Skill not in `/skills list` | Wrong path | Skills must be at `.agents/skills/<name>/SKILL.md` (or `.gemini/skills/`); `.agents` takes precedence |
+| AGENTS.md not loaded | `context.fileName` doesn't include it | Add to `~/.gemini/settings.json` `context.fileName` array, or rely on the `@AGENTS.md` import in this file |
+| `/memory show` shows stale content | File was edited mid-session | `/memory reload` |
 
 ---
 
 ## Pointers
 
-- **Setup & full reference:** [docs/providers.md](docs/providers.md), [docs/configuration.md](docs/configuration.md)
-- **Source of truth (Gemini invoker):** `internal/dream/gemini_invoker.go`
-- **Test patterns:** `internal/dream/gemini_invoker_test.go` — uses `httptest` + injected `tokenSource` so tests run without `gcloud` installed
-- **Doctor advisories:** `runDoctorProviderAdvisories` in `cmd/mote/cmd_doctor.go`
+- **Gemini CLI docs:** [hooks](https://geminicli.com/docs/hooks/), [skills](https://geminicli.com/docs/cli/skills/), [GEMINI.md](https://geminicli.com/docs/cli/gemini-md/)
+- **Repo files:** [`.gemini/settings.json`](.gemini/settings.json), [`AGENTS.md`](AGENTS.md), [`docs/example-gemini-config.md`](docs/example-gemini-config.md)
+- **Source of truth (Gemini settings install):** `ensureGeminiSettings` in `cmd/mote/cmd_onboard.go`
+- **Dream-cycle backend (Vertex AI):** [`docs/providers.md`](docs/providers.md#gemini-vertex-ai-adc)
+- **Other agent guides:** [`CLAUDE.md`](CLAUDE.md) (Claude Code), [`CODEX.md`](CODEX.md) (OpenAI Codex)
 
 ---
 

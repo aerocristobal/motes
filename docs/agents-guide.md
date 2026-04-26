@@ -84,11 +84,13 @@ If you find yourself unable to do something programmatically that's possible int
 
 | File | Audience | Read when |
 |------|----------|-----------|
-| `AGENTS.md` | All agents (Codex spec) | Always — it's the prompt |
+| `AGENTS.md` | All agents (Codex spec; Gemini CLI via `@AGENTS.md` import) | Always — it's the prompt |
 | `CLAUDE.md` | Claude Code | Working from Claude Code (it auto-loads this) |
 | `CODEX.md` | OpenAI Codex | Hooks/skills setup; Codex-specific tooling |
-| `GEMINI.md` | Google Gemini Code Assist | Vertex AI / Gemini setup; using Gemini as the dream-cycle backend |
-| `docs/providers.md` | Any agent | Configuring the dream cycle's LLM backend |
+| `GEMINI.md` | Gemini CLI | Hooks/skills setup; `/memory` workflow; `context.fileName` config |
+| `docs/providers.md` | Any agent | Configuring the dream cycle's LLM backend (claude-cli, openai, gemini Vertex AI) |
+
+**Gemini CLI vs Gemini Code Assist:** these are two different products. Gemini CLI is a standalone command-line agent ([geminicli.com](https://geminicli.com/)); Gemini Code Assist is the IDE plugin. `GEMINI.md` in this repo targets Gemini CLI. The Vertex AI dream-cycle backend in `docs/providers.md` works with both — it's about using Google's API, not about which agent is driving you as a developer.
 
 When working in a project that *uses* motes as its memory system (rather than the motes source repo itself), the right approach is:
 

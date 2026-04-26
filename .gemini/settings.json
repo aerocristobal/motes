@@ -1,0 +1,47 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "name": "mote-prime",
+            "type": "command",
+            "command": "mote prime --hook --mode=startup",
+            "timeout": 60000,
+            "description": "Load scored mote context into the prompt"
+          }
+        ]
+      }
+    ],
+    "BeforeAgent": [
+      {
+        "hooks": [
+          {
+            "name": "mote-prompt-context",
+            "type": "command",
+            "command": "mote prompt-context",
+            "timeout": 30000,
+            "description": "Inject per-prompt context (active task, relevant motes)"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "name": "mote-session-end",
+            "type": "command",
+            "command": "mote session-end --hook",
+            "timeout": 300000,
+            "description": "Flush access counts, create session summary, run co-access linking"
+          }
+        ]
+      }
+    ]
+  },
+  "context": {
+    "fileName": ["GEMINI.md", "AGENTS.md"]
+  }
+}

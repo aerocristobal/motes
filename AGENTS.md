@@ -66,7 +66,11 @@ configurable per stage in `.memory/config.yaml`:
 | `gemini` | `vertex-ai` sentinel | Vertex AI ADC via `gcloud auth print-access-token`. Requires `gcp_project` in `options`. |
 
 Full reference: `docs/providers.md`.
-Agent-specific guides: `CLAUDE.md`, `GEMINI.md`, `CODEX.md`.
+
+Agent-specific guides:
+- `CLAUDE.md` — Claude Code (auto-loads its own file)
+- `CODEX.md` — OpenAI Codex; AGENTS.md is auto-loaded by Codex per its spec
+- `GEMINI.md` — Gemini CLI; imports this file via `@AGENTS.md` syntax
 
 ## Read also
 
