@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          { "type": "command", "command": "mote prime --hook --mode=startup", "statusMessage": "Loading mote context" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "mote prompt-context" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "mote session-end --hook", "timeout": 600, "statusMessage": "Flushing mote session state" }
+        ]
+      }
+    ]
+  }
+}

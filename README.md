@@ -104,7 +104,7 @@ When you run `mote prime` or `mote context`, motes are scored by combining:
 | **Warm path** | < 10s | In-session | Crystallization prompts, link suggestions |
 | **Dream cycle** | 1-10min | Headless batches | Semantic analysis, link inference, constellation evolution |
 
-The dream cycle works with multiple LLM backends — `claude-cli` (default), `openai` (Chat Completions), or `gemini` (Vertex AI ADC). Each stage (batch reasoning, reconciliation) is configured independently, so you can mix providers. See [docs/providers.md](docs/providers.md) for setup, and [AGENTS.md](AGENTS.md) / [GEMINI.md](GEMINI.md) for agent-specific guides.
+The dream cycle works with multiple LLM backends — `claude-cli` (default), `openai` (Chat Completions), or `gemini` (Vertex AI ADC). Each stage (batch reasoning, reconciliation) is configured independently, so you can mix providers. See [docs/providers.md](docs/providers.md) for setup, and [AGENTS.md](AGENTS.md) (cross-agent), [CLAUDE.md](CLAUDE.md), [CODEX.md](CODEX.md), [GEMINI.md](GEMINI.md) for agent-specific guides.
 
 ## CLI Reference
 
@@ -348,6 +348,7 @@ All configuration lives in `.memory/config.yaml`. See [docs/configuration.md](do
 
 ## Version History
 
+- **v0.4.12** — Codex (OpenAI) onboarding: tightened `AGENTS.md` to a Codex-friendly prompt (~80 lines), added `CODEX.md`, `docs/example-codex-config.md`, and a working `.codex/hooks.json` at the repo root. `mote onboard` auto-detects `~/.codex/` and installs hooks at `~/.codex/hooks.json` plus motes skills at `~/.agents/skills/` (alongside the existing `~/.claude/skills/`). Pass `--codex` to opt in explicitly.
 - **v0.4.11** — Multi-provider dream cycle: `Invoker` interface with backend dispatch (`claude-cli`, `openai`, `gemini` Vertex AI ADC). Per-stage provider configuration so batch and reconciliation can use different backends. `mote doctor` provider advisories. `config.yaml` now generated with backend hint comments via `yaml.v3` Node API.
 - **v0.4.10** — Larger batches (50 motes), tighter cap (12 batches); refreshed model IDs.
 - **v0.4.9** — Dream cycle token consumption reduced ~60%.
