@@ -60,7 +60,8 @@ func (rp *RetryPolicy) backoff(attempt int) time.Duration {
 var transientIndicators = []string{"429", "500", "502", "503", "rate limit", "timeout"}
 
 // nonRetryableIndicators are substrings that indicate permanent failures.
-var nonRetryableIndicators = []string{"400", "401", "403", "404"}
+// Includes Gemini safety/recitation blocks — retrying won't change the verdict.
+var nonRetryableIndicators = []string{"400", "401", "403", "404", "gemini response blocked"}
 
 // IsTransientError returns true if the error looks like a transient API failure.
 func IsTransientError(err error) bool {

@@ -41,7 +41,7 @@ func NewInvoker(entry core.ProviderEntry, rateLimitRPM int) (Invoker, error) {
 	case "openai":
 		return NewOpenAIInvoker(entry, rateLimitRPM)
 	case "gemini":
-		return nil, fmt.Errorf("gemini backend not yet implemented")
+		return NewGeminiInvoker(entry, rateLimitRPM)
 	default:
 		return nil, fmt.Errorf(
 			"unknown dream provider backend %q (valid: claude-cli, openai, gemini)",

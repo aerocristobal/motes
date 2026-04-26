@@ -64,10 +64,13 @@ func TestNewInvoker_OpenAIRequiresAuthAndModel(t *testing.T) {
 	}
 }
 
-func TestNewInvoker_GeminiPlaceholder(t *testing.T) {
+func TestNewInvoker_GeminiRequiresVertexAuth(t *testing.T) {
+	// Real Gemini dispatch is exercised in TestNewInvoker_DispatchesToGemini
+	// (gemini_invoker_test.go); this test pins the failure mode for missing
+	// auth.
 	_, err := NewInvoker(core.ProviderEntry{Backend: "gemini"}, 0)
 	if err == nil {
-		t.Fatal("gemini backend should return an error until Phase 4 lands")
+		t.Fatal("gemini backend should error when auth is missing")
 	}
 }
 
