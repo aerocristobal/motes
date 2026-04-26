@@ -569,3 +569,188 @@ func TestOnboard_FromInvalid(t *testing.T) {
 func newTestMoteManager(root string) *core.MoteManager {
 	return core.NewMoteManager(root)
 }
+
+// --- Codex hooks tests ---
+
+func TestEnsureCodexHooks_CreatesNew(t *testing.T) {
+	codexDir := t.TempDir()
+	if err := ensureCodexHooks(codexDir, false); err != nil {
+		t.Fatalf("ensureCodexHooks: %v", err)
+	}
+
+	hooksPath := filepath.Join(codexDir, "hooks.json")
+	data, err := os.ReadFile(hooksPath)
+	if err != nil {
+		t.Fatalf("hooks.json should be created: %v", err)
+	}
+	var settings map[string]interface{}
+	if err := json.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("hooks.json should be valid JSON: %v", err)
+	}
+	hooks, _ := settings["hooks"].(map[string]interface{})
+	if hooks == nil {
+		t.Fatal("hooks key missing from settings")
+	}
+	for _, evt := range []string{"SessionStart", "UserPromptSubmit", "Stop"} {
+		if _, ok := hooks[evt]; !ok {
+			t.Errorf("expected %s hook, missing", evt)
+		}
+	}
+
+	// Confirm Stop hook carries the explicit 600s timeout (signals the long
+	// session-end runtime to anyone reading the file)
+	stopEntries := hooks["Stop"].([]interface{})
+	stopHook := stopEntries[0].(map[string]interface{})["hooks"].([]interface{})[0].(map[string]interface{})
+	if stopHook["timeout"] != float64(600) {
+		t.Errorf("Stop hook timeout: got %v, want 600", stopHook["timeout"])
+	}
+}
+
+func TestEnsureCodexHooks_Idempotent(t *testing.T) {
+	codexDir := t.TempDir()
+	if err := ensureCodexHooks(codexDir, false); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+	first, _ := os.ReadFile(filepath.Join(codexDir, "hooks.json"))
+
+	// Second run should produce identical content
+	if err := ensureCodexHooks(codexDir, false); err != nil {
+		t.Fatalf("second install: %v", err)
+	}
+	second, _ := os.ReadFile(filepath.Join(codexDir, "hooks.json"))
+
+	if string(first) != string(second) {
+		t.Errorf("ensureCodexHooks not idempotent\nfirst:\n%s\nsecond:\n%s", first, second)
+	}
+}
+
+func TestEnsureCodexHooks_PreservesUserConfig(t *testing.T) {
+	codexDir := t.TempDir()
+	hooksPath := filepath.Join(codexDir, "hooks.json")
+	// Pre-existing user config with an unrelated hook
+	preexisting := `{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "/usr/local/bin/audit-bash.sh"}]}
+    ]
+  }
+}`
+	if err := os.WriteFile(hooksPath, []byte(preexisting), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureCodexHooks(codexDir, false); err != nil {
+		t.Fatalf("ensureCodexHooks: %v", err)
+	}
+
+	data, _ := os.ReadFile(hooksPath)
+	if !strings.Contains(string(data), "audit-bash.sh") {
+		t.Error("preexisting PreToolUse hook should survive ensureCodexHooks")
+	}
+	if !strings.Contains(string(data), "mote prime") {
+		t.Error("mote hooks should be added alongside existing ones")
+	}
+}
+
+func TestEnsureCodexFeatureFlag_CreatesConfig(t *testing.T) {
+	codexDir := t.TempDir()
+	if err := ensureCodexFeatureFlag(codexDir, false); err != nil {
+		t.Fatalf("ensureCodexFeatureFlag: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(codexDir, "config.toml"))
+	if err != nil {
+		t.Fatalf("config.toml should be created: %v", err)
+	}
+	if !strings.Contains(string(data), "codex_hooks = true") {
+		t.Errorf("config.toml missing feature flag:\n%s", data)
+	}
+}
+
+func TestEnsureCodexFeatureFlag_AppendsToExistingConfig(t *testing.T) {
+	codexDir := t.TempDir()
+	configPath := filepath.Join(codexDir, "config.toml")
+	if err := os.WriteFile(configPath, []byte("[user]\nname = \"someone\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureCodexFeatureFlag(codexDir, false); err != nil {
+		t.Fatalf("ensureCodexFeatureFlag: %v", err)
+	}
+	data, _ := os.ReadFile(configPath)
+	if !strings.Contains(string(data), "[user]") {
+		t.Error("existing [user] section should survive")
+	}
+	if !strings.Contains(string(data), "codex_hooks = true") {
+		t.Error("feature flag should be appended")
+	}
+}
+
+func TestEnsureCodexFeatureFlag_NoOpWhenAlreadySet(t *testing.T) {
+	codexDir := t.TempDir()
+	configPath := filepath.Join(codexDir, "config.toml")
+	original := "[features]\ncodex_hooks = true\n"
+	if err := os.WriteFile(configPath, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureCodexFeatureFlag(codexDir, false); err != nil {
+		t.Fatalf("ensureCodexFeatureFlag: %v", err)
+	}
+	data, _ := os.ReadFile(configPath)
+	if string(data) != original {
+		t.Errorf("file should be unchanged when flag already set\ngot:\n%s", data)
+	}
+}
+
+// --- Dual-path skills test ---
+
+func TestEnsureMoteSkills_InstallsAtAgentsPathWhenCodexEnabled(t *testing.T) {
+	home := t.TempDir()
+	// Pre-create ~/.codex/ to trigger the auto-detect path
+	if err := os.MkdirAll(filepath.Join(home, ".codex"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := ensureMoteSkills(home, false); err != nil {
+		t.Fatalf("ensureMoteSkills: %v", err)
+	}
+
+	// Both locations should have the mote-capture skill
+	for _, expected := range []string{
+		filepath.Join(home, ".claude", "skills", "mote-capture", "SKILL.md"),
+		filepath.Join(home, ".agents", "skills", "mote-capture", "SKILL.md"),
+	} {
+		if _, err := os.Stat(expected); err != nil {
+			t.Errorf("expected skill at %s: %v", expected, err)
+		}
+	}
+}
+
+func TestEnsureMoteSkills_ClaudeOnlyWhenCodexAbsent(t *testing.T) {
+	home := t.TempDir()
+	// No ~/.codex/, no --codex flag → should not write to ~/.agents/skills
+	onboardCodex = false
+
+	if err := ensureMoteSkills(home, false); err != nil {
+		t.Fatalf("ensureMoteSkills: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(home, ".claude", "skills", "mote-capture", "SKILL.md")); err != nil {
+		t.Errorf("Claude skill should be installed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "mote-capture", "SKILL.md")); !os.IsNotExist(err) {
+		t.Errorf("agents skill should NOT be installed when codex is disabled (got err=%v)", err)
+	}
+}
+
+func TestEnsureMoteSkills_RespectsExplicitCodexFlag(t *testing.T) {
+	home := t.TempDir()
+	// No ~/.codex/ but --codex flag set → still install at .agents/skills
+	onboardCodex = true
+	defer func() { onboardCodex = false }()
+
+	if err := ensureMoteSkills(home, false); err != nil {
+		t.Fatalf("ensureMoteSkills: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "mote-capture", "SKILL.md")); err != nil {
+		t.Errorf("agents skill should be installed when --codex flag set: %v", err)
+	}
+}

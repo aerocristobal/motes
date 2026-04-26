@@ -65,6 +65,7 @@ var (
 	onboardFrom          string
 	onboardRepo          string
 	onboardPhaseParents  bool
+	onboardCodex         bool
 )
 
 func init() {
@@ -75,7 +76,20 @@ func init() {
 	onboardCmd.Flags().StringVar(&onboardFrom, "from", "", "Migration source: markdown, beads, github, fresh (skips interactive prompt)")
 	onboardCmd.Flags().StringVar(&onboardRepo, "repo", "", "GitHub repo (owner/repo) for --from=github")
 	onboardCmd.Flags().BoolVar(&onboardPhaseParents, "phase-parents", false, "Create parent task motes per phase label (github import)")
+	onboardCmd.Flags().BoolVar(&onboardCodex, "codex", false, "Install OpenAI Codex hooks at ~/.codex/ and skills at ~/.agents/skills/ (auto-enabled if ~/.codex/ exists)")
 	rootCmd.AddCommand(onboardCmd)
+}
+
+// codexEnabled returns true when the user explicitly opted in via --codex,
+// or when ~/.codex/ already exists (auto-detect).
+func codexEnabled(homeDir string) bool {
+	if onboardCodex {
+		return true
+	}
+	if _, err := os.Stat(filepath.Join(homeDir, ".codex")); err == nil {
+		return true
+	}
+	return false
 }
 
 func runOnboard(cmd *cobra.Command, args []string) error {
@@ -242,6 +256,9 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 			migrateClaudeSettings(claudeDir, true)
 		}
 		ensureClaudeHooks(claudeDir, true)
+		if codexEnabled(home) {
+			ensureCodexHooks(filepath.Join(home, ".codex"), true)
+		}
 		ensureMoteSkills(home, true)
 		ensurePreCommitHook(cwd, true)
 		return nil
@@ -272,7 +289,14 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
 	}
 
-	// Install skills
+	// Install Codex hooks when --codex set or ~/.codex/ exists
+	if codexEnabled(home) {
+		if err := ensureCodexHooks(filepath.Join(home, ".codex"), false); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: codex hooks installation: %v\n", err)
+		}
+	}
+
+	// Install skills (writes to ~/.agents/skills too when codex is enabled)
 	if err := ensureMoteSkills(home, false); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
 	}
@@ -331,6 +355,9 @@ func runOnboardProject() error {
 			migrateClaudeSettings(claudeDir, true)
 		}
 		ensureClaudeHooks(claudeDir, true)
+		if codexEnabled(home) {
+			ensureCodexHooks(filepath.Join(home, ".codex"), true)
+		}
 		ensureMoteSkills(home, true)
 		if onboardCleanup && dirExists(filepath.Join(cwd, ".beads")) {
 			fmt.Println("  Would remove .beads/")
@@ -471,6 +498,9 @@ func runOnboardGlobal() error {
 			migrateClaudeSettings(claudeDir, true)
 		}
 		ensureClaudeHooks(claudeDir, true)
+		if codexEnabled(home) {
+			ensureCodexHooks(filepath.Join(home, ".codex"), true)
+		}
 		ensureMoteSkills(home, true)
 		if onboardCleanup && dirExists(filepath.Join(home, ".beads")) {
 			fmt.Println("  Would remove ~/.beads/")
@@ -542,6 +572,13 @@ func runOnboardGlobal() error {
 	// --- Install hooks ---
 	if err := ensureClaudeHooks(claudeDir, false); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
+	}
+
+	// --- Install Codex hooks (when --codex set or ~/.codex/ exists) ---
+	if codexEnabled(home) {
+		if err := ensureCodexHooks(filepath.Join(home, ".codex"), false); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: codex hooks installation: %v\n", err)
+		}
 	}
 
 	// --- Install skills ---
@@ -834,11 +871,192 @@ func hookEventHasMatcherCommand(hooks map[string]interface{}, eventName, matcher
 	return false
 }
 
-// ensureMoteSkills installs mote skill files to ~/.claude/skills/.
-// Updates existing files if content has changed.
-func ensureMoteSkills(homeDir string, dryRun bool) error {
-	skillsDir := filepath.Join(homeDir, ".claude", "skills")
+// desiredCodexHooks returns the hook entries Codex should install.
+//
+// Codex's SessionStart matchers are startup, resume, clear (no separate
+// compact event — Codex doesn't fire one), so a single combined matcher
+// covers all three. UserPromptSubmit and Stop ignore matcher entirely per
+// the Codex spec. The Stop hook gets an explicit 600s timeout to make the
+// observed worst-case session-end runtime visible to anyone reading the file.
+func desiredCodexHooks() []codexHookSpec {
+	return []codexHookSpec{
+		{event: "SessionStart", matcher: "startup|resume|clear", command: "mote prime --hook --mode=startup", statusMessage: "Loading mote context"},
+		{event: "UserPromptSubmit", matcher: "", command: "mote prompt-context"},
+		{event: "Stop", matcher: "", command: "mote session-end --hook", timeout: 600, statusMessage: "Flushing mote session state"},
+	}
+}
 
+// codexHookSpec extends hookSpec with Codex-only fields (timeout, statusMessage).
+// Kept separate from hookSpec to avoid leaking Codex concepts into the Claude
+// install path; the two ecosystems use different JSON shapes for these fields.
+type codexHookSpec struct {
+	event         string
+	matcher       string
+	command       string
+	timeout       int    // seconds; 0 means rely on Codex's 600s default
+	statusMessage string // optional; surfaced in Codex's UI while the hook runs
+}
+
+// ensureCodexHooks installs Codex hooks in ~/.codex/hooks.json. Idempotent —
+// matches the Claude install path's behavior: existing matching entries are
+// left alone, missing ones are appended. Also writes the codex_hooks feature
+// flag to ~/.codex/config.toml when that file is missing or doesn't yet have
+// a [features] section. If [features] exists, prints a one-line advisory
+// rather than risk corrupting arbitrary user TOML.
+func ensureCodexHooks(codexDir string, dryRun bool) error {
+	if err := ensureCodexFeatureFlag(codexDir, dryRun); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: codex feature flag: %v\n", err)
+	}
+
+	hooksPath := filepath.Join(codexDir, "hooks.json")
+
+	var settings map[string]interface{}
+	data, err := os.ReadFile(hooksPath)
+	if os.IsNotExist(err) {
+		settings = map[string]interface{}{}
+	} else if err != nil {
+		return fmt.Errorf("read codex hooks.json: %w", err)
+	} else {
+		if err := json.Unmarshal(data, &settings); err != nil {
+			return fmt.Errorf("parse codex hooks.json: %w", err)
+		}
+	}
+
+	hooks, _ := settings["hooks"].(map[string]interface{})
+	if hooks == nil {
+		hooks = map[string]interface{}{}
+	}
+
+	var installed []string
+	for _, spec := range desiredCodexHooks() {
+		if hookEventHasMatcherCommand(hooks, spec.event, spec.matcher, spec.command) {
+			continue
+		}
+
+		hookCmd := map[string]interface{}{
+			"type":    "command",
+			"command": spec.command,
+		}
+		if spec.timeout > 0 {
+			hookCmd["timeout"] = spec.timeout
+		}
+		if spec.statusMessage != "" {
+			hookCmd["statusMessage"] = spec.statusMessage
+		}
+
+		entry := map[string]interface{}{
+			"hooks": []interface{}{hookCmd},
+		}
+		if spec.matcher != "" {
+			entry["matcher"] = spec.matcher
+		}
+
+		existing, _ := hooks[spec.event].([]interface{})
+		hooks[spec.event] = append(existing, entry)
+		installed = append(installed, fmt.Sprintf("%s[%s]", spec.event, spec.matcher))
+	}
+
+	if len(installed) == 0 {
+		return nil
+	}
+
+	if dryRun {
+		fmt.Printf("  Would install codex hooks: %s\n", strings.Join(installed, ", "))
+		return nil
+	}
+
+	settings["hooks"] = hooks
+	newData, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal codex hooks: %w", err)
+	}
+	newData = append(newData, '\n')
+
+	if err := os.MkdirAll(codexDir, 0755); err != nil {
+		return fmt.Errorf("create codex dir: %w", err)
+	}
+	if err := core.AtomicWrite(hooksPath, newData, 0644); err != nil {
+		return fmt.Errorf("write codex hooks.json: %w", err)
+	}
+	for _, name := range installed {
+		fmt.Printf("  installed codex hook: %s\n", name)
+	}
+	return nil
+}
+
+// ensureCodexFeatureFlag enables `codex_hooks = true` in ~/.codex/config.toml.
+// Codex ignores hooks unless this flag is set. To avoid clobbering arbitrary
+// user TOML structure, we only write when the file is missing or has no
+// [features] section. Otherwise we emit an advisory and let the user merge
+// the flag themselves.
+func ensureCodexFeatureFlag(codexDir string, dryRun bool) error {
+	configPath := filepath.Join(codexDir, "config.toml")
+	data, err := os.ReadFile(configPath)
+	if os.IsNotExist(err) {
+		if dryRun {
+			fmt.Printf("  Would create %s with codex_hooks = true\n", configPath)
+			return nil
+		}
+		if err := os.MkdirAll(codexDir, 0755); err != nil {
+			return fmt.Errorf("create codex dir: %w", err)
+		}
+		body := "[features]\ncodex_hooks = true\n"
+		if err := core.AtomicWrite(configPath, []byte(body), 0644); err != nil {
+			return fmt.Errorf("write codex config.toml: %w", err)
+		}
+		fmt.Printf("  created %s with codex_hooks = true\n", configPath)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read codex config.toml: %w", err)
+	}
+
+	if strings.Contains(string(data), "codex_hooks") {
+		return nil
+	}
+	if strings.Contains(string(data), "[features]") {
+		fmt.Fprintf(os.Stderr,
+			"  ⚠ ~/.codex/config.toml has [features] but no codex_hooks key — add `codex_hooks = true` manually for hooks to fire\n")
+		return nil
+	}
+
+	if dryRun {
+		fmt.Printf("  Would append [features]\\ncodex_hooks = true to %s\n", configPath)
+		return nil
+	}
+	appended := string(data)
+	if !strings.HasSuffix(appended, "\n") {
+		appended += "\n"
+	}
+	appended += "\n[features]\ncodex_hooks = true\n"
+	if err := core.AtomicWrite(configPath, []byte(appended), 0644); err != nil {
+		return fmt.Errorf("write codex config.toml: %w", err)
+	}
+	fmt.Printf("  appended codex_hooks = true to %s\n", configPath)
+	return nil
+}
+
+// ensureMoteSkills installs mote skill files at every active skills location.
+// Always writes to ~/.claude/skills/ (Claude Code). When Codex is enabled
+// (--codex flag or ~/.codex/ present), also writes to ~/.agents/skills/, the
+// path Codex scans per the open agent skills standard.
+func ensureMoteSkills(homeDir string, dryRun bool) error {
+	targets := []string{filepath.Join(homeDir, ".claude", "skills")}
+	if codexEnabled(homeDir) {
+		targets = append(targets, filepath.Join(homeDir, ".agents", "skills"))
+	}
+	for _, dir := range targets {
+		if err := installSkillsAt(dir, dryRun); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// installSkillsAt writes the bundled mote skills under skillsDir. Idempotent:
+// skips files whose content is already up to date. Used for both the Claude
+// (~/.claude/skills) and Codex (~/.agents/skills) install paths.
+func installSkillsAt(skillsDir string, dryRun bool) error {
 	type skillDef struct {
 		name    string
 		content []byte
@@ -865,7 +1083,7 @@ func ensureMoteSkills(homeDir string, dryRun bool) error {
 		}
 
 		if dryRun {
-			fmt.Printf("  Would install skill: %s\n", s.name)
+			fmt.Printf("  Would install skill: %s (%s)\n", s.name, skillsDir)
 			continue
 		}
 
@@ -875,7 +1093,7 @@ func ensureMoteSkills(homeDir string, dryRun bool) error {
 		if err := core.AtomicWrite(targetFile, s.content, 0644); err != nil {
 			return fmt.Errorf("write skill %s: %w", s.name, err)
 		}
-		fmt.Printf("  %s skill: %s\n", action, s.name)
+		fmt.Printf("  %s skill: %s (%s)\n", action, s.name, skillsDir)
 	}
 
 	return nil
