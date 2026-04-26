@@ -14,7 +14,10 @@ func TestDreamOrchestrator_CleanNebula(t *testing.T) {
 	root, _, _ := setupTestMotes(t)
 	cfg := core.DefaultConfig()
 
-	orch := NewDreamOrchestrator(root, cfg)
+	orch, err := NewDreamOrchestrator(root, cfg)
+	if err != nil {
+		t.Fatalf("NewDreamOrchestrator: %v", err)
+	}
 	result, err := orch.Run(false)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +41,10 @@ func TestDreamOrchestrator_DryRun(t *testing.T) {
 	_ = m
 
 	cfg := core.DefaultConfig()
-	orch := NewDreamOrchestrator(root, cfg)
+	orch, err := NewDreamOrchestrator(root, cfg)
+	if err != nil {
+		t.Fatalf("NewDreamOrchestrator: %v", err)
+	}
 	result, err := orch.Run(true)
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +60,10 @@ func TestDreamOrchestrator_DryRun(t *testing.T) {
 func TestLogFailedResponse(t *testing.T) {
 	root, _, _ := setupTestMotes(t)
 	cfg := core.DefaultConfig()
-	orch := NewDreamOrchestrator(root, cfg)
+	orch, err := NewDreamOrchestrator(root, cfg)
+	if err != nil {
+		t.Fatalf("NewDreamOrchestrator: %v", err)
+	}
 
 	// Ensure dream dir exists
 	dreamDir := filepath.Join(root, "dream")
@@ -99,7 +108,10 @@ func TestDreamOrchestrator_DreamDirCreated(t *testing.T) {
 	createTestMote(t, mm, "context", "Test", []string{"tag"})
 
 	cfg := core.DefaultConfig()
-	orch := NewDreamOrchestrator(root, cfg)
+	orch, err := NewDreamOrchestrator(root, cfg)
+	if err != nil {
+		t.Fatalf("NewDreamOrchestrator: %v", err)
+	}
 	orch.Run(true) // dry run is enough
 
 	dreamDir := filepath.Join(root, "dream")
@@ -153,7 +165,10 @@ func TestAutoApply_NoVisions(t *testing.T) {
 	os.MkdirAll(filepath.Join(root, "dream"), 0755)
 
 	cfg := core.DefaultConfig()
-	orch := NewDreamOrchestrator(root, cfg)
+	orch, err := NewDreamOrchestrator(root, cfg)
+	if err != nil {
+		t.Fatalf("NewDreamOrchestrator: %v", err)
+	}
 	applied, failed, _, err := orch.AutoApply(cfg)
 	if err != nil {
 		t.Fatalf("AutoApply: %v", err)
@@ -175,7 +190,10 @@ func TestAutoApply_AppliesAllVisions(t *testing.T) {
 	im.Rebuild(motes)
 
 	cfg := core.DefaultConfig()
-	orch := NewDreamOrchestrator(root, cfg)
+	orch, err := NewDreamOrchestrator(root, cfg)
+	if err != nil {
+		t.Fatalf("NewDreamOrchestrator: %v", err)
+	}
 
 	// Write a vision to final (previously "low-risk" only, now all apply)
 	vw := NewVisionWriter(dreamDir)
@@ -224,7 +242,10 @@ func TestAutoApply_DependsOnNowApplied(t *testing.T) {
 	im.Rebuild(motes)
 
 	cfg := core.DefaultConfig()
-	orch := NewDreamOrchestrator(root, cfg)
+	orch, err := NewDreamOrchestrator(root, cfg)
+	if err != nil {
+		t.Fatalf("NewDreamOrchestrator: %v", err)
+	}
 
 	// depends_on was previously deferred as "high risk" — now auto-applied
 	vw := NewVisionWriter(dreamDir)

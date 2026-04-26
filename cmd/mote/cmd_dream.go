@@ -112,7 +112,10 @@ func runDream(cmd *cobra.Command, args []string) error {
 	im.Load()
 	dream.CheckFeedback(root, mm, im, cfg)
 
-	orch := dream.NewDreamOrchestrator(root, cfg)
+	orch, err := dream.NewDreamOrchestrator(root, cfg)
+	if err != nil {
+		return fmt.Errorf("dream orchestrator: %w", err)
+	}
 	orch.SetMoteLoader(func() ([]*core.Mote, error) {
 		return readAllWithGlobal(mm)
 	})

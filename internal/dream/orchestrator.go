@@ -22,7 +22,8 @@ type DreamOrchestrator struct {
 	scanner           *PreScanner
 	batcher           *BatchConstructor
 	prompts           *PromptBuilder
-	invoker           *ClaudeInvoker
+	batchInvoker      Invoker
+	reconInvoker      Invoker
 	parser            *ResponseParser
 	lucidLog          *LucidLog
 	visions           *VisionWriter
@@ -31,7 +32,9 @@ type DreamOrchestrator struct {
 }
 
 // NewDreamOrchestrator creates an orchestrator with all components wired.
-func NewDreamOrchestrator(root string, cfg *core.Config) *DreamOrchestrator {
+// Returns an error when either provider backend cannot be constructed
+// (unknown backend value, missing credentials, missing required options, etc.).
+func NewDreamOrchestrator(root string, cfg *core.Config) (*DreamOrchestrator, error) {
 	mm := core.NewMoteManager(root)
 	im := core.NewIndexManager(root)
 	dreamDir := filepath.Join(root, "dream")
@@ -43,18 +46,28 @@ func NewDreamOrchestrator(root string, cfg *core.Config) *DreamOrchestrator {
 	scanner := NewPreScanner(root, mm, im, cfg.Dream)
 	scanner.SetScoringConfig(cfg.Scoring)
 
-	return &DreamOrchestrator{
-		root:     root,
-		config:   cfg.Dream,
-		scanner:  scanner,
-		batcher:  NewBatchConstructor(cfg.Dream.Batching, reader),
-		prompts:  NewPromptBuilder(reader),
-		invoker:  NewClaudeInvoker(cfg.Dream.Provider),
-		parser:   NewResponseParser(),
-		lucidLog: NewLucidLog(cfg.Dream.Journal.MaxTokens),
-		visions:  NewVisionWriter(dreamDir),
-		logger:   NewDreamLogger(nil, false),
+	batchInvoker, err := NewInvoker(cfg.Dream.Provider.Batch, cfg.Dream.Provider.RateLimitRPM)
+	if err != nil {
+		return nil, fmt.Errorf("batch invoker: %w", err)
 	}
+	reconInvoker, err := NewInvoker(cfg.Dream.Provider.Reconciliation, cfg.Dream.Provider.RateLimitRPM)
+	if err != nil {
+		return nil, fmt.Errorf("reconciliation invoker: %w", err)
+	}
+
+	return &DreamOrchestrator{
+		root:         root,
+		config:       cfg.Dream,
+		scanner:      scanner,
+		batcher:      NewBatchConstructor(cfg.Dream.Batching, reader),
+		prompts:      NewPromptBuilder(reader),
+		batchInvoker: batchInvoker,
+		reconInvoker: reconInvoker,
+		parser:       NewResponseParser(),
+		lucidLog:     NewLucidLog(cfg.Dream.Journal.MaxTokens),
+		visions:      NewVisionWriter(dreamDir),
+		logger:       NewDreamLogger(nil, false),
+	}, nil
 }
 
 // SetMoteLoader overrides the default mote loading for cross-scope dream scanning.
@@ -173,7 +186,7 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 					go func(l int, lensName string) {
 						defer lensWg.Done()
 						prompt := do.prompts.BuildBatchPrompt(batch, do.lucidLog, lensName)
-						ir, err := do.invoker.Invoke(prompt, "sonnet")
+						ir, err := do.batchInvoker.Invoke(prompt, "sonnet")
 						if err != nil {
 							lensResults[l] = lensRunResult{lens: lensName, err: err}
 							return
@@ -224,7 +237,7 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 			} else if scRuns == 1 {
 				// Single run (no voting, legacy mode)
 				prompt := do.prompts.BuildBatchPrompt(batch, do.lucidLog, "")
-				ir, err := do.invoker.Invoke(prompt, "sonnet")
+				ir, err := do.batchInvoker.Invoke(prompt, "sonnet")
 				if err != nil {
 					do.logger.Log(LogEntry{
 						Level:      "error",
@@ -268,7 +281,7 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 					runWg.Add(1)
 					go func(r int) {
 						defer runWg.Done()
-						ir, err := do.invoker.Invoke(prompt, "sonnet")
+						ir, err := do.batchInvoker.Invoke(prompt, "sonnet")
 						if err != nil {
 							runResults[r] = runResult{err: err}
 							return
@@ -368,7 +381,7 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 		} else {
 			reconPrompt = do.prompts.BuildReconciliationPrompt(do.lucidLog)
 		}
-		reconResult, err := do.invoker.Invoke(reconPrompt, reconModel)
+		reconResult, err := do.reconInvoker.Invoke(reconPrompt, reconModel)
 		if err == nil {
 			finalVisions, _ = do.parser.ParseReconciliationResponse(reconResult.Response)
 			totalInput += reconResult.InputTokens
@@ -420,7 +433,7 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
 	_ = do.lucidLog.Save(llPath)
 
 	// Estimate cost using batch model pricing (dominant cost; recon is a single call)
-	estimatedCost := EstimateCost(do.invoker.batchModel, totalInput, totalOutput)
+	estimatedCost := EstimateCost(do.batchInvoker.Model(), totalInput, totalOutput)
 
 	result := &DreamResult{
 		Status:        "complete",

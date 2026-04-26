@@ -5,7 +5,87 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"motes/internal/core"
 )
+
+func TestNewInvoker_ClaudeCLIBackend(t *testing.T) {
+	tests := []struct {
+		name    string
+		entry   core.ProviderEntry
+		wantErr bool
+	}{
+		{
+			name:  "explicit claude-cli backend",
+			entry: core.ProviderEntry{Backend: "claude-cli", Model: "claude-sonnet-4-6"},
+		},
+		{
+			name:  "empty backend defaults to claude-cli",
+			entry: core.ProviderEntry{Backend: "", Model: "claude-sonnet-4-6"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inv, err := NewInvoker(tt.entry, 0)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("NewInvoker err = %v, wantErr=%v", err, tt.wantErr)
+			}
+			if !tt.wantErr {
+				if _, ok := inv.(*ClaudeInvoker); !ok {
+					t.Errorf("expected *ClaudeInvoker, got %T", inv)
+				}
+				if inv.Model() != tt.entry.Model {
+					t.Errorf("Model() = %q, want %q", inv.Model(), tt.entry.Model)
+				}
+			}
+		})
+	}
+}
+
+func TestNewInvoker_UnknownBackend(t *testing.T) {
+	_, err := NewInvoker(core.ProviderEntry{Backend: "anthropic-direct"}, 0)
+	if err == nil {
+		t.Fatal("expected error for unknown backend")
+	}
+	if !strings.Contains(err.Error(), "anthropic-direct") {
+		t.Errorf("error should mention the offending backend value: %v", err)
+	}
+	if !strings.Contains(err.Error(), "claude-cli") {
+		t.Errorf("error should list valid options: %v", err)
+	}
+}
+
+func TestNewInvoker_OpenAIPlaceholder(t *testing.T) {
+	// Phase 1 returns "not yet implemented"; Phase 3 swaps in the real invoker.
+	_, err := NewInvoker(core.ProviderEntry{Backend: "openai"}, 0)
+	if err == nil {
+		t.Fatal("openai backend should return an error until Phase 3 lands")
+	}
+}
+
+func TestNewInvoker_GeminiPlaceholder(t *testing.T) {
+	_, err := NewInvoker(core.ProviderEntry{Backend: "gemini"}, 0)
+	if err == nil {
+		t.Fatal("gemini backend should return an error until Phase 4 lands")
+	}
+}
+
+func TestClaudeInvoker_SatisfiesInterface(t *testing.T) {
+	// Compile-time assertion exists in invoker.go; this test makes the contract
+	// visible to readers and ensures Model() returns the configured value.
+	ci := NewClaudeInvoker(core.ProviderEntry{Model: "claude-opus-4-6"}, 0)
+	var inv Invoker = ci
+	if inv.Model() != "claude-opus-4-6" {
+		t.Errorf("Model() = %q, want claude-opus-4-6", inv.Model())
+	}
+}
+
+func TestClaudeInvoker_DefaultsModel(t *testing.T) {
+	ci := NewClaudeInvoker(core.ProviderEntry{}, 0)
+	if ci.Model() == "" {
+		t.Error("empty entry.Model should produce a non-empty default")
+	}
+}
 
 func TestFilterEnv_RemovesNamedVar(t *testing.T) {
 	os.Setenv("MOTES_TEST_VAR", "hello")

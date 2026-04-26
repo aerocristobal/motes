@@ -99,9 +99,44 @@ type DreamProvider struct {
 }
 
 type ProviderEntry struct {
-	Backend string `yaml:"backend"`
-	Auth    string `yaml:"auth"`
-	Model   string `yaml:"model"`
+	Backend string            `yaml:"backend"`
+	Auth    string            `yaml:"auth"`
+	Model   string            `yaml:"model"`
+	Options map[string]string `yaml:"options,omitempty"`
+}
+
+// ValidProviderBackends lists the backend identifiers accepted by NewInvoker.
+// An empty string is also accepted for backward compatibility with config files
+// predating the multi-provider rollout — it resolves to "claude-cli".
+var ValidProviderBackends = []string{"claude-cli", "openai", "gemini"}
+
+func isValidBackend(backend string) bool {
+	if backend == "" {
+		return true
+	}
+	for _, b := range ValidProviderBackends {
+		if backend == b {
+			return true
+		}
+	}
+	return false
+}
+
+// validateConfig surfaces structural errors before they reach the dream cycle.
+// Currently it only validates the dream provider backend allowlist; add other
+// checks here as the schema grows.
+func validateConfig(cfg *Config) error {
+	if !isValidBackend(cfg.Dream.Provider.Batch.Backend) {
+		return fmt.Errorf(
+			"dream.provider.batch.backend %q is not recognized; valid values: %v",
+			cfg.Dream.Provider.Batch.Backend, ValidProviderBackends)
+	}
+	if !isValidBackend(cfg.Dream.Provider.Reconciliation.Backend) {
+		return fmt.Errorf(
+			"dream.provider.reconciliation.backend %q is not recognized; valid values: %v",
+			cfg.Dream.Provider.Reconciliation.Backend, ValidProviderBackends)
+	}
+	return nil
 }
 
 type LensModeConfig struct {
@@ -327,6 +362,9 @@ func LoadConfig(root string) (*Config, error) {
 	cfg := DefaultConfig()
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("bad config: %w", err)
+	}
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }

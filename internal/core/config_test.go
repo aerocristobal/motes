@@ -240,6 +240,105 @@ func TestLoadConfig_LensModeDisabledByDefault(t *testing.T) {
 	}
 }
 
+func TestLoadConfig_RejectsUnknownBatchBackend(t *testing.T) {
+	dir := t.TempDir()
+	yamlContent := `dream:
+  provider:
+    batch:
+      backend: anthropic-direct
+      auth: oauth
+      model: claude-sonnet-4-6
+    reconciliation:
+      backend: claude-cli
+      auth: oauth
+      model: claude-opus-4-6
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadConfig(dir)
+	if err == nil {
+		t.Fatal("expected error for unknown batch backend")
+	}
+	for _, want := range []string{"anthropic-direct", "claude-cli", "openai", "gemini"} {
+		if !contains(err.Error(), want) {
+			t.Errorf("error should mention %q; got: %v", want, err)
+		}
+	}
+}
+
+func TestLoadConfig_RejectsUnknownReconBackend(t *testing.T) {
+	dir := t.TempDir()
+	yamlContent := `dream:
+  provider:
+    reconciliation:
+      backend: bogus
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadConfig(dir)
+	if err == nil {
+		t.Fatal("expected error for unknown recon backend")
+	}
+	if !contains(err.Error(), "reconciliation") {
+		t.Errorf("error should identify the recon stage; got: %v", err)
+	}
+}
+
+func TestLoadConfig_AcceptsAllValidBackends(t *testing.T) {
+	for _, backend := range []string{"claude-cli", "openai", "gemini", ""} {
+		t.Run("backend="+backend, func(t *testing.T) {
+			dir := t.TempDir()
+			yamlContent := "dream:\n  provider:\n    batch:\n      backend: " + backend + "\n    reconciliation:\n      backend: " + backend + "\n"
+			if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(yamlContent), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadConfig(dir); err != nil {
+				t.Errorf("expected backend %q to be valid: %v", backend, err)
+			}
+		})
+	}
+}
+
+func TestProviderEntry_OptionsField(t *testing.T) {
+	dir := t.TempDir()
+	yamlContent := `dream:
+  provider:
+    batch:
+      backend: gemini
+      auth: vertex-ai
+      model: gemini-2.5-flash
+      options:
+        gcp_project: my-project
+        gcp_region: us-central1
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	opts := cfg.Dream.Provider.Batch.Options
+	if opts["gcp_project"] != "my-project" {
+		t.Errorf("gcp_project: got %q", opts["gcp_project"])
+	}
+	if opts["gcp_region"] != "us-central1" {
+		t.Errorf("gcp_region: got %q", opts["gcp_region"])
+	}
+}
+
+// contains is a tiny helper used by error-message assertions in this file.
+func contains(haystack, needle string) bool {
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if haystack[i:i+len(needle)] == needle {
+			return true
+		}
+	}
+	return false
+}
+
 func TestLoadConfig_DoctorMissing_UsesDefaults(t *testing.T) {
 	dir := t.TempDir()
 	// No config.yaml — should fall back to defaults
