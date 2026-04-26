@@ -34,6 +34,10 @@ Motes is an AI-native context and memory system. Knowledge is stored as atomic u
 - `docs/architecture.md` — Technical architecture with Go type definitions, algorithms, and layer design
 - `docs/onboarding.md` — Getting started guide and migration from beads/MEMORY.md
 - `docs/internals.md` — Architecture, storage layout, and design decisions
+- `docs/providers.md` — Multi-provider dream cycle setup (claude-cli, openai, gemini Vertex AI)
+- `docs/configuration.md` — Full `.memory/config.yaml` field reference
+- `AGENTS.md` — Cross-agent contract for any AI coding agent working in this repo
+- `GEMINI.md` — Gemini Code Assist specifics, including configuring `mote dream` to use Gemini itself
 
 ## Build & Development Commands
 
@@ -50,3 +54,13 @@ See [docs/internals.md](docs/internals.md) for architecture, storage layout, and
 ## Error Recovery
 
 When debugging unfamiliar errors in motes itself, search for prior lessons first: `mote search "<error>" --type=lesson`. The full trigger/skip rules are in the `/mote-retrieve` skill.
+
+## Motes
+
+This project uses motes for all planning, memory, and task tracking. Knowledge is stored in `.memory/`.
+
+Lifecycle hooks automate `mote prime` (session start/resume/compaction) and `mote session-end` (session stop) — do not run these manually.
+
+**See `~/.claude/CLAUDE.md` for the full motes workflow** (task tracking, retrieval, capture, maintenance).
+
+**Do NOT use** markdown files, TodoWrite, TaskCreate, or external issue trackers for tracking work.

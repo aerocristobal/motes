@@ -104,6 +104,8 @@ When you run `mote prime` or `mote context`, motes are scored by combining:
 | **Warm path** | < 10s | In-session | Crystallization prompts, link suggestions |
 | **Dream cycle** | 1-10min | Headless batches | Semantic analysis, link inference, constellation evolution |
 
+The dream cycle works with multiple LLM backends — `claude-cli` (default), `openai` (Chat Completions), or `gemini` (Vertex AI ADC). Each stage (batch reasoning, reconciliation) is configured independently, so you can mix providers. See [docs/providers.md](docs/providers.md) for setup, and [AGENTS.md](AGENTS.md) / [GEMINI.md](GEMINI.md) for agent-specific guides.
+
 ## CLI Reference
 
 ### Session Lifecycle
@@ -346,6 +348,10 @@ All configuration lives in `.memory/config.yaml`. See [docs/configuration.md](do
 
 ## Version History
 
+- **v0.4.11** — Multi-provider dream cycle: `Invoker` interface with backend dispatch (`claude-cli`, `openai`, `gemini` Vertex AI ADC). Per-stage provider configuration so batch and reconciliation can use different backends. `mote doctor` provider advisories. `config.yaml` now generated with backend hint comments via `yaml.v3` Node API.
+- **v0.4.10** — Larger batches (50 motes), tighter cap (12 batches); refreshed model IDs.
+- **v0.4.9** — Dream cycle token consumption reduced ~60%.
+- **v0.4.8** — `in_progress` status to distinguish queued from in-flight work.
 - **v0.4.7** — Lens mode: N parallel LLM runs with distinct mental model lenses (structural, survivorship bias, feedback loops, etc.) instead of redundant self-consistency voting. `CrossLensAgreement` confidence signal. `dream --quality --lens` per-lens breakdown. Vision provenance display in `--review`.
 - **v0.4.6** — Graph integrity: cross-project ref detection (`--cross-project`), `clean-links` command, doctor advisories (link density, chain depth, tag fragmentation)
 - **v0.4.5** — Second-order impact awareness: vision scoring shows downstream impact in `dream --review`
@@ -368,7 +374,7 @@ All configuration lives in `.memory/config.yaml`. See [docs/configuration.md](do
 - **Edge index is a cache.** Derived from mote frontmatter, self-healing via `mote index rebuild`.
 - **Reads never write.** Access counts are batched in `.access_batch.jsonl` and flushed at session-end.
 - **No embeddings.** Search uses BM25 (~150 LOC). No vector database, no API calls for retrieval.
-- **LLM is optional.** Only the dream cycle requires an external LLM (via `claude` CLI). All other operations are pure computation.
+- **LLM is optional and pluggable.** Only the dream cycle requires an external LLM. The `Invoker` interface dispatches to Anthropic Claude (via the `claude` CLI), OpenAI Chat Completions (HTTP), or Google Gemini on Vertex AI (HTTP + ADC). All other operations are pure computation.
 
 ## Dependencies
 
