@@ -301,6 +301,55 @@ func TestLoadConfig_AcceptsAllValidBackends(t *testing.T) {
 	}
 }
 
+func TestSaveConfig_ProducesBackendComments(t *testing.T) {
+	dir := t.TempDir()
+	if err := SaveConfig(dir, DefaultConfig()); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "config.yaml"))
+	if err != nil {
+		t.Fatalf("read written config: %v", err)
+	}
+	written := string(data)
+	wantSubstrings := []string{
+		"Motes configuration",
+		"claude-cli | openai | gemini",
+		"vertex-ai",
+		"Batch reasoning stage",
+		"Reconciliation stage",
+	}
+	for _, s := range wantSubstrings {
+		if !contains(written, s) {
+			t.Errorf("written config missing comment substring %q\n--- file ---\n%s", s, written)
+		}
+	}
+}
+
+func TestSaveConfig_RoundTripPreservesValues(t *testing.T) {
+	dir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.Scoring.MaxResults = 99
+	cfg.Dream.Provider.Batch.Model = "claude-sonnet-test"
+	cfg.Dream.Provider.Batch.Options = map[string]string{"foo": "bar"}
+
+	if err := SaveConfig(dir, cfg); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	loaded, err := LoadConfig(dir)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if loaded.Scoring.MaxResults != 99 {
+		t.Errorf("MaxResults: got %d, want 99", loaded.Scoring.MaxResults)
+	}
+	if loaded.Dream.Provider.Batch.Model != "claude-sonnet-test" {
+		t.Errorf("Batch.Model: got %q", loaded.Dream.Provider.Batch.Model)
+	}
+	if loaded.Dream.Provider.Batch.Options["foo"] != "bar" {
+		t.Errorf("Batch.Options[foo]: got %q", loaded.Dream.Provider.Batch.Options["foo"])
+	}
+}
+
 func TestProviderEntry_OptionsField(t *testing.T) {
 	dir := t.TempDir()
 	yamlContent := `dream:

@@ -344,11 +344,17 @@ func DefaultConfig() *Config {
 	}
 }
 
-// SaveConfig writes config to .memory/config.yaml using atomic write.
+// SaveConfig writes config to .memory/config.yaml using atomic write. The
+// payload is rendered through yaml.v3's Node API so that head comments
+// attached by buildConfigNode survive the marshal step.
 func SaveConfig(root string, cfg *Config) error {
-	data, err := yaml.Marshal(cfg)
+	node, err := buildConfigNode(cfg)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
+	}
+	data, err := yaml.Marshal(node)
+	if err != nil {
+		return fmt.Errorf("marshal config node: %w", err)
 	}
 	return AtomicWrite(filepath.Join(root, "config.yaml"), data, 0644)
 }
