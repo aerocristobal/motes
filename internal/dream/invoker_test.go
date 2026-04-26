@@ -55,11 +55,12 @@ func TestNewInvoker_UnknownBackend(t *testing.T) {
 	}
 }
 
-func TestNewInvoker_OpenAIPlaceholder(t *testing.T) {
-	// Phase 1 returns "not yet implemented"; Phase 3 swaps in the real invoker.
+func TestNewInvoker_OpenAIRequiresAuthAndModel(t *testing.T) {
+	// Real OpenAI dispatch lives in TestNewInvoker_DispatchesToOpenAI;
+	// this test pins the failure mode when the user forgets to configure auth.
 	_, err := NewInvoker(core.ProviderEntry{Backend: "openai"}, 0)
 	if err == nil {
-		t.Fatal("openai backend should return an error until Phase 3 lands")
+		t.Fatal("openai backend should error when auth/model are missing")
 	}
 }
 
