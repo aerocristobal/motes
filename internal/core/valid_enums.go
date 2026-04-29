@@ -9,10 +9,17 @@ var (
 	ValidSizes    = []string{"xs", "s", "m", "l", "xl"}
 
 	// KnowledgeTypes are mote types that default to global storage (~/.motes/nodes/).
-	// Task, constellation, and anchor types remain project-local.
+	// Task, context, constellation, and anchor types remain project-local — context is
+	// inherently session-bound and was the dominant source of global-layer pollution.
 	KnowledgeTypes = map[string]bool{
 		"decision": true, "lesson": true, "explore": true,
-		"context": true, "question": true,
+		"question": true,
+	}
+
+	// PromotableTypes are the types `mote promote` will accept. Context is excluded
+	// because session-bound notes don't belong in cross-project memory.
+	PromotableTypes = map[string]bool{
+		"decision": true, "lesson": true, "explore": true, "question": true,
 	}
 )
 

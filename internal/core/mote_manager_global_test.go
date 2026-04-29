@@ -30,7 +30,7 @@ func setupGlobalTestMemory(t *testing.T) (localRoot, globalRoot string, mm *Mote
 func TestGlobalRouting_KnowledgeTypesWriteToGlobal(t *testing.T) {
 	localRoot, globalRoot, mm := setupGlobalTestMemory(t)
 
-	for _, typ := range []string{"decision", "lesson", "explore", "context", "question"} {
+	for _, typ := range []string{"decision", "lesson", "explore", "question"} {
 		m, err := mm.Create(typ, "Test "+typ, CreateOpts{Tags: []string{"test"}})
 		if err != nil {
 			t.Fatalf("create %s: %v", typ, err)
@@ -56,7 +56,7 @@ func TestGlobalRouting_KnowledgeTypesWriteToGlobal(t *testing.T) {
 func TestGlobalRouting_TaskStaysLocal(t *testing.T) {
 	localRoot, globalRoot, mm := setupGlobalTestMemory(t)
 
-	for _, typ := range []string{"task", "constellation", "anchor"} {
+	for _, typ := range []string{"task", "context", "constellation", "anchor"} {
 		m, err := mm.Create(typ, "Test "+typ, CreateOpts{Tags: []string{"test"}})
 		if err != nil {
 			t.Fatalf("create %s: %v", typ, err)

@@ -11,6 +11,8 @@ import (
 	"motes/internal/core"
 )
 
+var promoteForce bool
+
 var promoteCmd = &cobra.Command{
 	Use:   "promote <mote-id>",
 	Short: "Promote a project mote to the global memory layer",
@@ -19,6 +21,7 @@ var promoteCmd = &cobra.Command{
 }
 
 func init() {
+	promoteCmd.Flags().BoolVar(&promoteForce, "force", false, "bypass type/body/title guardrails (use sparingly)")
 	rootCmd.AddCommand(promoteCmd)
 }
 
@@ -29,6 +32,19 @@ func runPromote(cmd *cobra.Command, args []string) error {
 	source, err := mm.Read(args[0])
 	if err != nil {
 		return fmt.Errorf("read mote: %w", err)
+	}
+
+	// Guardrails — block obvious pollution unless --force is set.
+	if !promoteForce {
+		if !core.PromotableTypes[source.Type] {
+			return fmt.Errorf("type %q is not promotable to global; only decision/lesson/explore/question are eligible (override with --force)", source.Type)
+		}
+		if n := core.BodyChars(source.Body); n < 30 {
+			return fmt.Errorf("body too short for global layer (%d non-whitespace chars; need ≥30 — override with --force)", n)
+		}
+		if core.IsLikelyTestTitle(source.Title) {
+			return fmt.Errorf("title %q matches a test-fixture pattern; rename the mote or pass --force", source.Title)
+		}
 	}
 
 	// Knowledge types are now global by default — warn about deprecation

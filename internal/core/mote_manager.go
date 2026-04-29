@@ -166,6 +166,7 @@ func GlobalRoot() (string, error) {
 		}
 		return override, nil
 	}
+	assertTestSafeHome()
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("get home dir: %w", err)
@@ -785,6 +786,12 @@ func (mm *MoteManager) ReadGlobalMotes() []*Mote {
 		}
 		m, err := ParseMote(filepath.Join(gDir, entry.Name()))
 		if err != nil {
+			continue
+		}
+		// Global intake filter: session-bound and retired motes never surface
+		// from the global layer regardless of scoring. They can still exist in
+		// project-local stores; they just don't pollute cross-project signal.
+		if m.Type == "context" || m.Status == "deprecated" || m.Status == "archived" {
 			continue
 		}
 		motes = append(motes, m)
