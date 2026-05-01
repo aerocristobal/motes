@@ -129,6 +129,12 @@ func TestBuildBatchPrompt_StructuralLens(t *testing.T) {
 			t.Errorf("structural lens: %q should not appear in prompt", absent)
 		}
 	}
+
+	// Tag refinement section MUST instruct the model to populate the tags array,
+	// otherwise the resulting vision fails apply (regression guard for v0.4.17).
+	if !strings.Contains(result, "- tags:") {
+		t.Error("structural lens: tag_refinement instructions must include `- tags:` field — visions without it cannot be applied")
+	}
 }
 
 func TestBuildBatchPrompt_SurvivorshipBiasLens(t *testing.T) {

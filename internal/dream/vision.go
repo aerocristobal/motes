@@ -273,6 +273,24 @@ func (vr *VisionReviewer) apply(v Vision) error {
 	return ApplyVision(v, vr.mm, vr.im, vr.root, vr.cfg)
 }
 
+// advisoryLinkAliases maps lens-emitted advisory link types (and common LLM
+// hallucinations of them) to canonical types in core.ValidLinkTypes. The
+// original semantic label is preserved in the vision rationale.
+//
+// Lens prompts intentionally introduce these advisory labels (survivorship_risk,
+// assumption_risk, reinforces, counteracts, delays) as analytical surface output;
+// adding them to ValidLinkTypes would require new typed frontmatter slots on
+// Mote, so we collapse them to relates_to / contradicts at apply time instead.
+var advisoryLinkAliases = map[string]string{
+	"survivorship_risk":  "relates_to",
+	"assumption_risk":    "relates_to",
+	"reinforces":         "relates_to",
+	"delays":             "relates_to",
+	"counteracts":        "contradicts",
+	"balancing_loop":     "relates_to",
+	"fragmentation_risk": "relates_to",
+}
+
 // ApplyVision applies a single vision to the knowledge graph.
 func ApplyVision(v Vision, mm *core.MoteManager, im *core.IndexManager, root string, cfg *core.Config) error {
 	switch v.Type {
@@ -280,7 +298,11 @@ func ApplyVision(v Vision, mm *core.MoteManager, im *core.IndexManager, root str
 		if len(v.SourceMotes) == 0 || len(v.TargetMotes) == 0 || v.LinkType == "" {
 			return fmt.Errorf("link vision missing required fields")
 		}
-		if err := mm.Link(v.SourceMotes[0], v.LinkType, v.TargetMotes[0], im); err != nil {
+		linkType := v.LinkType
+		if alias, ok := advisoryLinkAliases[linkType]; ok {
+			linkType = alias
+		}
+		if err := mm.Link(v.SourceMotes[0], linkType, v.TargetMotes[0], im); err != nil {
 			return err
 		}
 		return insertBodyRef(mm, v.SourceMotes[0], v.TargetMotes[0])

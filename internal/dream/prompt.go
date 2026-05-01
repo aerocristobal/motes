@@ -434,8 +434,10 @@ Identify motes whose bodies make contradictory claims or recommendations.
 Identify motes with missing, incorrect, or redundant tags.
 - type: "tag_refinement", action: "split_tag"
 - source_motes: [mote ID]
-- rationale: current tags and recommended changes
+- tags: [the complete recommended tag list — REQUIRED, this replaces the mote's tags]
+- rationale: what changed and why (e.g. "removed redundant 'go' since 'golang' already present")
 - severity: "low"
+Skip motes whose tags are already accurate. Do not emit a tag_refinement vision without a populated tags array.
 ` + lensPromptFooter
 
 // ML-2.2: Survivorship Bias lens — focused on detecting missing failure data and non-survivor evidence.

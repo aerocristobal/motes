@@ -256,6 +256,73 @@ func TestApply_LinkSuggestion_MissingLinkType(t *testing.T) {
 	}
 }
 
+// TestApply_LinkSuggestion_AdvisoryAliases verifies that lens-emitted advisory
+// link types and common LLM hallucinations of them are translated to canonical
+// types in core.ValidLinkTypes, instead of failing apply.
+func TestApply_LinkSuggestion_AdvisoryAliases(t *testing.T) {
+	cases := []struct {
+		name       string
+		incoming   string
+		canonical  string // resulting edge type the source mote should hold
+	}{
+		{"survivorship_risk -> relates_to", "survivorship_risk", "relates_to"},
+		{"assumption_risk -> relates_to", "assumption_risk", "relates_to"},
+		{"reinforces -> relates_to", "reinforces", "relates_to"},
+		{"delays -> relates_to", "delays", "relates_to"},
+		{"counteracts -> contradicts", "counteracts", "contradicts"},
+		{"balancing_loop (hallucinated) -> relates_to", "balancing_loop", "relates_to"},
+		{"fragmentation_risk (hallucinated) -> relates_to", "fragmentation_risk", "relates_to"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, mm, im, vw := setupApplyTest(t)
+			mA, _ := mm.Create("lesson", "Source mote", core.CreateOpts{Tags: []string{"test"}})
+			mB, _ := mm.Create("lesson", "Target mote", core.CreateOpts{Tags: []string{"test"}})
+
+			motes, _ := mm.ReadAllParallel()
+			im.Rebuild(motes)
+
+			vr := NewVisionReviewer(vw, mm, im)
+			v := Vision{Type: "link_suggestion", SourceMotes: []string{mA.ID}, TargetMotes: []string{mB.ID}, LinkType: tc.incoming}
+			if err := vr.apply(v); err != nil {
+				t.Fatalf("apply with link_type=%q should succeed via alias, got: %v", tc.incoming, err)
+			}
+
+			updated, _ := mm.Read(mA.ID)
+			slot := core.GetLinkSlice(updated, tc.canonical)
+			found := false
+			for _, id := range slot {
+				if id == mB.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected %s to have %s edge to %s after aliasing %q, slot=%v",
+					mA.ID, tc.canonical, mB.ID, tc.incoming, slot)
+			}
+		})
+	}
+}
+
+// TestApply_LinkSuggestion_TrulyUnknownLinkTypeStillFails ensures that a link
+// type with no alias mapping still fails loudly — useful as a prompt-drift signal.
+func TestApply_LinkSuggestion_TrulyUnknownLinkTypeStillFails(t *testing.T) {
+	_, mm, im, vw := setupApplyTest(t)
+	mA, _ := mm.Create("lesson", "Source", core.CreateOpts{Tags: []string{"test"}})
+	mB, _ := mm.Create("lesson", "Target", core.CreateOpts{Tags: []string{"test"}})
+
+	motes, _ := mm.ReadAllParallel()
+	im.Rebuild(motes)
+
+	vr := NewVisionReviewer(vw, mm, im)
+	v := Vision{Type: "link_suggestion", SourceMotes: []string{mA.ID}, TargetMotes: []string{mB.ID}, LinkType: "totally_made_up_link_type_xyz"}
+	if err := vr.apply(v); err == nil {
+		t.Error("expected unaliased unknown link type to still fail apply")
+	}
+}
+
 func TestApply_Staleness_Deprecate(t *testing.T) {
 	_, mm, im, vw := setupApplyTest(t)
 
