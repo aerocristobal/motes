@@ -357,4 +357,4 @@ The dream pipeline (`orchestrator.go`, prompts, parser, retry, rate-limit) does 
 
 ## License
 
-This file, like the rest of the project, is AGPL-3.0-or-later.
+This file, like the rest of the project, is MIT-licensed.

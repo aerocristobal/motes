@@ -439,4 +439,4 @@ The benchmarks run at multiple scales (50, 100, 500 motes) to surface O(n) regre
 
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0 or later](LICENSE) (AGPL-3.0-or-later).
+This project is licensed under the [MIT License](LICENSE).

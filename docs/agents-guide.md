@@ -104,4 +104,4 @@ This keeps consuming-project instruction files small and the canonical motes wor
 
 ## License
 
-This file, like the rest of the project, is AGPL-3.0-or-later.
+This file, like the rest of the project, is MIT-licensed.

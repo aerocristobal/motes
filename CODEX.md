@@ -225,4 +225,4 @@ The `.codex/hooks.json` checked into this repo only loads when you grant project
 
 ## License
 
-This file, like the rest of the project, is AGPL-3.0-or-later.
+This file, like the rest of the project, is MIT-licensed.

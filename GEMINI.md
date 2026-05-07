@@ -119,4 +119,4 @@ The `internal/dream/gemini_invoker.go` invoker sets `responseMimeType: applicati
 
 ## License
 
-This file, like the rest of the project, is AGPL-3.0-or-later.
+This file, like the rest of the project, is MIT-licensed.

@@ -36,7 +36,7 @@ of record.
 
 - Go 1.25+. Stdlib + `github.com/spf13/cobra` + `gopkg.in/yaml.v3` only.
   Adding a dependency requires a `decision` mote first.
-- AGPL-3.0-or-later SPDX header at the top of every `.go` file.
+- MIT SPDX header at the top of every `.go` file.
 - Tabs for indentation. Verify with `gofmt`.
 - All `.memory/` writes go through `core.AtomicWrite` (write-temp, rename).
   Reads never write — access counts are batched and flushed at session-end.
