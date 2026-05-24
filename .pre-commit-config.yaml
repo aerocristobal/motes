@@ -1,0 +1,21 @@
+# Optional pre-commit framework config — see https://pre-commit.com.
+# Equivalent to .githooks/pre-commit (STORY-BR-02); use one or the other.
+# Contributors who use neither see no behavior change.
+#
+# Version pins here are the source of truth alongside .githooks/pre-commit.
+# internal/githook/precommit_config_test.go enforces that the golangci-lint
+# rev below matches the pin in .githooks/pre-commit.
+repos:
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.10.1
+    hooks:
+      - id: golangci-lint
+        args: [--timeout=5m]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+        args: [--maxkb=1024]

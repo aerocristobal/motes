@@ -162,3 +162,5 @@ The dream cycle detects missing links, stale content, contradictions, and more. 
 ## Contributing to motes
 
 If you are working on the motes repo itself (rather than adopting motes in your own project), run `make install` (or `make install-hooks`) after cloning. This wires `.githooks/pre-commit` via `git config core.hooksPath`, giving you `gofmt` and `--new-from-rev=HEAD` linting on every commit. See [LINTING.md](LINTING.md) for the policy.
+
+Contributors who already use the python [`pre-commit`](https://pre-commit.com) framework across their repos can instead run `pre-commit install` from the repo root to wire the same hooks via `.pre-commit-config.yaml`. The two paths are equivalent — pick one. Don't run both: `make install-hooks` sets `core.hooksPath=.githooks/`, which overrides any `pre-commit install` you've already done.
