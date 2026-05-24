@@ -278,6 +278,7 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 			migrateClaudeSettings(claudeDir, true)
 		}
 		ensureClaudeHooks(claudeDir, true)
+		ensurePreToolUseHooks(claudeDir, true)
 		if codexEnabled(home) {
 			ensureCodexHooks(filepath.Join(home, ".codex"), true)
 		}
@@ -319,6 +320,12 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 	// Install hooks
 	if err := ensureClaudeHooks(claudeDir, false); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
+	}
+
+	// Install PreToolUse safety hooks (block-interactive-cmds, block-gh-watch,
+	// block-mote-rm). See claudehooks/ and docs/beads-recommendations.md §1.
+	if err := ensurePreToolUseHooks(claudeDir, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pretooluse hooks installation: %v\n", err)
 	}
 
 	// Install Codex hooks when --codex set or ~/.codex/ exists
@@ -409,6 +416,7 @@ func runOnboardProject() error {
 			migrateClaudeSettings(claudeDir, true)
 		}
 		ensureClaudeHooks(claudeDir, true)
+		ensurePreToolUseHooks(claudeDir, true)
 		if codexEnabled(home) {
 			ensureCodexHooks(filepath.Join(home, ".codex"), true)
 		}
@@ -558,6 +566,7 @@ func runOnboardGlobal() error {
 			migrateClaudeSettings(claudeDir, true)
 		}
 		ensureClaudeHooks(claudeDir, true)
+		ensurePreToolUseHooks(claudeDir, true)
 		if codexEnabled(home) {
 			ensureCodexHooks(filepath.Join(home, ".codex"), true)
 		}
@@ -635,6 +644,13 @@ func runOnboardGlobal() error {
 	// --- Install hooks ---
 	if err := ensureClaudeHooks(claudeDir, false); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
+	}
+
+	// --- Install PreToolUse safety hooks ---
+	// block-interactive-cmds, block-gh-watch, block-mote-rm.
+	// See claudehooks/ and docs/beads-recommendations.md §1.
+	if err := ensurePreToolUseHooks(claudeDir, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pretooluse hooks installation: %v\n", err)
 	}
 
 	// --- Install Codex hooks (when --codex set or ~/.codex/ exists) ---

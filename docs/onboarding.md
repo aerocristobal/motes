@@ -70,6 +70,7 @@ mote onboard --include-closed
 `mote init` and `mote onboard` automatically:
 
 - **Install Claude Code hooks** — `SessionStart`, `PreCompact`, `UserPromptSubmit`, and `Stop` hooks in `~/.claude/settings.json`
+- **Install PreToolUse safety hooks** — `block-interactive-cmds.sh` (denies bare `rm`/`cp`/`mv` that may hang on macOS `-i` aliases; bypass with `-f`, `/bin/rm`, or `command rm`), `block-gh-watch.sh` (denies `gh run watch`, which burns the GitHub API quota; use `gh run view --log` or `gh run list` instead), and `block-mote-rm.sh` (denies raw deletes of `.memory/nodes/**` — use `mote delete` — and direct writes to `.memory/index.jsonl` / `.memory/mote_bm25.json` — use `mote index rebuild`). Scripts land in `~/.claude/hooks/` and are wired under `hooks.PreToolUse[].matcher: "Bash"`.
 - **Install mote skills** — `mote-capture`, `mote-retrieve`, `mote-plan`, `mote-subagent` to `~/.claude/skills/`
 - **Migrate bd hooks** — Replaces `bd prime` → `mote prime` and `bd sync` → `mote session-end` in existing hooks
 - **Install Codex hooks** (when `~/.codex/` is detected, or `--codex` is passed) — `SessionStart`, `UserPromptSubmit`, `Stop` in `~/.codex/hooks.json`; sets the `codex_hooks = true` feature flag in `~/.codex/config.toml`; mote skills also written to `~/.agents/skills/`. See [CODEX.md](../CODEX.md).

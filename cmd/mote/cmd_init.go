@@ -92,6 +92,9 @@ func runInitProject() error {
 	if err := ensureClaudeHooks(claudeDir, false); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
 	}
+	if err := ensurePreToolUseHooks(claudeDir, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: pretooluse hooks installation: %v\n", err)
+	}
 	if err := ensureMoteSkills(home, false); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
 	}
