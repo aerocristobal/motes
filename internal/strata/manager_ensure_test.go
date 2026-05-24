@@ -113,3 +113,59 @@ func TestEnsureCorpus_EmptyPaths(t *testing.T) {
 		t.Errorf("changed = %d, want 0", changed)
 	}
 }
+
+// TestEnsureCorpus_BasenameCollisionNoExplosion is the regression test for the
+// chunk-explosion bug that ballooned chunks.jsonl to multiple GB and OOMed
+// session-end with ~47GB RSS. When multiple source files share a basename
+// (e.g. services/*/install.sh), prior versions keyed the reuse map by
+// basename, causing each unchanged-path lookup to pull chunks for every
+// colliding file. Each ensure run multiplied chunks by the collision count.
+func TestEnsureCorpus_BasenameCollisionNoExplosion(t *testing.T) {
+	root, sm, _ := setupStrataTest(t)
+	parent := filepath.Dir(root)
+
+	// Three files that all share basename "install.sh" but live in distinct
+	// directories — mirrors services/{a,b,c}/install.sh in the wild.
+	dirs := []string{"svc-a", "svc-b", "svc-c"}
+	var paths []string
+	for _, d := range dirs {
+		os.MkdirAll(filepath.Join(parent, d), 0755)
+		paths = append(paths, writeTestFile(t, filepath.Join(parent, d), "install.sh",
+			"#!/usr/bin/env bash\necho installing "+d+"\n"))
+	}
+
+	if _, err := sm.EnsureCorpus("_codebase", paths); err != nil {
+		t.Fatalf("initial EnsureCorpus: %v", err)
+	}
+	baseline, err := sm.loadManifest("_codebase")
+	if err != nil {
+		t.Fatalf("loadManifest: %v", err)
+	}
+	initialChunks := baseline.ChunkCount
+
+	// Trigger a re-ingest by adding a new file with a different basename, so
+	// ensure runs the "unchanged paths reuse cached chunks" branch for all
+	// three install.sh files. Repeat several times to surface any
+	// multiplication on each pass.
+	newDir := filepath.Join(parent, "extra")
+	os.MkdirAll(newDir, 0755)
+	for i := 0; i < 5; i++ {
+		extra := writeTestFile(t, newDir, "trigger.sh",
+			"#!/usr/bin/env bash\necho pass "+string(rune('0'+i))+"\n")
+		if _, err := sm.EnsureCorpus("_codebase", []string{extra}); err != nil {
+			t.Fatalf("EnsureCorpus pass %d: %v", i, err)
+		}
+	}
+
+	final, err := sm.loadManifest("_codebase")
+	if err != nil {
+		t.Fatalf("loadManifest final: %v", err)
+	}
+
+	// Expected: baseline chunks + a small constant for the one trigger file
+	// (last write wins). Bug behaviour: chunks grow as ~initialChunks * 3^N.
+	if final.ChunkCount > initialChunks+50 {
+		t.Fatalf("chunk explosion: initial=%d final=%d (basename collision dedup broken)",
+			initialChunks, final.ChunkCount)
+	}
+}

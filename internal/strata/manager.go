@@ -2,6 +2,7 @@
 package strata
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,16 @@ import (
 	"motes/internal/core"
 	"motes/internal/security"
 )
+
+// maxChunksFileBytes caps the size of chunks.jsonl we will load for incremental
+// reuse. Files larger than this are treated as corrupted (a basename-collision
+// bug in v<0.4.18 could blow chunks.jsonl up to multiple GB) and the corpus is
+// rebuilt from scratch instead of OOMing the process.
+const maxChunksFileBytes = 512 * 1024 * 1024
+
+// maxChunkLineBytes is the per-line scanner buffer for streaming chunks.jsonl.
+// Individual chunks should not exceed this; oversized lines indicate corruption.
+const maxChunkLineBytes = 16 * 1024 * 1024
 
 // StrataManager coordinates corpus operations: ingest, query, list, remove.
 type StrataManager struct {
@@ -299,6 +310,10 @@ func (sm *StrataManager) UpdateCorpus(name string) (changed int, err error) {
 		return 0, fmt.Errorf("load manifest for %s: %w", name, err)
 	}
 
+	// Stream existing chunks once, grouped by full SourcePath. See note in
+	// EnsureCorpus about the basename-collision bug this fix addresses.
+	chunksBySource, _ := sm.streamChunksBySource(name)
+
 	var allChunks []Chunk
 	var newPaths []string
 	newHashes := make(map[string]string)
@@ -314,18 +329,12 @@ func (sm *StrataManager) UpdateCorpus(name string) (changed int, err error) {
 		h, _ := fileHash(p)
 		newHashes[p] = h
 
-		// Skip unchanged
-		if manifest.SourceHashes != nil && manifest.SourceHashes[p] == h {
-			// Reload existing chunks for this file
-			existingChunks, _ := sm.loadChunks(name)
-			base := filepath.Base(p)
-			for _, c := range existingChunks {
-				if filepath.Base(c.SourcePath) == base {
-					allChunks = append(allChunks, c)
-				}
+		if chunksBySource != nil && manifest.SourceHashes != nil && manifest.SourceHashes[p] == h {
+			if cached, ok := chunksBySource[p]; ok {
+				allChunks = append(allChunks, cached...)
+				newPaths = append(newPaths, p)
+				continue
 			}
-			newPaths = append(newPaths, p)
-			continue
 		}
 
 		chunks, readErr := sm.chunkFile(p, name)
@@ -387,18 +396,20 @@ func (sm *StrataManager) EnsureCorpus(name string, paths []string) (int, error) 
 	}
 	sort.Strings(unionPaths)
 
-	// Re-chunk with hash-based skip for unchanged files
+	// Re-chunk with hash-based skip for unchanged files.
+	//
+	// Group existing chunks by full SourcePath (not basename) to avoid the
+	// O(N²) chunk-multiplication bug fixed in v0.4.18: when multiple files
+	// shared a basename (e.g. services/*/install.sh), each unchanged-path
+	// lookup pulled chunks for every colliding file, and those duplicates
+	// were rewritten on each ensure run, ballooning chunks.jsonl to multiple
+	// GB and OOMing session-end.
+	chunksBySource, _ := sm.streamChunksBySource(name)
+
 	var allChunks []Chunk
 	var keptPaths []string
 	newHashes := make(map[string]string)
 	changed := 0
-
-	existingChunks, _ := sm.loadChunks(name)
-	chunksBySource := make(map[string][]Chunk)
-	for _, c := range existingChunks {
-		base := filepath.Base(c.SourcePath)
-		chunksBySource[base] = append(chunksBySource[base], c)
-	}
 
 	for _, p := range unionPaths {
 		if _, statErr := os.Stat(p); statErr != nil {
@@ -407,14 +418,14 @@ func (sm *StrataManager) EnsureCorpus(name string, paths []string) (int, error) 
 		h, _ := fileHash(p)
 		newHashes[p] = h
 
-		if manifest.SourceHashes != nil && manifest.SourceHashes[p] == h {
-			// Unchanged — reuse existing chunks
-			base := filepath.Base(p)
-			if cached, ok := chunksBySource[base]; ok {
+		if chunksBySource != nil && manifest.SourceHashes != nil && manifest.SourceHashes[p] == h {
+			if cached, ok := chunksBySource[p]; ok {
 				allChunks = append(allChunks, cached...)
+				keptPaths = append(keptPaths, p)
+				continue
 			}
-			keptPaths = append(keptPaths, p)
-			continue
+			// Hash matches but no chunks present for this exact path —
+			// fall through and re-chunk to repair the corpus.
 		}
 
 		chunks, readErr := sm.chunkFile(p, name)
@@ -488,6 +499,55 @@ func (sm *StrataManager) writeChunks(corpus string, chunks []Chunk) error {
 		buf.WriteByte('\n')
 	}
 	return core.AtomicWrite(path, []byte(buf.String()), 0644)
+}
+
+// streamChunksBySource reads chunks.jsonl line-by-line and groups chunks by
+// their full SourcePath. Returns (nil, nil) if the file is missing or exceeds
+// maxChunksFileBytes — both cases force the caller to rebuild from scratch
+// rather than load a pathologically large (likely corrupted) corpus into RAM.
+func (sm *StrataManager) streamChunksBySource(corpus string) (map[string][]Chunk, error) {
+	corpusDir, err := sm.corpusDir(corpus)
+	if err != nil {
+		return nil, err
+	}
+	path := filepath.Join(corpusDir, "chunks.jsonl")
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if info.Size() > maxChunksFileBytes {
+		fmt.Fprintf(os.Stderr, "warning: strata corpus %q chunks.jsonl is %d bytes (>%d); rebuilding from scratch\n",
+			corpus, info.Size(), maxChunksFileBytes)
+		return nil, nil
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	result := make(map[string][]Chunk)
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64*1024), maxChunkLineBytes)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var c Chunk
+		if err := json.Unmarshal(line, &c); err != nil {
+			continue
+		}
+		result[c.SourcePath] = append(result[c.SourcePath], c)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan chunks.jsonl for %q: %w", corpus, err)
+	}
+	return result, nil
 }
 
 func (sm *StrataManager) loadChunks(corpus string) ([]Chunk, error) {
