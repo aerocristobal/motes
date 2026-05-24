@@ -158,3 +158,7 @@ The dream cycle detects missing links, stale content, contradictions, and more. 
 
 - [Project-level CLAUDE.md](example-claude-md-project.md) — What a project CLAUDE.md looks like with motes
 - [Global CLAUDE.md](example-claude-md-global.md) — What `~/.claude/CLAUDE.md` looks like with motes
+
+## Contributing to motes
+
+If you are working on the motes repo itself (rather than adopting motes in your own project), run `make install` (or `make install-hooks`) after cloning. This wires `.githooks/pre-commit` via `git config core.hooksPath`, giving you `gofmt` and `--new-from-rev=HEAD` linting on every commit. See [LINTING.md](LINTING.md) for the policy.

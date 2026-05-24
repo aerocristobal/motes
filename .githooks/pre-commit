@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# motes pre-commit hook — staged-only Go formatting + new-violation lint.
+#
+# Behaviour:
+#   1. Runs `gofmt -w` on every staged Go file and re-adds the rewrites.
+#   2. Runs `golangci-lint --new-from-rev=HEAD --fix` so this commit is
+#      blocked only on *new* violations; pre-existing baseline warnings
+#      are tracked separately (see docs/LINTING.md).
+#   3. CGO_ENABLED=0 avoids typecheck panics from CGO-only transitive
+#      deps.
+#
+# Contributor-only — this hook is NOT shipped inside the `mote` binary
+# and is NOT installed into end-user projects. Wired via
+# `git config core.hooksPath .githooks`, set by `make install-hooks`.
+#
+# See STORY-BR-02 and docs/beads-recommendations.md §2.
+
+set -euo pipefail
+
+staged_go_files="$(git diff --cached --name-only --diff-filter=ACM -- '*.go')"
+[ -z "$staged_go_files" ] && exit 0
+
+echo "$staged_go_files" | xargs gofmt -w
+echo "$staged_go_files" | xargs git add
+
+CGO_ENABLED=0 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.10.1 \
+    run --new-from-rev=HEAD --fix
+
+echo "$staged_go_files" | xargs git add

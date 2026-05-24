@@ -406,12 +406,15 @@ Everything else is Go stdlib.
 ## Development
 
 ```bash
-make build      # Build binary
-make test       # Run all tests
-make vet        # Static analysis
-make install    # Build and copy to ~/.local/bin/
-make clean      # Remove binary
+make build         # Build binary
+make test          # Run all tests
+make vet           # Static analysis
+make install-hooks # Wire .githooks/pre-commit via core.hooksPath (Go fmt + new-violation lint on staged files)
+make install       # Build, wire hooks, and copy binary to ~/.local/bin/
+make clean         # Remove binary
 ```
+
+After cloning, run `make install-hooks` (or `make install`) to wire the staged-only Go pre-commit hook. See [docs/LINTING.md](docs/LINTING.md) for the `--new-from-rev=HEAD` model and how to inspect the baseline.
 
 ## Performance Benchmarks
 
