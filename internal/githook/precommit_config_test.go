@@ -90,6 +90,25 @@ func TestPrecommitConfig_RequiredHooksPresent(t *testing.T) {
 	}
 }
 
+// TestPrecommitConfig_PreCommitHooksPinned asserts the pre-commit-hooks
+// repo is pinned to the version called out in Scenario 7 (matches
+// beads-recommendations.md §21). Catches accidental rev bumps that
+// would change behavior of trailing-whitespace, end-of-file-fixer,
+// check-yaml, or check-added-large-files.
+func TestPrecommitConfig_PreCommitHooksPinned(t *testing.T) {
+	const wantRev = "v6.0.0"
+	cfg := loadPrecommitConfig(t)
+	for _, r := range cfg.Repos {
+		if r.Repo == "https://github.com/pre-commit/pre-commit-hooks" {
+			if r.Rev != wantRev {
+				t.Errorf("pre-commit-hooks rev = %q, want %q (Scenario 7 / beads-recs §21)", r.Rev, wantRev)
+			}
+			return
+		}
+	}
+	t.Errorf("pre-commit-hooks repo entry missing from .pre-commit-config.yaml")
+}
+
 // --- DRIFT GUARD ---
 
 // TestPrecommitConfig_GolangciLintMatchesShellHook fails when the
