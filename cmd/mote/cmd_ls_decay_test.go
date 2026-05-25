@@ -224,7 +224,11 @@ func TestLs_NoColorEnv_DisablesMutingOnTTY(t *testing.T) {
 	defer cleanup()
 	defer resetDecayFlags()
 
+	// Seed a deprecated mote so we can also assert the backward-compat
+	// "[deprecated]" text marker still appears when NO_COLOR is set
+	// (Scenario 4's second Then-clause).
 	createDeterministicMoteWithStatus(t, root, "proj-T2DEF", "completed", "Refactor router")
+	createDeterministicMoteWithStatus(t, root, "proj-T3GHI", "deprecated", "Old auth approach")
 
 	t.Setenv("MOTE_FORCE_TTY", "1")
 	t.Setenv("NO_COLOR", "1")
@@ -238,6 +242,9 @@ func TestLs_NoColorEnv_DisablesMutingOnTTY(t *testing.T) {
 	}
 	if strings.Contains(stdout, "\x1b[") {
 		t.Errorf("NO_COLOR=1 should suppress ANSI even on TTY; got %q", stdout)
+	}
+	if !strings.Contains(stdout, "[deprecated]") {
+		t.Errorf("NO_COLOR=1 must still preserve the [deprecated] text marker; got %q", stdout)
 	}
 }
 
