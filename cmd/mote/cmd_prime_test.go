@@ -88,13 +88,10 @@ func TestPrime_JSONOutput_IncludesTruncationNotice(t *testing.T) {
 		}
 	})
 
-	idx := strings.Index(output, "{")
-	if idx < 0 {
-		t.Fatalf("no JSON found in --json output:\n%s", output)
-	}
+	// Scenario 2: the *full* output must parse as valid JSON — no text prelude.
 	var parsed PrimeOutput
-	if err := json.Unmarshal([]byte(output[idx:]), &parsed); err != nil {
-		t.Fatalf("invalid JSON: %v\noutput:\n%s", err, output)
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("full --json output is not valid JSON: %v\noutput:\n%s", err, output)
 	}
 	if parsed.TruncationNotice != truncationDirective {
 		t.Errorf("TruncationNotice mismatch\n got:  %q\n want: %q",
@@ -103,6 +100,31 @@ func TestPrime_JSONOutput_IncludesTruncationNotice(t *testing.T) {
 	// Sanity: existing field still serialized.
 	if parsed.ActiveTasks == nil {
 		t.Error("ActiveTasks should still be present (even if empty slice)")
+	}
+}
+
+// --- Scenario 2 (empty project): --json on a project with no active tasks
+// must still emit valid JSON with truncation_notice (not text fallback). ---
+
+func TestPrime_JSONOutput_EmptyProject_StillValidJSON(t *testing.T) {
+	_, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	primeJSON = true
+	defer func() { primeJSON = false }()
+
+	output := captureStdout(func() {
+		if err := primeCmd.RunE(primeCmd, nil); err != nil {
+			t.Fatalf("prime --json on empty: %v", err)
+		}
+	})
+
+	var parsed PrimeOutput
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("empty-project --json output is not valid JSON: %v\noutput:\n%s", err, output)
+	}
+	if parsed.TruncationNotice != truncationDirective {
+		t.Errorf("TruncationNotice mismatch on empty project")
 	}
 }
 

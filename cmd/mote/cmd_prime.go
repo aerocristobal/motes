@@ -207,8 +207,11 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 		return activeTasks[i].Weight > activeTasks[j].Weight
 	})
 
-	// Fallback: no live tasks → show top 5 by weight
-	if len(activeTasks) == 0 {
+	// Fallback: no live tasks → show top 5 by weight (text/hook mode only).
+	// JSON mode falls through to emit a PrimeOutput envelope with empty arrays
+	// plus the truncation_notice field, so `mote prime --json` always produces
+	// valid JSON parseable as a whole.
+	if len(activeTasks) == 0 && !primeJSON {
 		fmt.Println("No active tasks. Showing top motes by weight:")
 		fmt.Println()
 		var active []*core.Mote
@@ -254,8 +257,9 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 	var allResults []core.ScoredMote
 	seen := make(map[string]bool)
 
-	// Print ready to start section (tasks with all blockers cleared)
-	if len(readyTasks) > 0 {
+	// Print ready to start section (tasks with all blockers cleared).
+	// Text-only — JSON mode emits these via PrimeOutput.ReadyTasks instead.
+	if len(readyTasks) > 0 && !primeJSON {
 		fmt.Println("## Ready to start")
 		fmt.Println()
 		for _, t := range readyTasks {
@@ -267,22 +271,28 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
-	// Print active work section
-	fmt.Println("## Active work")
-	fmt.Println()
+	// Active work section: text headers are gated on !primeJSON, but the
+	// per-task traversal logic must keep running so allResults is populated
+	// for both text rendering and the JSON envelope.
+	if !primeJSON {
+		fmt.Println("## Active work")
+		fmt.Println()
+	}
 	for _, task := range activeTasks {
-		fmt.Printf("  [%.2f] %s — %s\n", task.Weight, task.ID, task.Title)
-		if len(task.Tags) > 0 {
-			fmt.Printf("         tags: %s\n", format.TagList(task.Tags))
-		}
-		// Show concept terms from concept_ref edges
-		conceptEdges := idx.Neighbors(task.ID, map[string]bool{"concept_ref": true})
-		if len(conceptEdges) > 0 {
-			var terms []string
-			for _, e := range conceptEdges {
-				terms = append(terms, "[["+e.Target+"]]")
+		if !primeJSON {
+			fmt.Printf("  [%.2f] %s — %s\n", task.Weight, task.ID, task.Title)
+			if len(task.Tags) > 0 {
+				fmt.Printf("         tags: %s\n", format.TagList(task.Tags))
 			}
-			fmt.Printf("         concepts: %s\n", strings.Join(terms, " "))
+			// Show concept terms from concept_ref edges
+			conceptEdges := idx.Neighbors(task.ID, map[string]bool{"concept_ref": true})
+			if len(conceptEdges) > 0 {
+				var terms []string
+				for _, e := range conceptEdges {
+					terms = append(terms, "[["+e.Target+"]]")
+				}
+				fmt.Printf("         concepts: %s\n", strings.Join(terms, " "))
+			}
 		}
 
 		if len(args) == 0 {
@@ -307,7 +317,9 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
-	fmt.Println()
+	if !primeJSON {
+		fmt.Println()
+	}
 
 	// If topic args given, use them for seed selection instead of task-based
 	if len(args) > 0 {
