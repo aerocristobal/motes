@@ -26,29 +26,30 @@ var (
 
 // ExportMote is the JSON representation of a mote for export.
 type ExportMote struct {
-	ID            string    `json:"id"`
-	Type          string    `json:"type"`
-	Status        string    `json:"status"`
-	Title         string    `json:"title"`
-	Tags          []string  `json:"tags"`
-	Weight        float64   `json:"weight"`
-	Origin        string    `json:"origin"`
-	CreatedAt     time.Time `json:"created_at"`
-	Body          string    `json:"body"`
-	DependsOn     []string  `json:"depends_on,omitempty"`
-	Blocks        []string  `json:"blocks,omitempty"`
-	RelatesTo     []string  `json:"relates_to,omitempty"`
-	BuildsOn      []string  `json:"builds_on,omitempty"`
-	Contradicts   []string  `json:"contradicts,omitempty"`
-	Supersedes    []string  `json:"supersedes,omitempty"`
-	CausedBy      []string  `json:"caused_by,omitempty"`
-	InformedBy    []string  `json:"informed_by,omitempty"`
-	SourceIssue   string    `json:"source_issue,omitempty"`
-	Parent        string    `json:"parent,omitempty"`
-	Acceptance    []string  `json:"acceptance,omitempty"`
-	AcceptanceMet []bool    `json:"acceptance_met,omitempty"`
-	Size          string    `json:"size,omitempty"`
-	ExternalRefs  []core.ExternalRef `json:"external_refs,omitempty"`
+	ID             string             `json:"id"`
+	Type           string             `json:"type"`
+	Status         string             `json:"status"`
+	Title          string             `json:"title"`
+	Tags           []string           `json:"tags"`
+	Weight         float64            `json:"weight"`
+	Origin         string             `json:"origin"`
+	CreatedAt      time.Time          `json:"created_at"`
+	Body           string             `json:"body"`
+	DependsOn      []string           `json:"depends_on,omitempty"`
+	Blocks         []string           `json:"blocks,omitempty"`
+	RelatesTo      []string           `json:"relates_to,omitempty"`
+	BuildsOn       []string           `json:"builds_on,omitempty"`
+	Contradicts    []string           `json:"contradicts,omitempty"`
+	Supersedes     []string           `json:"supersedes,omitempty"`
+	CausedBy       []string           `json:"caused_by,omitempty"`
+	InformedBy     []string           `json:"informed_by,omitempty"`
+	DiscoveredFrom []string           `json:"discovered_from,omitempty"`
+	SourceIssue    string             `json:"source_issue,omitempty"`
+	Parent         string             `json:"parent,omitempty"`
+	Acceptance     []string           `json:"acceptance,omitempty"`
+	AcceptanceMet  []bool             `json:"acceptance_met,omitempty"`
+	Size           string             `json:"size,omitempty"`
+	ExternalRefs   []core.ExternalRef `json:"external_refs,omitempty"`
 }
 
 func init() {
@@ -61,29 +62,30 @@ func init() {
 
 func moteToExport(m *core.Mote) ExportMote {
 	return ExportMote{
-		ID:            m.ID,
-		Type:          m.Type,
-		Status:        m.Status,
-		Title:         m.Title,
-		Tags:          m.Tags,
-		Weight:        m.Weight,
-		Origin:        m.Origin,
-		CreatedAt:     m.CreatedAt,
-		Body:          m.Body,
-		DependsOn:     m.DependsOn,
-		Blocks:        m.Blocks,
-		RelatesTo:     m.RelatesTo,
-		BuildsOn:      m.BuildsOn,
-		Contradicts:   m.Contradicts,
-		Supersedes:    m.Supersedes,
-		CausedBy:      m.CausedBy,
-		InformedBy:    m.InformedBy,
-		SourceIssue:   m.SourceIssue,
-		Parent:        m.Parent,
-		Acceptance:    m.Acceptance,
-		AcceptanceMet: m.AcceptanceMet,
-		Size:          m.Size,
-		ExternalRefs:  m.ExternalRefs,
+		ID:             m.ID,
+		Type:           m.Type,
+		Status:         m.Status,
+		Title:          m.Title,
+		Tags:           m.Tags,
+		Weight:         m.Weight,
+		Origin:         m.Origin,
+		CreatedAt:      m.CreatedAt,
+		Body:           m.Body,
+		DependsOn:      m.DependsOn,
+		Blocks:         m.Blocks,
+		RelatesTo:      m.RelatesTo,
+		BuildsOn:       m.BuildsOn,
+		Contradicts:    m.Contradicts,
+		Supersedes:     m.Supersedes,
+		CausedBy:       m.CausedBy,
+		InformedBy:     m.InformedBy,
+		DiscoveredFrom: m.DiscoveredFrom,
+		SourceIssue:    m.SourceIssue,
+		Parent:         m.Parent,
+		Acceptance:     m.Acceptance,
+		AcceptanceMet:  m.AcceptanceMet,
+		Size:           m.Size,
+		ExternalRefs:   m.ExternalRefs,
 	}
 }
 

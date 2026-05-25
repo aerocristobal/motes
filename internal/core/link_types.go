@@ -18,14 +18,15 @@ type LinkBehavior struct {
 
 // ValidLinkTypes maps each link type to its bidirectionality behavior.
 var ValidLinkTypes = map[string]LinkBehavior{
-	"relates_to":  {Symmetric: true},
-	"contradicts": {Symmetric: true},
-	"depends_on":  {InverseType: "blocks"},
-	"blocks":      {InverseType: "depends_on"},
-	"builds_on":   {IndexReverse: "built_by_ref"},
-	"supersedes":  {AutoDeprecate: true},
-	"caused_by":   {},
-	"informed_by": {},
+	"relates_to":      {Symmetric: true},
+	"contradicts":     {Symmetric: true},
+	"depends_on":      {InverseType: "blocks"},
+	"blocks":          {InverseType: "depends_on"},
+	"builds_on":       {IndexReverse: "built_by_ref"},
+	"supersedes":      {AutoDeprecate: true},
+	"caused_by":       {},
+	"informed_by":     {},
+	"discovered_from": {IndexReverse: "discovered_ref"},
 }
 
 // GetLinkSlice returns the link slice from a Mote for a given link type.
@@ -47,6 +48,8 @@ func GetLinkSlice(m *Mote, linkType string) []string {
 		return m.CausedBy
 	case "informed_by":
 		return m.InformedBy
+	case "discovered_from":
+		return m.DiscoveredFrom
 	default:
 		return nil
 	}
@@ -71,6 +74,8 @@ func SetLinkSlice(m *Mote, linkType string, ids []string) {
 		m.CausedBy = ids
 	case "informed_by":
 		m.InformedBy = ids
+	case "discovered_from":
+		m.DiscoveredFrom = ids
 	}
 }
 

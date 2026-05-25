@@ -60,6 +60,8 @@ scoring:
     supersedes: 0.3
     caused_by: 0.2
     informed_by: 0.2
+    discovered_from: 0.15
+    discovered_ref: 0.15
     relates_to: 0.1
   status_penalties:
     deprecated: -0.5

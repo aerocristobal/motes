@@ -249,9 +249,13 @@ func buildEdges(motes []*Mote) *EdgeIndex {
 		edges = appendEdges(edges, m.ID, "supersedes", m.Supersedes)
 		edges = appendEdges(edges, m.ID, "caused_by", m.CausedBy)
 		edges = appendEdges(edges, m.ID, "informed_by", m.InformedBy)
+		edges = appendEdges(edges, m.ID, "discovered_from", m.DiscoveredFrom)
 
 		for _, target := range m.BuildsOn {
 			edges = append(edges, Edge{Source: target, Target: m.ID, EdgeType: "built_by_ref"})
+		}
+		for _, target := range m.DiscoveredFrom {
+			edges = append(edges, Edge{Source: target, Target: m.ID, EdgeType: "discovered_ref"})
 		}
 
 		if m.Parent != "" {

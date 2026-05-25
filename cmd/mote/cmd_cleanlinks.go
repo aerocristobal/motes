@@ -92,6 +92,7 @@ func runCleanLinks(cmd *cobra.Command, args []string) error {
 		m.Supersedes = filterDeadLinks(m.ID, "supersedes", m.Supersedes, moteMap, knownPrefixes, crossProject, dryRun, &removed)
 		m.CausedBy = filterDeadLinks(m.ID, "caused_by", m.CausedBy, moteMap, knownPrefixes, crossProject, dryRun, &removed)
 		m.InformedBy = filterDeadLinks(m.ID, "informed_by", m.InformedBy, moteMap, knownPrefixes, crossProject, dryRun, &removed)
+		m.DiscoveredFrom = filterDeadLinks(m.ID, "discovered_from", m.DiscoveredFrom, moteMap, knownPrefixes, crossProject, dryRun, &removed)
 
 		if removed == 0 {
 			continue

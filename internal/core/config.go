@@ -35,17 +35,17 @@ type TrashConfig struct {
 }
 
 type ScoringConfig struct {
-	EdgeBonuses       map[string]float64 `yaml:"edge_bonuses"`
-	StatusPenalties   map[string]float64 `yaml:"status_penalties"`
-	RecencyDecay      RecencyDecayConfig `yaml:"recency_decay"`
-	RetrievalStrength RetrievalConfig    `yaml:"retrieval_strength"`
-	Salience          map[string]float64 `yaml:"salience"`
-	ExploreTypeBonus  float64            `yaml:"explore_type_bonus"`
-	TagSpecificity    TagSpecConfig      `yaml:"tag_specificity"`
-	InterferencePenalty float64          `yaml:"interference_per_contradiction"`
-	MaxResults        int                `yaml:"max_results"`
-	MaxHops           int                `yaml:"max_hops"`
-	MinThreshold      float64            `yaml:"min_relevance_threshold"`
+	EdgeBonuses         map[string]float64 `yaml:"edge_bonuses"`
+	StatusPenalties     map[string]float64 `yaml:"status_penalties"`
+	RecencyDecay        RecencyDecayConfig `yaml:"recency_decay"`
+	RetrievalStrength   RetrievalConfig    `yaml:"retrieval_strength"`
+	Salience            map[string]float64 `yaml:"salience"`
+	ExploreTypeBonus    float64            `yaml:"explore_type_bonus"`
+	TagSpecificity      TagSpecConfig      `yaml:"tag_specificity"`
+	InterferencePenalty float64            `yaml:"interference_per_contradiction"`
+	MaxResults          int                `yaml:"max_results"`
+	MaxHops             int                `yaml:"max_hops"`
+	MinThreshold        float64            `yaml:"min_relevance_threshold"`
 }
 
 type RecencyDecayConfig struct {
@@ -72,24 +72,24 @@ type PrimingConfig struct {
 }
 
 type SignalConfig struct {
-	Name        string  `yaml:"name"`
-	Type        string  `yaml:"type"` // built_in | co_access
-	Description string  `yaml:"description,omitempty"`
+	Name        string   `yaml:"name"`
+	Type        string   `yaml:"type"` // built_in | co_access
+	Description string   `yaml:"description,omitempty"`
 	TriggerTags []string `yaml:"trigger_tags,omitempty"`
 	BoostTags   []string `yaml:"boost_tags,omitempty"`
 	BoostAmount float64  `yaml:"boost_amount,omitempty"`
 }
 
 type DreamConfig struct {
-	ScheduleHintDays    int              `yaml:"schedule_hint_days"`
-	ReviewMode          string           `yaml:"review_mode"` // "auto" | "manual"
-	ConfidenceThreshold float64          `yaml:"confidence_threshold"`
-	Provider            DreamProvider    `yaml:"provider"`
-	Batching            BatchingConfig   `yaml:"batching"`
-	Reconciliation      ReconConfig      `yaml:"reconciliation"`
-	PreScan             PreScanConfig    `yaml:"pre_scan"`
-	Journal             JournalConfig    `yaml:"journal"`
-	Interrupts          InterruptConfig  `yaml:"interrupts"`
+	ScheduleHintDays    int             `yaml:"schedule_hint_days"`
+	ReviewMode          string          `yaml:"review_mode"` // "auto" | "manual"
+	ConfidenceThreshold float64         `yaml:"confidence_threshold"`
+	Provider            DreamProvider   `yaml:"provider"`
+	Batching            BatchingConfig  `yaml:"batching"`
+	Reconciliation      ReconConfig     `yaml:"reconciliation"`
+	PreScan             PreScanConfig   `yaml:"pre_scan"`
+	Journal             JournalConfig   `yaml:"journal"`
+	Interrupts          InterruptConfig `yaml:"interrupts"`
 }
 
 type DreamProvider struct {
@@ -176,20 +176,20 @@ type BatchingConfig struct {
 }
 
 type ReconConfig struct {
-	Enabled             bool `yaml:"enabled"`
-	MaxRefetchMotes     int  `yaml:"max_refetch_motes"`
-	SonnetThreshold     int  `yaml:"sonnet_threshold"`     // batch count at or below which Sonnet is used instead of Opus; 0 = always use configured model
-	SkipThreshold       int  `yaml:"skip_threshold"`       // batch count at or below which reconciliation is skipped entirely; 0 = never skip
+	Enabled         bool `yaml:"enabled"`
+	MaxRefetchMotes int  `yaml:"max_refetch_motes"`
+	SonnetThreshold int  `yaml:"sonnet_threshold"` // batch count at or below which Sonnet is used instead of Opus; 0 = always use configured model
+	SkipThreshold   int  `yaml:"skip_threshold"`   // batch count at or below which reconciliation is skipped entirely; 0 = never skip
 }
 
 type PreScanConfig struct {
-	LinkCandidateMinSharedTags int                      `yaml:"link_candidate_min_shared_tags"`
-	StalenessThresholdDays     int                      `yaml:"staleness_threshold_days"`
-	TagOverloadThreshold       int                      `yaml:"tag_overload_threshold"`
-	ThemeGrowthThresholdPct    int                      `yaml:"theme_growth_threshold_pct"`
-	CompressionMinWords        int                      `yaml:"compression_min_words"`
-	ContentSimilarity          ContentSimilarityConfig  `yaml:"content_similarity"`
-	MergeSimilarityMultiplier  float64                  `yaml:"merge_similarity_multiplier"`
+	LinkCandidateMinSharedTags int                     `yaml:"link_candidate_min_shared_tags"`
+	StalenessThresholdDays     int                     `yaml:"staleness_threshold_days"`
+	TagOverloadThreshold       int                     `yaml:"tag_overload_threshold"`
+	ThemeGrowthThresholdPct    int                     `yaml:"theme_growth_threshold_pct"`
+	CompressionMinWords        int                     `yaml:"compression_min_words"`
+	ContentSimilarity          ContentSimilarityConfig `yaml:"content_similarity"`
+	MergeSimilarityMultiplier  float64                 `yaml:"merge_similarity_multiplier"`
 }
 
 // ContentSimilarityConfig controls content-based semantic linking.
@@ -210,16 +210,16 @@ type InterruptConfig struct {
 }
 
 type StrataConfig struct {
-	Chunking         ChunkingConfig     `yaml:"chunking"`
-	Retrieval        RetrievalStrata    `yaml:"retrieval"`
-	ContextAugment   ContextAugConfig   `yaml:"context_augment"`
-	Crystallization  CrystallizeConfig  `yaml:"crystallization"`
+	Chunking        ChunkingConfig    `yaml:"chunking"`
+	Retrieval       RetrievalStrata   `yaml:"retrieval"`
+	ContextAugment  ContextAugConfig  `yaml:"context_augment"`
+	Crystallization CrystallizeConfig `yaml:"crystallization"`
 }
 
 type ChunkingConfig struct {
-	Strategy      string `yaml:"strategy"`
-	MaxChunkTokens int   `yaml:"max_chunk_tokens"`
-	OverlapTokens  int   `yaml:"overlap_tokens"`
+	Strategy       string `yaml:"strategy"`
+	MaxChunkTokens int    `yaml:"max_chunk_tokens"`
+	OverlapTokens  int    `yaml:"overlap_tokens"`
 }
 
 type RetrievalStrata struct {
@@ -228,9 +228,9 @@ type RetrievalStrata struct {
 }
 
 type ContextAugConfig struct {
-	Enabled          bool `yaml:"enabled"`
+	Enabled           bool `yaml:"enabled"`
 	MaxAugmentCorpora int  `yaml:"max_augment_corpora"`
-	ChunksPerCorpus  int  `yaml:"chunks_per_corpus"`
+	ChunksPerCorpus   int  `yaml:"chunks_per_corpus"`
 }
 
 type CrystallizeConfig struct {
@@ -246,14 +246,16 @@ func DefaultConfig() *Config {
 	return &Config{
 		Scoring: ScoringConfig{
 			EdgeBonuses: map[string]float64{
-				"builds_on":   0.3,
-				"supersedes":  0.3,
-				"caused_by":   0.2,
-				"informed_by": 0.2,
-				"relates_to":    0.1,
-				"body_ref":      0.2,
-				"built_by_ref":  0.15,
-				"concept_ref":   0.2,
+				"builds_on":       0.3,
+				"supersedes":      0.3,
+				"caused_by":       0.2,
+				"informed_by":     0.2,
+				"discovered_from": 0.15,
+				"relates_to":      0.1,
+				"body_ref":        0.2,
+				"built_by_ref":    0.15,
+				"discovered_ref":  0.15,
+				"concept_ref":     0.2,
 			},
 			StatusPenalties: map[string]float64{
 				"deprecated": -0.5,
@@ -326,7 +328,7 @@ func DefaultConfig() *Config {
 				},
 				MergeSimilarityMultiplier: 2.0,
 			},
-			Journal: JournalConfig{MaxTokens: 2000},
+			Journal:    JournalConfig{MaxTokens: 2000},
 			Interrupts: InterruptConfig{HighSeverityMotePct: 20},
 		},
 		Trash: TrashConfig{
@@ -352,9 +354,9 @@ func DefaultConfig() *Config {
 				MinRelevanceScore: 0.3,
 			},
 			ContextAugment: ContextAugConfig{
-				Enabled:          true,
+				Enabled:           true,
 				MaxAugmentCorpora: 2,
-				ChunksPerCorpus:  3,
+				ChunksPerCorpus:   3,
 			},
 			Crystallization: CrystallizeConfig{
 				MinQueries:             5,

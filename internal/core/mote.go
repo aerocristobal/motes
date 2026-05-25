@@ -91,6 +91,10 @@ type Mote struct {
 	CausedBy    []string `yaml:"caused_by"`
 	InformedBy  []string `yaml:"informed_by"`
 
+	// Provenance links (non-blocking) — A discovered_from B means A was found
+	// while working on B. Reverse edge `discovered_ref` lives in the index only.
+	DiscoveredFrom []string `yaml:"discovered_from,omitempty"`
+
 	// External references
 	ExternalRefs []ExternalRef `yaml:"external_refs,omitempty"`
 

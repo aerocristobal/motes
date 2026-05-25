@@ -12,6 +12,7 @@ Motes is an AI-native context and memory system written in Go. Knowledge is stor
 
 - **Dependency links** (`depends_on`, `blocks`) for planning and execution ordering.
 - **Semantic links** (`relates_to`, `builds_on`, `contradicts`, `supersedes`, `caused_by`, `informed_by`) for thematic memory.
+- **Provenance links** (`discovered_from`) — when working on mote A you discover a follow-up bug or task B, run `mote link B discovered_from A`. The link is directional and *non-blocking*: B stays ready even while A is still in flight, and A's frontmatter is untouched (the reverse `discovered_ref` lives in the index, surfaced by `mote show A` and `mote context A`).
 
 There is no database. There is no network for core operations. The CLI is `mote`, a single Go binary.
 

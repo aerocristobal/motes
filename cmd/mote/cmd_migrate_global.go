@@ -156,6 +156,7 @@ func rewriteEdges(m *core.Mote, idMap map[string]string) bool {
 	changed = rewriteSlice(&m.Supersedes, idMap) || changed
 	changed = rewriteSlice(&m.CausedBy, idMap) || changed
 	changed = rewriteSlice(&m.InformedBy, idMap) || changed
+	changed = rewriteSlice(&m.DiscoveredFrom, idMap) || changed
 	if m.Parent != "" {
 		if newID, ok := idMap[m.Parent]; ok {
 			m.Parent = newID

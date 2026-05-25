@@ -1489,7 +1489,7 @@ func (mm *MoteManager) removeReferencesFromOtherMotes(moteID string) {
 		return
 	}
 
-	linkTypes := []string{"depends_on", "blocks", "relates_to", "builds_on", "contradicts", "supersedes", "caused_by", "informed_by"}
+	linkTypes := []string{"depends_on", "blocks", "relates_to", "builds_on", "contradicts", "supersedes", "caused_by", "informed_by", "discovered_from"}
 
 	for _, m := range motes {
 		modified := false
@@ -1638,7 +1638,7 @@ type MoteSnapshot struct {
 func SnapshotMote(m *Mote) MoteSnapshot {
 	h := sha256.Sum256([]byte(m.Body))
 	links := map[string][]string{}
-	for _, lt := range []string{"depends_on", "blocks", "relates_to", "builds_on", "contradicts", "supersedes", "caused_by", "informed_by"} {
+	for _, lt := range []string{"depends_on", "blocks", "relates_to", "builds_on", "contradicts", "supersedes", "caused_by", "informed_by", "discovered_from"} {
 		if s := GetLinkSlice(m, lt); len(s) > 0 {
 			links[lt] = s
 		}
@@ -1730,7 +1730,7 @@ func DiffMote(m *Mote, snap *MoteSnapshot) []DiffField {
 	for lt := range snap.Links {
 		allLinkTypes[lt] = true
 	}
-	for _, lt := range []string{"depends_on", "blocks", "relates_to", "builds_on", "contradicts", "supersedes", "caused_by", "informed_by"} {
+	for _, lt := range []string{"depends_on", "blocks", "relates_to", "builds_on", "contradicts", "supersedes", "caused_by", "informed_by", "discovered_from"} {
 		if s := GetLinkSlice(m, lt); len(s) > 0 {
 			allLinkTypes[lt] = true
 		}

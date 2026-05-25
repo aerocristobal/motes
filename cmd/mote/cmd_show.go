@@ -15,33 +15,35 @@ import (
 
 // ShowOutput is the JSON output structure for mote show --json.
 type ShowOutput struct {
-	ID            string             `json:"id"`
-	Type          string             `json:"type"`
-	Status        string             `json:"status"`
-	Title         string             `json:"title"`
-	Tags          []string           `json:"tags"`
-	Weight        float64            `json:"weight"`
-	Origin        string             `json:"origin"`
-	Size          string             `json:"size,omitempty"`
-	Parent        string             `json:"parent,omitempty"`
-	CreatedAt     string             `json:"created_at"`
-	LastAccessed  string             `json:"last_accessed,omitempty"`
-	AccessCount   int                `json:"access_count"`
-	ExternalRefs  []core.ExternalRef `json:"external_refs,omitempty"`
-	DependsOn     []string           `json:"depends_on,omitempty"`
-	Blocks        []string           `json:"blocks,omitempty"`
-	RelatesTo     []string           `json:"relates_to,omitempty"`
-	BuildsOn      []string           `json:"builds_on,omitempty"`
-	Contradicts   []string           `json:"contradicts,omitempty"`
-	Supersedes    []string           `json:"supersedes,omitempty"`
-	CausedBy      []string           `json:"caused_by,omitempty"`
-	InformedBy    []string           `json:"informed_by,omitempty"`
-	Acceptance    []string           `json:"acceptance,omitempty"`
-	AcceptanceMet []bool             `json:"acceptance_met,omitempty"`
-	Action        string             `json:"action,omitempty"`
-	Body          string             `json:"body"`
-	BodyLinks     []BodyLinkEntry    `json:"body_links,omitempty"`
-	Concepts      []ConceptEntry     `json:"concepts,omitempty"`
+	ID             string             `json:"id"`
+	Type           string             `json:"type"`
+	Status         string             `json:"status"`
+	Title          string             `json:"title"`
+	Tags           []string           `json:"tags"`
+	Weight         float64            `json:"weight"`
+	Origin         string             `json:"origin"`
+	Size           string             `json:"size,omitempty"`
+	Parent         string             `json:"parent,omitempty"`
+	CreatedAt      string             `json:"created_at"`
+	LastAccessed   string             `json:"last_accessed,omitempty"`
+	AccessCount    int                `json:"access_count"`
+	ExternalRefs   []core.ExternalRef `json:"external_refs,omitempty"`
+	DependsOn      []string           `json:"depends_on,omitempty"`
+	Blocks         []string           `json:"blocks,omitempty"`
+	RelatesTo      []string           `json:"relates_to,omitempty"`
+	BuildsOn       []string           `json:"builds_on,omitempty"`
+	Contradicts    []string           `json:"contradicts,omitempty"`
+	Supersedes     []string           `json:"supersedes,omitempty"`
+	CausedBy       []string           `json:"caused_by,omitempty"`
+	InformedBy     []string           `json:"informed_by,omitempty"`
+	DiscoveredFrom []string           `json:"discovered_from,omitempty"`
+	Discovered     []string           `json:"discovered,omitempty"`
+	Acceptance     []string           `json:"acceptance,omitempty"`
+	AcceptanceMet  []bool             `json:"acceptance_met,omitempty"`
+	Action         string             `json:"action,omitempty"`
+	Body           string             `json:"body"`
+	BodyLinks      []BodyLinkEntry    `json:"body_links,omitempty"`
+	Concepts       []ConceptEntry     `json:"concepts,omitempty"`
 }
 
 // BodyLinkEntry represents a resolved wiki-link target.
@@ -118,30 +120,32 @@ func runShow(cmd *cobra.Command, args []string) error {
 
 	if showJSON {
 		out := ShowOutput{
-			ID:            m.ID,
-			Type:          m.Type,
-			Status:        m.Status,
-			Title:         m.Title,
-			Tags:          m.Tags,
-			Weight:        m.Weight,
-			Origin:        m.Origin,
-			Size:          m.Size,
-			Parent:        m.Parent,
-			CreatedAt:     m.CreatedAt.Format(time.RFC3339),
-			AccessCount:   m.AccessCount,
-			ExternalRefs:  m.ExternalRefs,
-			DependsOn:     m.DependsOn,
-			Blocks:        m.Blocks,
-			RelatesTo:     m.RelatesTo,
-			BuildsOn:      m.BuildsOn,
-			Contradicts:   m.Contradicts,
-			Supersedes:    m.Supersedes,
-			CausedBy:      m.CausedBy,
-			InformedBy:    m.InformedBy,
-			Acceptance:    m.Acceptance,
-			AcceptanceMet: m.AcceptanceMet,
-			Action:        m.Action,
-			Body:          m.Body,
+			ID:             m.ID,
+			Type:           m.Type,
+			Status:         m.Status,
+			Title:          m.Title,
+			Tags:           m.Tags,
+			Weight:         m.Weight,
+			Origin:         m.Origin,
+			Size:           m.Size,
+			Parent:         m.Parent,
+			CreatedAt:      m.CreatedAt.Format(time.RFC3339),
+			AccessCount:    m.AccessCount,
+			ExternalRefs:   m.ExternalRefs,
+			DependsOn:      m.DependsOn,
+			Blocks:         m.Blocks,
+			RelatesTo:      m.RelatesTo,
+			BuildsOn:       m.BuildsOn,
+			Contradicts:    m.Contradicts,
+			Supersedes:     m.Supersedes,
+			CausedBy:       m.CausedBy,
+			InformedBy:     m.InformedBy,
+			DiscoveredFrom: m.DiscoveredFrom,
+			Discovered:     discoveredChildren(idx, m.ID),
+			Acceptance:     m.Acceptance,
+			AcceptanceMet:  m.AcceptanceMet,
+			Action:         m.Action,
+			Body:           m.Body,
 		}
 		if m.LastAccessed != nil {
 			out.LastAccessed = m.LastAccessed.Format(time.RFC3339)
@@ -204,7 +208,8 @@ func runShow(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	if hasAnyLinks(m) {
+	discoveredKids := discoveredChildren(idx, m.ID)
+	if hasAnyLinks(m) || len(discoveredKids) > 0 {
 		fmt.Println("\n--- links ---")
 		printLinks(mm, "depends_on", m.DependsOn)
 		printLinks(mm, "blocks", m.Blocks)
@@ -214,6 +219,8 @@ func runShow(cmd *cobra.Command, args []string) error {
 		printLinks(mm, "supersedes", m.Supersedes)
 		printLinks(mm, "caused_by", m.CausedBy)
 		printLinks(mm, "informed_by", m.InformedBy)
+		printLinks(mm, "discovered_from", m.DiscoveredFrom)
+		printLinks(mm, "discovered", discoveredKids)
 	}
 
 	bodyLinkIDs := core.ExtractBodyLinks(m.Body, m.ID)
@@ -281,7 +288,24 @@ func runShow(cmd *cobra.Command, args []string) error {
 func hasAnyLinks(m *core.Mote) bool {
 	return len(m.DependsOn)+len(m.Blocks)+len(m.RelatesTo)+
 		len(m.BuildsOn)+len(m.Contradicts)+len(m.Supersedes)+
-		len(m.CausedBy)+len(m.InformedBy) > 0
+		len(m.CausedBy)+len(m.InformedBy)+len(m.DiscoveredFrom) > 0
+}
+
+// discoveredChildren returns mote IDs whose discovered_from points to parentID,
+// read from the index's reverse discovered_ref edges.
+func discoveredChildren(idx *core.EdgeIndex, parentID string) []string {
+	if idx == nil {
+		return nil
+	}
+	edges := idx.Neighbors(parentID, map[string]bool{"discovered_ref": true})
+	if len(edges) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(edges))
+	for _, e := range edges {
+		ids = append(ids, e.Target)
+	}
+	return ids
 }
 
 func printLinks(mm *core.MoteManager, label string, ids []string) {

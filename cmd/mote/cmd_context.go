@@ -69,12 +69,23 @@ func runContext(cmd *cobra.Command, args []string) error {
 	// Build unified cross-scope edge index
 	idx := im.BuildInMemory(motes)
 
+	// Discovered children: when context is invoked with exactly one arg that is
+	// a known mote ID, surface motes that were `discovered_from` it. Emitted
+	// before seed selection so the section appears even when the ID itself
+	// doesn't match any seed keywords.
+	discoveredEmitted := false
+	if len(args) == 1 {
+		discoveredEmitted = printDiscoveredSection(mm, idx, args[0])
+	}
+
 	// Seed selection
 	ss := core.NewSeedSelector(motes, idx.TagStats, cfg.Priming.Signals, loadTextSearcher(root))
 	ss.SetConceptIndex(core.BuildConceptIndex(idx))
 	seeds := ss.SelectSeeds(topic, nil)
 	if len(seeds) == 0 {
-		fmt.Println("No matching motes found.")
+		if !discoveredEmitted {
+			fmt.Println("No matching motes found.")
+		}
 		return nil
 	}
 
@@ -331,6 +342,32 @@ func runPlanningContext(root, moteID string) error {
 	fmt.Println()
 
 	return nil
+}
+
+// printDiscoveredSection prints the motes that were discovered while working
+// on parentID. Returns true when at least one row was printed. Silent (and
+// returns false) when the parent has no incoming discovered_ref edges.
+func printDiscoveredSection(mm *core.MoteManager, idx *core.EdgeIndex, parentID string) bool {
+	if idx == nil {
+		return false
+	}
+	edges := idx.Neighbors(parentID, map[string]bool{"discovered_ref": true})
+	if len(edges) == 0 {
+		return false
+	}
+	fmt.Printf("Discovered while working on %s:\n", parentID)
+	for _, e := range edges {
+		title := ""
+		if child, err := mm.Read(e.Target); err == nil {
+			title = child.Title
+		}
+		if title != "" {
+			fmt.Printf("  %s  %s\n", e.Target, title)
+		} else {
+			fmt.Printf("  %s\n", e.Target)
+		}
+	}
+	return true
 }
 
 func printContradictions(results []core.ScoredMote, idx *core.EdgeIndex) {

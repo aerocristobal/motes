@@ -511,6 +511,9 @@ func collectAllLinks(m *core.Mote) map[string][]string {
 	if len(m.InformedBy) > 0 {
 		links["informed_by"] = m.InformedBy
 	}
+	if len(m.DiscoveredFrom) > 0 {
+		links["discovered_from"] = m.DiscoveredFrom
+	}
 	return links
 }
 
