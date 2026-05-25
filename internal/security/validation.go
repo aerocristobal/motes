@@ -210,6 +210,92 @@ func ValidateEnum(value string, allowedValues []string, fieldName string) error 
 	return fmt.Errorf("invalid %s: %s (allowed: %v)", fieldName, value, allowedValues)
 }
 
+// ValidExecutionModes is the canonical allowlist for execution_mode.
+// Declared here (rather than imported from core) to avoid an import cycle.
+var ValidExecutionModes = []string{"local", "delegated", "parallel"}
+
+// ValidExecutionReasoningEfforts is the canonical allowlist for execution_reasoning_effort.
+var ValidExecutionReasoningEfforts = []string{"low", "medium", "high"}
+
+// executionFieldNames lists the five execution_* frontmatter keys that motes
+// expose for orchestration hints (STORY-EXEC-001).
+var executionFieldNames = map[string]bool{
+	"execution_agent_type":       true,
+	"execution_suggested_model":  true,
+	"execution_reasoning_effort": true,
+	"execution_mode":             true,
+	"execution_parallel_group":   true,
+}
+
+// ValidateExecutionField validates a single execution_* field by name.
+// Empty values are accepted (they signal "clear this field"); callers that
+// require a non-empty value should check separately.
+//
+// Enum fields delegate to ValidateEnum. Free-form fields enforce:
+//   - max 256 chars
+//   - UTF-8 valid
+//   - no path traversal, path separators, or null/control characters
+//   - no shell metacharacters ($, `, ;, |, &, etc.)
+//   - no Unicode bidi-override characters (audit-log spoofing defence)
+//   - alphanumeric plus . _ -
+func ValidateExecutionField(name, value string) error {
+	if !executionFieldNames[name] {
+		return fmt.Errorf("unknown execution field: %s", name)
+	}
+
+	// Empty = clear the field. Allowed for all execution fields.
+	if value == "" {
+		return nil
+	}
+
+	switch name {
+	case "execution_mode":
+		if err := ValidateEnum(value, ValidExecutionModes, "execution_mode"); err != nil {
+			return err
+		}
+		return nil
+	case "execution_reasoning_effort":
+		if err := ValidateEnum(value, ValidExecutionReasoningEfforts, "execution_reasoning_effort"); err != nil {
+			return err
+		}
+		return nil
+	default:
+		return validateExecutionFreeForm(name, value)
+	}
+}
+
+// validateExecutionFreeForm enforces the free-form ruleset for
+// execution_agent_type, execution_suggested_model, and execution_parallel_group.
+func validateExecutionFreeForm(name, value string) error {
+	if len(value) > 256 {
+		return fmt.Errorf("invalid %s: %s too long (max 256 chars)", name, name)
+	}
+
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("invalid %s: contains invalid UTF-8", name)
+	}
+
+	if strings.Contains(value, "..") {
+		return fmt.Errorf("invalid %s: contains path traversal sequence", name)
+	}
+
+	if strings.ContainsAny(value, "\x00\r\n\t/\\") {
+		return fmt.Errorf("invalid %s: contains invalid character (null, control, or path separator)", name)
+	}
+
+	for _, r := range value {
+		if (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) {
+			return fmt.Errorf("invalid %s: contains invalid character (Unicode bidi control)", name)
+		}
+	}
+
+	if matched, _ := regexp.MatchString(`^[a-zA-Z0-9._-]+$`, value); !matched {
+		return fmt.Errorf("invalid %s: contains invalid characters (allowed: alphanumeric . _ -)", name)
+	}
+
+	return nil
+}
+
 // ValidateBodySize checks if body content is within reasonable size limits.
 func ValidateBodySize(body string) error {
 	const maxBodySize = 1 * 1024 * 1024 // 1MB

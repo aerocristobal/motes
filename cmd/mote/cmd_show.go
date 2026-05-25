@@ -43,9 +43,16 @@ type ShowOutput struct {
 	Acceptance     []string           `json:"acceptance,omitempty"`
 	AcceptanceMet  []bool             `json:"acceptance_met,omitempty"`
 	Action         string             `json:"action,omitempty"`
-	Body           string             `json:"body"`
-	BodyLinks      []BodyLinkEntry    `json:"body_links,omitempty"`
-	Concepts       []ConceptEntry     `json:"concepts,omitempty"`
+	// Execution metadata (STORY-EXEC-001). Positioned BEFORE Body so that the
+	// orchestrator sees dispatch hints first in the serialized JSON document.
+	ExecutionAgentType       string          `json:"execution_agent_type,omitempty"`
+	ExecutionSuggestedModel  string          `json:"execution_suggested_model,omitempty"`
+	ExecutionReasoningEffort string          `json:"execution_reasoning_effort,omitempty"`
+	ExecutionMode            string          `json:"execution_mode,omitempty"`
+	ExecutionParallelGroup   string          `json:"execution_parallel_group,omitempty"`
+	Body                     string          `json:"body"`
+	BodyLinks                []BodyLinkEntry `json:"body_links,omitempty"`
+	Concepts                 []ConceptEntry  `json:"concepts,omitempty"`
 }
 
 // ShowShortOutput is the JSON output structure for `mote show --short --json`.
@@ -231,32 +238,37 @@ func renderShort(m *core.Mote, ascii bool) string {
 // (Scenario 7 superset guarantee).
 func buildShowOutput(m *core.Mote, mm *core.MoteManager, idx *core.EdgeIndex) ShowOutput {
 	out := ShowOutput{
-		ID:             m.ID,
-		Type:           m.Type,
-		Status:         m.Status,
-		Title:          m.Title,
-		Tags:           m.Tags,
-		Weight:         m.Weight,
-		Origin:         m.Origin,
-		Size:           m.Size,
-		Parent:         m.Parent,
-		CreatedAt:      m.CreatedAt.Format(time.RFC3339),
-		AccessCount:    m.AccessCount,
-		ExternalRefs:   m.ExternalRefs,
-		DependsOn:      m.DependsOn,
-		Blocks:         m.Blocks,
-		RelatesTo:      m.RelatesTo,
-		BuildsOn:       m.BuildsOn,
-		Contradicts:    m.Contradicts,
-		Supersedes:     m.Supersedes,
-		CausedBy:       m.CausedBy,
-		InformedBy:     m.InformedBy,
-		DiscoveredFrom: m.DiscoveredFrom,
-		Discovered:     discoveredChildren(idx, m.ID),
-		Acceptance:     m.Acceptance,
-		AcceptanceMet:  m.AcceptanceMet,
-		Action:         m.Action,
-		Body:           m.Body,
+		ID:                       m.ID,
+		Type:                     m.Type,
+		Status:                   m.Status,
+		Title:                    m.Title,
+		Tags:                     m.Tags,
+		Weight:                   m.Weight,
+		Origin:                   m.Origin,
+		Size:                     m.Size,
+		Parent:                   m.Parent,
+		CreatedAt:                m.CreatedAt.Format(time.RFC3339),
+		AccessCount:              m.AccessCount,
+		ExternalRefs:             m.ExternalRefs,
+		DependsOn:                m.DependsOn,
+		Blocks:                   m.Blocks,
+		RelatesTo:                m.RelatesTo,
+		BuildsOn:                 m.BuildsOn,
+		Contradicts:              m.Contradicts,
+		Supersedes:               m.Supersedes,
+		CausedBy:                 m.CausedBy,
+		InformedBy:               m.InformedBy,
+		DiscoveredFrom:           m.DiscoveredFrom,
+		Discovered:               discoveredChildren(idx, m.ID),
+		Acceptance:               m.Acceptance,
+		AcceptanceMet:            m.AcceptanceMet,
+		Action:                   m.Action,
+		ExecutionAgentType:       m.ExecutionAgentType,
+		ExecutionSuggestedModel:  m.ExecutionSuggestedModel,
+		ExecutionReasoningEffort: m.ExecutionReasoningEffort,
+		ExecutionMode:            m.ExecutionMode,
+		ExecutionParallelGroup:   m.ExecutionParallelGroup,
+		Body:                     m.Body,
 	}
 	if m.LastAccessed != nil {
 		out.LastAccessed = m.LastAccessed.Format(time.RFC3339)
@@ -332,6 +344,27 @@ func emitDefaultText(m *core.Mote, mm *core.MoteManager, idx *core.EdgeIndex) {
 		fmt.Println(format.Field("last_accessed", "(never)"))
 	}
 	fmt.Println(format.Field("access_count", fmt.Sprintf("%d", m.AccessCount)))
+
+	if m.ExecutionAgentType != "" || m.ExecutionSuggestedModel != "" ||
+		m.ExecutionReasoningEffort != "" || m.ExecutionMode != "" ||
+		m.ExecutionParallelGroup != "" {
+		fmt.Println("\n--- execution ---")
+		if m.ExecutionAgentType != "" {
+			fmt.Println(format.Field("agent_type", m.ExecutionAgentType))
+		}
+		if m.ExecutionSuggestedModel != "" {
+			fmt.Println(format.Field("suggested_model", m.ExecutionSuggestedModel))
+		}
+		if m.ExecutionReasoningEffort != "" {
+			fmt.Println(format.Field("reasoning_effort", m.ExecutionReasoningEffort))
+		}
+		if m.ExecutionMode != "" {
+			fmt.Println(format.Field("mode", m.ExecutionMode))
+		}
+		if m.ExecutionParallelGroup != "" {
+			fmt.Println(format.Field("parallel_group", m.ExecutionParallelGroup))
+		}
+	}
 
 	if len(m.ExternalRefs) > 0 {
 		fmt.Println("\n--- external refs ---")

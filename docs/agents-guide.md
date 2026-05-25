@@ -202,6 +202,39 @@ This is a breaking change from the prior JSONL stream. `mote import` accepts bot
 
 ---
 
+## Execution metadata
+
+Tasks can carry optional structured hints that tell an orchestrator how to dispatch a subagent — without the orchestrator having to parse free-form prose. These are *hints*, not contracts: an orchestrator may ignore them, and `mote` does not itself launch anything. The hints exist because a running subagent cannot change its own model or reasoning effort after launch, so the orchestrator's first read decides everything.
+
+| Field | Type | Values | Purpose |
+|---|---|---|---|
+| `execution_agent_type` | free-form (alnum + `._-`, ≤256) | e.g. `mote-subagent` | Which subagent persona / role to spawn |
+| `execution_suggested_model` | free-form | e.g. `haiku`, `claude-sonnet-4-7` | Which model the subagent should run; orchestrator interprets the token |
+| `execution_reasoning_effort` | enum | `low` \| `medium` \| `high` | Reasoning budget for the subagent |
+| `execution_mode` | enum | `local` \| `delegated` \| `parallel` | Dispatch shape (in-process, delegated to a child agent, or one of many parallel siblings) |
+| `execution_parallel_group` | free-form | e.g. `group-A` | Membership in a fan-out group for parallel mode |
+
+Set them with `mote add` or `mote update`:
+
+```bash
+mote add --type=task --title="ingest batch 1" \
+  --execution-agent-type=mote-subagent \
+  --execution-suggested-model=haiku \
+  --execution-reasoning-effort=low \
+  --execution-mode=parallel \
+  --execution-parallel-group=ingest-2026-05
+```
+
+Clear a single field with an empty string: `mote update <id> --execution-parallel-group=""`. Unset fields are omitted from the frontmatter and from `mote show --json` output.
+
+`mote show` surfaces an `--- execution ---` section above the body, and `mote show --json` emits the keys above `body`, so the orchestrator's first read sees the dispatch hints. The *contract* that says "orchestrators MUST read the metadata before launching" is a separate forthcoming story (STORY-EREAD-001).
+
+Editing an `execution_*` field on a mote that is currently claimed (i.e. a subagent has already been dispatched) emits a stderr warning — `changing execution metadata after dispatch has no effect on the running subagent` — and records `change_after_launch: true` on the audit entry. The edit is permitted because the operator may legitimately be staging the value for the next dispatch.
+
+Promote and crystallize strip `execution_*` fields: orchestration hints are workflow-local, not knowledge-layer artifacts.
+
+---
+
 ## Agent-Specific Files
 
 | File | Audience | Read when |

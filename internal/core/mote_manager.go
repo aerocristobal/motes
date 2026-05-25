@@ -118,6 +118,18 @@ func (mm *MoteManager) auditLog(op, moteID string, fieldsSet []string) {
 	})
 }
 
+// auditLogWithFlag is auditLog plus a change_after_launch marker, set when an
+// execution_* field is mutated on a mote that was already claimed by a
+// subagent (STORY-EXEC-001 Scenario "A subagent CANNOT silently rewrite...").
+func (mm *MoteManager) auditLogWithFlag(op, moteID string, fieldsSet []string, changeAfterLaunch bool) {
+	_ = mm.audit.Log(AuditEntry{
+		Operation:         op,
+		MoteID:            moteID,
+		FieldsSet:         fieldsSet,
+		ChangeAfterLaunch: changeAfterLaunch,
+	})
+}
+
 // Root returns the .memory root path.
 func (mm *MoteManager) Root() string {
 	return mm.root
@@ -423,8 +435,16 @@ type UpdateOpts struct {
 	Action        *string
 	LastAccessed  *time.Time
 	AccessCount   *int
-	Force         bool // Bypass security scan blocks
-	Quiet         bool // Suppress security scan warnings on stderr
+
+	// Execution metadata (STORY-EXEC-001). Non-nil pointer = set/clear (empty string = clear).
+	ExecutionAgentType       *string
+	ExecutionSuggestedModel  *string
+	ExecutionReasoningEffort *string
+	ExecutionMode            *string
+	ExecutionParallelGroup   *string
+
+	Force bool // Bypass security scan blocks
+	Quiet bool // Suppress security scan warnings on stderr
 }
 
 // StringPtr returns a pointer to the given string. Useful for building UpdateOpts
@@ -537,6 +557,42 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 	if opts.Action != nil {
 		m.Action = *opts.Action
 	}
+
+	// Execution metadata (STORY-EXEC-001).
+	// Capture claim state BEFORE applying changes so the "change after launch"
+	// audit flag reflects whether dispatch had already happened.
+	wasClaimed := m.ClaimedBy != ""
+	if opts.ExecutionAgentType != nil {
+		if err := security.ValidateExecutionField("execution_agent_type", *opts.ExecutionAgentType); err != nil {
+			return err
+		}
+		m.ExecutionAgentType = *opts.ExecutionAgentType
+	}
+	if opts.ExecutionSuggestedModel != nil {
+		if err := security.ValidateExecutionField("execution_suggested_model", *opts.ExecutionSuggestedModel); err != nil {
+			return err
+		}
+		m.ExecutionSuggestedModel = *opts.ExecutionSuggestedModel
+	}
+	if opts.ExecutionReasoningEffort != nil {
+		if err := security.ValidateExecutionField("execution_reasoning_effort", *opts.ExecutionReasoningEffort); err != nil {
+			return err
+		}
+		m.ExecutionReasoningEffort = *opts.ExecutionReasoningEffort
+	}
+	if opts.ExecutionMode != nil {
+		if err := security.ValidateExecutionField("execution_mode", *opts.ExecutionMode); err != nil {
+			return err
+		}
+		m.ExecutionMode = *opts.ExecutionMode
+	}
+	if opts.ExecutionParallelGroup != nil {
+		if err := security.ValidateExecutionField("execution_parallel_group", *opts.ExecutionParallelGroup); err != nil {
+			return err
+		}
+		m.ExecutionParallelGroup = *opts.ExecutionParallelGroup
+	}
+
 	m.ModifiedBy = ResolveAgentID()
 
 	// Build changedFields from non-nil opts
@@ -574,6 +630,27 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 	if opts.Action != nil {
 		changedFields = append(changedFields, "action")
 	}
+	executionTouched := false
+	if opts.ExecutionAgentType != nil {
+		changedFields = append(changedFields, "execution_agent_type")
+		executionTouched = true
+	}
+	if opts.ExecutionSuggestedModel != nil {
+		changedFields = append(changedFields, "execution_suggested_model")
+		executionTouched = true
+	}
+	if opts.ExecutionReasoningEffort != nil {
+		changedFields = append(changedFields, "execution_reasoning_effort")
+		executionTouched = true
+	}
+	if opts.ExecutionMode != nil {
+		changedFields = append(changedFields, "execution_mode")
+		executionTouched = true
+	}
+	if opts.ExecutionParallelGroup != nil {
+		changedFields = append(changedFields, "execution_parallel_group")
+		executionTouched = true
+	}
 
 	data, err := SerializeMote(m)
 	if err != nil {
@@ -586,7 +663,12 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 	if err := AtomicWrite(path, data, 0644); err != nil {
 		return err
 	}
-	mm.auditLog("update", moteID, changedFields)
+
+	changeAfterLaunch := executionTouched && wasClaimed
+	if changeAfterLaunch {
+		fmt.Fprintln(os.Stderr, "warning: changing execution metadata after dispatch has no effect on the running subagent")
+	}
+	mm.auditLogWithFlag("update", moteID, changedFields, changeAfterLaunch)
 	return nil
 }
 

@@ -11,11 +11,12 @@ import (
 
 // AuditEntry records a single mutating operation on the mote store.
 type AuditEntry struct {
-	Operation string   `json:"operation"`            // create|update|delete|link|unlink
-	MoteID    string   `json:"mote_id"`
-	AgentID   string   `json:"agent_id"`
-	Timestamp string   `json:"timestamp"`            // RFC3339
-	FieldsSet []string `json:"fields_set,omitempty"` // fields changed (update only)
+	Operation         string   `json:"operation"` // create|update|delete|link|unlink
+	MoteID            string   `json:"mote_id"`
+	AgentID           string   `json:"agent_id"`
+	Timestamp         string   `json:"timestamp"`                     // RFC3339
+	FieldsSet         []string `json:"fields_set,omitempty"`          // fields changed (update only)
+	ChangeAfterLaunch bool     `json:"change_after_launch,omitempty"` // true when execution_* mutated on a claimed mote
 }
 
 // AuditLogger appends structured entries to .memory/audit.jsonl.

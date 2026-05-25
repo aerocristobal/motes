@@ -63,6 +63,8 @@ mote prime
 | `anchor` | Strata corpus references linking to external docs |
 | `constellation` | Hub motes synthesizing a theme cluster |
 
+Tasks may carry optional `execution_*` metadata (`execution_agent_type`, `execution_suggested_model`, `execution_reasoning_effort`, `execution_mode`, `execution_parallel_group`) to hint subagent dispatch shape — see [docs/agents-guide.md](docs/agents-guide.md#execution-metadata).
+
 ### Link Types
 
 **Planning links** create execution order:

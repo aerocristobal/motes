@@ -33,10 +33,20 @@ var (
 	updateQuiet  bool
 	updateClaim  bool
 	updateJSON   bool
+
+	updateExecutionAgentType       string
+	updateExecutionSuggestedModel  string
+	updateExecutionReasoningEffort string
+	updateExecutionMode            string
+	updateExecutionParallelGroup   string
 )
 
 // fieldMutationFlags lists the flags that are mutually exclusive with --claim.
-var fieldMutationFlags = []string{"status", "title", "weight", "add-tag", "body", "accept", "size", "parent"}
+var fieldMutationFlags = []string{
+	"status", "title", "weight", "add-tag", "body", "accept", "size", "parent",
+	"execution-agent-type", "execution-suggested-model",
+	"execution-reasoning-effort", "execution-mode", "execution-parallel-group",
+}
 
 func init() {
 	updateCmd.Flags().StringVar(&updateStatus, "status", "", "New status (active|in_progress|completed|archived|deprecated)")
@@ -51,6 +61,13 @@ func init() {
 	updateCmd.Flags().BoolVar(&updateQuiet, "quiet", false, "Suppress security scan warnings on stderr")
 	updateCmd.Flags().BoolVar(&updateClaim, "claim", false, "Atomically claim a ready task: status=active → in_progress, stamp claimed_by from MOTE_AGENT_ID")
 	updateCmd.Flags().BoolVar(&updateJSON, "json", false, "Emit result as JSON (currently only meaningful with --claim)")
+
+	updateCmd.Flags().StringVar(&updateExecutionAgentType, "execution-agent-type", "", "Orchestration hint: subagent type (empty = clear)")
+	updateCmd.Flags().StringVar(&updateExecutionSuggestedModel, "execution-suggested-model", "", "Orchestration hint: suggested model (empty = clear)")
+	updateCmd.Flags().StringVar(&updateExecutionReasoningEffort, "execution-reasoning-effort", "", "Orchestration hint: reasoning effort low|medium|high (empty = clear)")
+	updateCmd.Flags().StringVar(&updateExecutionMode, "execution-mode", "", "Orchestration hint: local|delegated|parallel (empty = clear)")
+	updateCmd.Flags().StringVar(&updateExecutionParallelGroup, "execution-parallel-group", "", "Orchestration hint: parallel-group identifier (empty = clear)")
+
 	rootCmd.AddCommand(updateCmd)
 }
 
@@ -67,8 +84,15 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return runUpdateClaim(moteID)
 	}
 
-	if !cmd.Flags().Changed("status") && !cmd.Flags().Changed("title") && !cmd.Flags().Changed("weight") && !cmd.Flags().Changed("add-tag") && !cmd.Flags().Changed("body") && !cmd.Flags().Changed("accept") && !cmd.Flags().Changed("size") && !cmd.Flags().Changed("parent") {
-		return fmt.Errorf("at least one flag required: --status, --title, --weight, --add-tag, --body, --accept, --size, --parent, --claim")
+	anyFlagChanged := false
+	for _, f := range fieldMutationFlags {
+		if cmd.Flags().Changed(f) {
+			anyFlagChanged = true
+			break
+		}
+	}
+	if !anyFlagChanged {
+		return fmt.Errorf("at least one flag required: --status, --title, --weight, --add-tag, --body, --accept, --size, --parent, --execution-agent-type, --execution-suggested-model, --execution-reasoning-effort, --execution-mode, --execution-parallel-group, --claim")
 	}
 
 	// Validate mote ID
@@ -123,6 +147,27 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			if err := security.ValidateMoteID(updateParent); err != nil {
 				return fmt.Errorf("invalid parent ID: %w", err)
 			}
+		}
+	}
+
+	// Validate execution metadata flags (STORY-EXEC-001). Empty values are
+	// permitted: they signal "clear this field".
+	executionFlagsByName := []struct {
+		flag, field string
+		value       string
+	}{
+		{"execution-agent-type", "execution_agent_type", updateExecutionAgentType},
+		{"execution-suggested-model", "execution_suggested_model", updateExecutionSuggestedModel},
+		{"execution-reasoning-effort", "execution_reasoning_effort", updateExecutionReasoningEffort},
+		{"execution-mode", "execution_mode", updateExecutionMode},
+		{"execution-parallel-group", "execution_parallel_group", updateExecutionParallelGroup},
+	}
+	for _, ef := range executionFlagsByName {
+		if !cmd.Flags().Changed(ef.flag) {
+			continue
+		}
+		if err := security.ValidateExecutionField(ef.field, ef.value); err != nil {
+			return err
 		}
 	}
 
@@ -186,6 +231,26 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("parent") {
 		opts.Parent = &updateParent
 		parts = append(parts, fmt.Sprintf("parent=%s", updateParent))
+	}
+	if cmd.Flags().Changed("execution-agent-type") {
+		opts.ExecutionAgentType = &updateExecutionAgentType
+		parts = append(parts, fmt.Sprintf("execution_agent_type=%s", updateExecutionAgentType))
+	}
+	if cmd.Flags().Changed("execution-suggested-model") {
+		opts.ExecutionSuggestedModel = &updateExecutionSuggestedModel
+		parts = append(parts, fmt.Sprintf("execution_suggested_model=%s", updateExecutionSuggestedModel))
+	}
+	if cmd.Flags().Changed("execution-reasoning-effort") {
+		opts.ExecutionReasoningEffort = &updateExecutionReasoningEffort
+		parts = append(parts, fmt.Sprintf("execution_reasoning_effort=%s", updateExecutionReasoningEffort))
+	}
+	if cmd.Flags().Changed("execution-mode") {
+		opts.ExecutionMode = &updateExecutionMode
+		parts = append(parts, fmt.Sprintf("execution_mode=%s", updateExecutionMode))
+	}
+	if cmd.Flags().Changed("execution-parallel-group") {
+		opts.ExecutionParallelGroup = &updateExecutionParallelGroup
+		parts = append(parts, fmt.Sprintf("execution_parallel_group=%s", updateExecutionParallelGroup))
 	}
 
 	opts.Force = updateForce

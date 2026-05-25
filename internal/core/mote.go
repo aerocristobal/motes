@@ -133,6 +133,16 @@ type Mote struct {
 	ModifiedBy string `yaml:"modified_by,omitempty"`
 	ClaimedBy  string `yaml:"claimed_by,omitempty"` // Agent that holds an atomic claim (set by `mote update --claim`)
 
+	// Execution metadata — orchestration hints read by a parent agent BEFORE
+	// dispatching a subagent. A running subagent cannot change its model or
+	// reasoning effort, so the orchestrator's first read decides everything.
+	// All fields optional; an unannotated mote behaves identically to today.
+	ExecutionAgentType       string `yaml:"execution_agent_type,omitempty"`
+	ExecutionSuggestedModel  string `yaml:"execution_suggested_model,omitempty"`
+	ExecutionReasoningEffort string `yaml:"execution_reasoning_effort,omitempty"` // low|medium|high
+	ExecutionMode            string `yaml:"execution_mode,omitempty"`             // local|delegated|parallel
+	ExecutionParallelGroup   string `yaml:"execution_parallel_group,omitempty"`
+
 	// Global knowledge routing
 	OriginProject string `yaml:"origin_project,omitempty"`
 	ForwardedTo   string `yaml:"forwarded_to,omitempty"`

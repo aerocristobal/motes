@@ -34,6 +34,12 @@ var (
 	addLocal  bool
 	addForce  bool
 	addQuiet  bool
+
+	addExecutionAgentType       string
+	addExecutionSuggestedModel  string
+	addExecutionReasoningEffort string
+	addExecutionMode            string
+	addExecutionParallelGroup   string
 )
 
 func init() {
@@ -51,6 +57,13 @@ func init() {
 	addCmd.Flags().BoolVar(&addLocal, "local", false, "Force local storage for knowledge types (decision, lesson, explore, context, question)")
 	addCmd.Flags().BoolVar(&addForce, "force", false, "Bypass security scan blocks (for false positives)")
 	addCmd.Flags().BoolVar(&addQuiet, "quiet", false, "Suppress security scan warnings on stderr")
+
+	addCmd.Flags().StringVar(&addExecutionAgentType, "execution-agent-type", "", "Orchestration hint: subagent type to dispatch with")
+	addCmd.Flags().StringVar(&addExecutionSuggestedModel, "execution-suggested-model", "", "Orchestration hint: suggested model (e.g. haiku, sonnet, opus)")
+	addCmd.Flags().StringVar(&addExecutionReasoningEffort, "execution-reasoning-effort", "", "Orchestration hint: reasoning effort (low|medium|high)")
+	addCmd.Flags().StringVar(&addExecutionMode, "execution-mode", "", "Orchestration hint: dispatch mode (local|delegated|parallel)")
+	addCmd.Flags().StringVar(&addExecutionParallelGroup, "execution-parallel-group", "", "Orchestration hint: parallel-group identifier")
+
 	_ = addCmd.MarkFlagRequired("type")
 	_ = addCmd.MarkFlagRequired("title")
 	rootCmd.AddCommand(addCmd)
@@ -115,6 +128,24 @@ func runAdd(cmd *cobra.Command, args []string) error {
 
 	if err := security.ValidateEnum(addOrigin, core.ValidOrigins, "origin"); err != nil {
 		return fmt.Errorf("invalid origin: %w", err)
+	}
+
+	// Validate execution metadata flags (STORY-EXEC-001).
+	for _, ef := range []struct {
+		name, value string
+	}{
+		{"execution_agent_type", addExecutionAgentType},
+		{"execution_suggested_model", addExecutionSuggestedModel},
+		{"execution_reasoning_effort", addExecutionReasoningEffort},
+		{"execution_mode", addExecutionMode},
+		{"execution_parallel_group", addExecutionParallelGroup},
+	} {
+		if ef.value == "" {
+			continue
+		}
+		if err := security.ValidateExecutionField(ef.name, ef.value); err != nil {
+			return err
+		}
 	}
 
 	// Parse external refs
@@ -197,7 +228,28 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	if len(refs) > 0 {
 		m.ExternalRefs = refs
 	}
-	if addStatus != "" || len(refs) > 0 {
+	executionApplied := false
+	if addExecutionAgentType != "" {
+		m.ExecutionAgentType = addExecutionAgentType
+		executionApplied = true
+	}
+	if addExecutionSuggestedModel != "" {
+		m.ExecutionSuggestedModel = addExecutionSuggestedModel
+		executionApplied = true
+	}
+	if addExecutionReasoningEffort != "" {
+		m.ExecutionReasoningEffort = addExecutionReasoningEffort
+		executionApplied = true
+	}
+	if addExecutionMode != "" {
+		m.ExecutionMode = addExecutionMode
+		executionApplied = true
+	}
+	if addExecutionParallelGroup != "" {
+		m.ExecutionParallelGroup = addExecutionParallelGroup
+		executionApplied = true
+	}
+	if addStatus != "" || len(refs) > 0 || executionApplied {
 		data, serErr := core.SerializeMote(m)
 		if serErr == nil {
 			path, _ := mm.MoteFilePath(m.ID)
