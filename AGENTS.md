@@ -25,7 +25,10 @@ All three must pass before any commit. CI gates on the same commands.
    Link findings into the graph: `mote link <id> caused_by <task-id>`
 4. On unfamiliar errors, search prior lessons before debugging:
    `mote search "<phrase>" --type=lesson`
-5. A session is **not** done until `git push` succeeds.
+5. `mote ls --ready` hides motes with a future `defer_until`; pass
+   `--include-deferred` to surface them, or `mote ls --overdue` for past-due
+   work. Set with `mote add|update --due=<spec>` / `--defer=<spec>`.
+6. A session is **not** done until `git push` succeeds.
    Never declare done without pushing.
 
 Do not use ad-hoc TODO files, in-tree task lists, markdown checklists, or

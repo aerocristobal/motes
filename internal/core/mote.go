@@ -109,6 +109,14 @@ type Mote struct {
 	DeprecatedBy    string     `yaml:"deprecated_by,omitempty"`
 	StatusChangedAt *time.Time `yaml:"status_changed_at,omitempty"`
 
+	// Temporal scheduling (STORY-TIME-001).
+	// DueAt surfaces a mote in `mote ls --overdue` once the timestamp passes
+	// but does NOT hide it from the ready queue. DeferUntil hides a mote from
+	// `mote ls --ready` until the timestamp elapses but does NOT mark it as
+	// overdue. The two fields are independent.
+	DueAt      *time.Time `yaml:"due_at,omitempty"`
+	DeferUntil *time.Time `yaml:"defer_until,omitempty"`
+
 	// Hierarchy
 	Parent string `yaml:"parent,omitempty"`
 

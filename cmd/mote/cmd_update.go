@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
@@ -39,6 +40,9 @@ var (
 	updateExecutionReasoningEffort string
 	updateExecutionMode            string
 	updateExecutionParallelGroup   string
+
+	updateDue   string
+	updateDefer string
 )
 
 // fieldMutationFlags lists the flags that are mutually exclusive with --claim.
@@ -46,6 +50,7 @@ var fieldMutationFlags = []string{
 	"status", "title", "weight", "add-tag", "body", "accept", "size", "parent",
 	"execution-agent-type", "execution-suggested-model",
 	"execution-reasoning-effort", "execution-mode", "execution-parallel-group",
+	"due", "defer",
 }
 
 func init() {
@@ -67,6 +72,9 @@ func init() {
 	updateCmd.Flags().StringVar(&updateExecutionReasoningEffort, "execution-reasoning-effort", "", "Orchestration hint: reasoning effort low|medium|high (empty = clear)")
 	updateCmd.Flags().StringVar(&updateExecutionMode, "execution-mode", "", "Orchestration hint: local|delegated|parallel (empty = clear)")
 	updateCmd.Flags().StringVar(&updateExecutionParallelGroup, "execution-parallel-group", "", "Orchestration hint: parallel-group identifier (empty = clear)")
+
+	updateCmd.Flags().StringVar(&updateDue, "due", "", "Due date (empty = clear): +Nh|+Nd|+Nw|+Nm, tomorrow, next <weekday>, YYYY-MM-DD, or RFC3339.")
+	updateCmd.Flags().StringVar(&updateDefer, "defer", "", "Defer-until (empty = clear): same formats as --due, but must be strictly in the future when set.")
 
 	rootCmd.AddCommand(updateCmd)
 }
@@ -92,7 +100,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 	if !anyFlagChanged {
-		return fmt.Errorf("at least one flag required: --status, --title, --weight, --add-tag, --body, --accept, --size, --parent, --execution-agent-type, --execution-suggested-model, --execution-reasoning-effort, --execution-mode, --execution-parallel-group, --claim")
+		return fmt.Errorf("at least one flag required: --status, --title, --weight, --add-tag, --body, --accept, --size, --parent, --execution-agent-type, --execution-suggested-model, --execution-reasoning-effort, --execution-mode, --execution-parallel-group, --due, --defer, --claim")
 	}
 
 	// Validate mote ID
@@ -149,6 +157,10 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			}
 		}
 	}
+
+	// STORY-TIME-001: --due / --defer accept empty = clear, non-empty = set.
+	// The non-empty branch is parsed below against the manager's clock,
+	// after we have a MoteManager in scope.
 
 	// Validate execution metadata flags (STORY-EXEC-001). Empty values are
 	// permitted: they signal "clear this field".
@@ -251,6 +263,36 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	if cmd.Flags().Changed("execution-parallel-group") {
 		opts.ExecutionParallelGroup = &updateExecutionParallelGroup
 		parts = append(parts, fmt.Sprintf("execution_parallel_group=%s", updateExecutionParallelGroup))
+	}
+
+	if cmd.Flags().Changed("due") {
+		if updateDue == "" {
+			opts.ClearDueAt = true
+			parts = append(parts, "due_at=(cleared)")
+		} else {
+			t, perr := core.ParseTimeSpec(updateDue, mm.Now())
+			if perr != nil {
+				return perr // already prefixed with "invalid time"
+			}
+			opts.DueAt = &t
+			parts = append(parts, fmt.Sprintf("due_at=%s", t.Format(time.RFC3339)))
+		}
+	}
+	if cmd.Flags().Changed("defer") {
+		if updateDefer == "" {
+			opts.ClearDeferUntil = true
+			parts = append(parts, "defer_until=(cleared)")
+		} else {
+			t, perr := core.ParseTimeSpec(updateDefer, mm.Now())
+			if perr != nil {
+				return perr
+			}
+			if !t.After(mm.Now()) {
+				return fmt.Errorf("defer must be in the future")
+			}
+			opts.DeferUntil = &t
+			parts = append(parts, fmt.Sprintf("defer_until=%s", t.Format(time.RFC3339)))
+		}
 	}
 
 	opts.Force = updateForce

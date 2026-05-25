@@ -35,6 +35,11 @@ mote link <decision-id> informed_by <task-id>
 # Find available work
 mote ls --ready
 
+# Snooze a task until a target time, or stamp a due date
+mote add --type=task --title="follow up" --defer="next monday"
+mote update <task-id> --due=+2d
+mote ls --overdue                   # past-due active tasks, sorted
+
 # Plan hierarchical work
 mote plan <task-id> --child "Design API" --child "Implement endpoints" --child "Write tests" --sequential
 

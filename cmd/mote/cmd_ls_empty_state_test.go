@@ -35,6 +35,10 @@ func resetLsFlags() {
 	lsCompact = false
 	lsParent = ""
 	lsJSON = false
+	lsOverdue = false
+	lsIncludeDeferred = false
+	lsDueBefore = ""
+	lsDueAfter = ""
 }
 
 // runLsViaCobra invokes `mote ls ...` through cobra, mirroring how a real

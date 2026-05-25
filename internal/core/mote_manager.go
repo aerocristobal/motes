@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +43,7 @@ type MoteManager struct {
 	cache          *ReadCache
 	accessBatchMux sync.Mutex // Protects access batch operations
 	audit          *AuditLogger
+	clock          Clock // Wall clock; tests inject a FixedClock.
 }
 
 type CreateOpts struct {
@@ -58,6 +60,12 @@ type CreateOpts struct {
 	CodeFilePaths []string
 	Force         bool // Bypass security scan blocks
 	Quiet         bool // Suppress security scan warnings on stderr
+
+	// Temporal scheduling (STORY-TIME-001). Non-nil = set the field.
+	// DeferUntil must be strictly in the future or Create returns an error.
+	// DueAt may be in the past (back-dating a missed deadline is valid).
+	DueAt      *time.Time
+	DeferUntil *time.Time
 }
 
 type ListFilters struct {
@@ -67,6 +75,17 @@ type ListFilters struct {
 	Stale  bool
 	Ready  bool
 	Parent string
+
+	// Temporal scheduling (STORY-TIME-001).
+	// Overdue keeps only motes with DueAt < now AND IsLive(status).
+	// IncludeDeferred, when combined with Ready, suppresses the
+	// "DeferUntil > now hides this mote" filter.
+	// DueBefore / DueAfter are inclusive-of-now query bounds; nil means no
+	// filter. Both may be set; the AND is enforced.
+	Overdue         bool
+	IncludeDeferred bool
+	DueBefore       *time.Time
+	DueAfter        *time.Time
 }
 
 type AccessBatchEntry struct {
@@ -88,8 +107,26 @@ type PrimeSessionStats struct {
 }
 
 func NewMoteManager(root string) *MoteManager {
-	return &MoteManager{root: root, cache: NewReadCache(), audit: NewAuditLogger(root)}
+	return &MoteManager{
+		root:  root,
+		cache: NewReadCache(),
+		audit: NewAuditLogger(root),
+		clock: RealClock{},
+	}
 }
+
+// NewMoteManagerWithClock is the test-only constructor that lets callers
+// inject a deterministic clock. Production code uses NewMoteManager.
+func NewMoteManagerWithClock(root string, clock Clock) *MoteManager {
+	mm := NewMoteManager(root)
+	mm.clock = clock
+	return mm
+}
+
+// Now returns the current time from the manager's clock. Exposed so callers
+// (CLI flag handlers, tests) can resolve relative time specs against the same
+// clock the manager uses to apply them.
+func (mm *MoteManager) Now() time.Time { return mm.clock.Now() }
 
 // SetGlobalRoot overrides the global nodes directory. Used by tests to avoid
 // writing to ~/.motes/nodes/.
@@ -354,7 +391,7 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 		origin = "normal"
 	}
 
-	now := time.Now().UTC()
+	now := mm.clock.Now().UTC()
 	agentID := ResolveAgentID()
 	m := &Mote{
 		ID:            id,
@@ -380,6 +417,23 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 		m.OriginProject = scopeFromRoot(mm.root)
 	}
 
+	// Temporal scheduling (STORY-TIME-001). Defer must be in the future;
+	// due may be in the past (back-dating a missed deadline is valid).
+	var scheduleFields []string
+	if opts.DueAt != nil {
+		due := opts.DueAt.UTC()
+		m.DueAt = &due
+		scheduleFields = append(scheduleFields, "due_at")
+	}
+	if opts.DeferUntil != nil {
+		if !opts.DeferUntil.After(now) {
+			return nil, fmt.Errorf("defer must be in the future")
+		}
+		def := opts.DeferUntil.UTC()
+		m.DeferUntil = &def
+		scheduleFields = append(scheduleFields, "defer_until")
+	}
+
 	data, err := SerializeMote(m)
 	if err != nil {
 		return nil, fmt.Errorf("serialize: %w", err)
@@ -392,7 +446,7 @@ func (mm *MoteManager) Create(moteType, title string, opts CreateOpts) (*Mote, e
 		return nil, fmt.Errorf("write mote: %w", err)
 	}
 	m.FilePath = path
-	mm.auditLog("create", m.ID, nil)
+	mm.auditLog("create", m.ID, scheduleFields)
 	return m, nil
 }
 
@@ -443,6 +497,14 @@ type UpdateOpts struct {
 	ExecutionMode            *string
 	ExecutionParallelGroup   *string
 
+	// Temporal scheduling (STORY-TIME-001). DueAt / DeferUntil are pointer
+	// fields, so nil normally means "no change". Use the explicit Clear*
+	// booleans to distinguish "set to a value" from "remove the field".
+	DueAt           *time.Time
+	DeferUntil      *time.Time
+	ClearDueAt      bool
+	ClearDeferUntil bool
+
 	Force bool // Bypass security scan blocks
 	Quiet bool // Suppress security scan warnings on stderr
 }
@@ -481,7 +543,7 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 			return err
 		}
 		if *opts.Status != m.Status {
-			now := time.Now().UTC()
+			now := mm.clock.Now().UTC()
 			m.StatusChangedAt = &now
 		}
 		m.Status = *opts.Status
@@ -593,6 +655,31 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 		m.ExecutionParallelGroup = *opts.ExecutionParallelGroup
 	}
 
+	// Temporal scheduling (STORY-TIME-001). Set or clear, never both.
+	if opts.DueAt != nil && opts.ClearDueAt {
+		return fmt.Errorf("cannot both set and clear due_at")
+	}
+	if opts.DeferUntil != nil && opts.ClearDeferUntil {
+		return fmt.Errorf("cannot both set and clear defer_until")
+	}
+	if opts.DueAt != nil {
+		due := opts.DueAt.UTC()
+		m.DueAt = &due
+	}
+	if opts.ClearDueAt {
+		m.DueAt = nil
+	}
+	if opts.DeferUntil != nil {
+		if !opts.DeferUntil.After(mm.clock.Now()) {
+			return fmt.Errorf("defer must be in the future")
+		}
+		def := opts.DeferUntil.UTC()
+		m.DeferUntil = &def
+	}
+	if opts.ClearDeferUntil {
+		m.DeferUntil = nil
+	}
+
 	m.ModifiedBy = ResolveAgentID()
 
 	// Build changedFields from non-nil opts
@@ -651,6 +738,12 @@ func (mm *MoteManager) updateUnlocked(moteID string, opts UpdateOpts) error {
 		changedFields = append(changedFields, "execution_parallel_group")
 		executionTouched = true
 	}
+	if opts.DueAt != nil || opts.ClearDueAt {
+		changedFields = append(changedFields, "due_at")
+	}
+	if opts.DeferUntil != nil || opts.ClearDeferUntil {
+		changedFields = append(changedFields, "defer_until")
+	}
 
 	data, err := SerializeMote(m)
 	if err != nil {
@@ -679,7 +772,7 @@ func (mm *MoteManager) List(filters ListFilters) ([]*Mote, error) {
 		return nil, err
 	}
 
-	now := time.Now()
+	now := mm.clock.Now()
 	staleThreshold := 90 * 24 * time.Hour
 
 	var result []*Mote
@@ -717,6 +810,13 @@ func (mm *MoteManager) List(filters ListFilters) ([]*Mote, error) {
 			if m.Type != "task" || m.Status != "active" {
 				continue
 			}
+			// STORY-TIME-001: deferred motes are hidden from --ready unless
+			// the caller passes --include-deferred. Defer values strictly in
+			// the past have no effect (the field is not auto-cleared; we
+			// just stop filtering on it).
+			if !filters.IncludeDeferred && m.DeferUntil != nil && m.DeferUntil.After(now) {
+				continue
+			}
 			if len(m.DependsOn) == 0 {
 				ready = append(ready, m)
 				continue
@@ -726,6 +826,56 @@ func (mm *MoteManager) List(filters ListFilters) ([]*Mote, error) {
 			}
 		}
 		result = ready
+	}
+
+	// STORY-TIME-001: temporal query filters. Applied after the ready filter
+	// so they compose. None of these mutate the underlying mote files.
+	if filters.Overdue {
+		var overdue []*Mote
+		for _, m := range result {
+			if m.DueAt == nil {
+				continue
+			}
+			if !m.DueAt.Before(now) {
+				continue
+			}
+			if !IsLive(m.Status) {
+				continue
+			}
+			overdue = append(overdue, m)
+		}
+		sort.Slice(overdue, func(i, j int) bool {
+			return overdue[i].DueAt.Before(*overdue[j].DueAt)
+		})
+		result = overdue
+	}
+
+	if filters.DueBefore != nil {
+		bound := *filters.DueBefore
+		var kept []*Mote
+		for _, m := range result {
+			if m.DueAt == nil {
+				continue
+			}
+			if m.DueAt.Before(bound) {
+				kept = append(kept, m)
+			}
+		}
+		result = kept
+	}
+
+	if filters.DueAfter != nil {
+		bound := *filters.DueAfter
+		var kept []*Mote
+		for _, m := range result {
+			if m.DueAt == nil {
+				continue
+			}
+			if m.DueAt.After(bound) {
+				kept = append(kept, m)
+			}
+		}
+		result = kept
 	}
 
 	return result, nil
@@ -862,7 +1012,7 @@ func (mm *MoteManager) Claim(moteID, claimedBy string) (*ClaimResult, error) {
 		}
 	}
 
-	now := time.Now().UTC()
+	now := mm.clock.Now().UTC()
 	m.Status = "in_progress"
 	m.ClaimedBy = claimedBy
 	m.StatusChangedAt = &now
@@ -1056,7 +1206,7 @@ func (mm *MoteManager) appendAccessBatchEntry(moteID string, primed bool) error 
 
 	entry := AccessBatchEntry{
 		MoteID:     moteID,
-		AccessedAt: time.Now().UTC().Format(time.RFC3339),
+		AccessedAt: mm.clock.Now().UTC().Format(time.RFC3339),
 		AgentID:    ResolveAgentID(),
 		Primed:     primed,
 	}
@@ -1507,7 +1657,7 @@ func (mm *MoteManager) Delete(moteID string, im *IndexManager) error {
 	}
 
 	// Set deleted_at
-	now := time.Now().UTC()
+	now := mm.clock.Now().UTC()
 	m.DeletedAt = &now
 
 	data, err := SerializeMote(m)
@@ -1656,7 +1806,7 @@ func (mm *MoteManager) PurgeTrash(retentionDays int, all bool) ([]string, error)
 		return nil, err
 	}
 
-	now := time.Now().UTC()
+	now := mm.clock.Now().UTC()
 	var purged []string
 
 	for _, m := range motes {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
@@ -41,6 +42,11 @@ var (
 	lsCompact bool
 	lsParent  string
 	lsJSON    bool
+
+	lsOverdue         bool
+	lsIncludeDeferred bool
+	lsDueBefore       string
+	lsDueAfter        string
 )
 
 func init() {
@@ -52,18 +58,46 @@ func init() {
 	lsCmd.Flags().BoolVar(&lsCompact, "compact", false, "One-line-per-mote compact output: ID: Title")
 	lsCmd.Flags().StringVar(&lsParent, "parent", "", "Filter by parent mote ID")
 	lsCmd.Flags().BoolVar(&lsJSON, "json", false, "Output in JSON format")
+
+	lsCmd.Flags().BoolVar(&lsOverdue, "overdue", false, "Show active/in_progress motes whose due_at has passed, sorted by due_at ascending")
+	lsCmd.Flags().BoolVar(&lsIncludeDeferred, "include-deferred", false, "When combined with --ready, do not hide motes whose defer_until is still in the future")
+	lsCmd.Flags().StringVar(&lsDueBefore, "due-before", "", "Filter to motes with due_at strictly before this time (accepts the same formats as --due)")
+	lsCmd.Flags().StringVar(&lsDueAfter, "due-after", "", "Filter to motes with due_at strictly after this time (accepts the same formats as --due)")
 	rootCmd.AddCommand(lsCmd)
 }
 
 func runLs(cmd *cobra.Command, args []string) error {
-	return doLs(core.ListFilters{
-		Type:   lsType,
-		Tag:    lsTag,
-		Status: lsStatus,
-		Stale:  lsStale,
-		Ready:  lsReady,
-		Parent: lsParent,
-	}, false, lsCompact, lsJSON)
+	filters := core.ListFilters{
+		Type:            lsType,
+		Tag:             lsTag,
+		Status:          lsStatus,
+		Stale:           lsStale,
+		Ready:           lsReady,
+		Parent:          lsParent,
+		Overdue:         lsOverdue,
+		IncludeDeferred: lsIncludeDeferred,
+	}
+
+	// Parse --due-before / --due-after eagerly so a bad time spec is
+	// rejected before we touch the store. mustFindRoot in doLs() will
+	// resolve the workspace; for parser-time `now` we use the wall clock
+	// directly (test code can override via t.Setenv etc. if needed).
+	if lsDueBefore != "" {
+		t, perr := core.ParseTimeSpec(lsDueBefore, time.Now())
+		if perr != nil {
+			return perr
+		}
+		filters.DueBefore = &t
+	}
+	if lsDueAfter != "" {
+		t, perr := core.ParseTimeSpec(lsDueAfter, time.Now())
+		if perr != nil {
+			return perr
+		}
+		filters.DueAfter = &t
+	}
+
+	return doLs(filters, false, lsCompact, lsJSON)
 }
 
 func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput bool) error {

@@ -19,6 +19,8 @@ func resetAddFlags() {
 	addExecutionReasoningEffort = ""
 	addExecutionMode = ""
 	addExecutionParallelGroup = ""
+	addDue = ""
+	addDefer = ""
 	addCmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
 }
 

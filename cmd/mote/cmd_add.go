@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
@@ -40,6 +41,9 @@ var (
 	addExecutionReasoningEffort string
 	addExecutionMode            string
 	addExecutionParallelGroup   string
+
+	addDue   string
+	addDefer string
 )
 
 func init() {
@@ -63,6 +67,9 @@ func init() {
 	addCmd.Flags().StringVar(&addExecutionReasoningEffort, "execution-reasoning-effort", "", "Orchestration hint: reasoning effort (low|medium|high)")
 	addCmd.Flags().StringVar(&addExecutionMode, "execution-mode", "", "Orchestration hint: dispatch mode (local|delegated|parallel)")
 	addCmd.Flags().StringVar(&addExecutionParallelGroup, "execution-parallel-group", "", "Orchestration hint: parallel-group identifier")
+
+	addCmd.Flags().StringVar(&addDue, "due", "", "Due date: +Nh|+Nd|+Nw|+Nm, tomorrow, next <weekday>, YYYY-MM-DD, or RFC3339. Past values allowed for back-dating.")
+	addCmd.Flags().StringVar(&addDefer, "defer", "", "Defer-until: same formats as --due, but must be strictly in the future.")
 
 	_ = addCmd.MarkFlagRequired("type")
 	_ = addCmd.MarkFlagRequired("title")
@@ -205,6 +212,28 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	mm := core.NewMoteManager(root)
+
+	// Parse --due / --defer against the manager's clock so production and
+	// test code agree on "now". An empty flag value means "not set".
+	var duePtr, deferPtr *time.Time
+	if addDue != "" {
+		t, perr := core.ParseTimeSpec(addDue, mm.Now())
+		if perr != nil {
+			return perr // already prefixed with "invalid time"
+		}
+		duePtr = &t
+	}
+	if addDefer != "" {
+		t, perr := core.ParseTimeSpec(addDefer, mm.Now())
+		if perr != nil {
+			return perr
+		}
+		if !t.After(mm.Now()) {
+			return fmt.Errorf("defer must be in the future")
+		}
+		deferPtr = &t
+	}
+
 	m, err := mm.Create(addType, addTitle, core.CreateOpts{
 		Tags:       addTags,
 		Weight:     addWeight,
@@ -216,6 +245,8 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		Local:      addLocal,
 		Force:      addForce,
 		Quiet:      addQuiet,
+		DueAt:      duePtr,
+		DeferUntil: deferPtr,
 	})
 	if err != nil {
 		return fmt.Errorf("create mote: %w", err)

@@ -20,6 +20,8 @@ func resetUpdateFlags() {
 	updateExecutionReasoningEffort = ""
 	updateExecutionMode = ""
 	updateExecutionParallelGroup = ""
+	updateDue = ""
+	updateDefer = ""
 	// pflag retains Changed=true across Execute() invocations; clear so each
 	// test starts from a clean slate.
 	updateCmd.Flags().VisitAll(func(f *pflag.Flag) { f.Changed = false })
