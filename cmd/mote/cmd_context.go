@@ -230,16 +230,26 @@ func runPlanningContext(root, moteID string) error {
 		return fmt.Errorf("read mote %s: %w", moteID, err)
 	}
 
+	useColor := useColorOutput()
+
 	// Show hierarchy context
 	if target.Parent != "" {
 		if parent, err := mm.Read(target.Parent); err == nil {
-			fmt.Printf("Parent: %s %q [%s]\n", parent.ID, parent.Title, parent.Status)
+			parentLine := fmt.Sprintf("Parent: %s %q [%s]", parent.ID, parent.Title, parent.Status)
+			if format.IsClosed(parent.Status) {
+				parentLine = format.Muted(parentLine, useColor)
+			}
+			fmt.Println(parentLine)
 			if siblings, err := mm.Children(target.Parent); err == nil {
 				for _, s := range siblings {
 					if s.ID == moteID {
 						continue
 					}
-					fmt.Printf("  Sibling: %s %q [%s]\n", s.ID, s.Title, s.Status)
+					sibLine := fmt.Sprintf("  Sibling: %s %q [%s]", s.ID, s.Title, s.Status)
+					if format.IsClosed(s.Status) {
+						sibLine = format.Muted(sibLine, useColor)
+					}
+					fmt.Println(sibLine)
 				}
 			}
 			fmt.Println()
@@ -330,8 +340,12 @@ func runPlanningContext(root, moteID string) error {
 			} else if len(atLevel) > 1 && i > 0 {
 				marker = " <- parallel"
 			}
-			fmt.Printf("  Level %d: %s %q [%s]%s\n",
+			line := fmt.Sprintf("  Level %d: %s %q [%s]%s",
 				level, m.ID, format.Truncate(m.Title, 40), m.Status, marker)
+			if format.IsClosed(m.Status) {
+				line = format.Muted(line, useColor)
+			}
+			fmt.Println(line)
 		}
 		totalMotes += len(atLevel)
 	}

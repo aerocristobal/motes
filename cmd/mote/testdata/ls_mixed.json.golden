@@ -1,0 +1,25 @@
+{
+  "motes": [
+    {
+      "id": "proj-T1ABC",
+      "type": "task",
+      "status": "active",
+      "weight": 0.5,
+      "title": "Add login flow"
+    },
+    {
+      "id": "proj-T2DEF",
+      "type": "task",
+      "status": "completed",
+      "weight": 0.5,
+      "title": "Refactor router"
+    },
+    {
+      "id": "proj-T3GHI",
+      "type": "task",
+      "status": "deprecated",
+      "weight": 0.5,
+      "title": "Old auth"
+    }
+  ]
+}

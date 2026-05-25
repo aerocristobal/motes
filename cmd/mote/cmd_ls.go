@@ -120,13 +120,19 @@ func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput 
 		"ID", "TYPE", "STATUS", "WEIGHT", "TITLE")
 	fmt.Println(strings.Repeat("-", 80))
 
+	useColor := useColorOutput()
 	for _, m := range motes {
 		title := format.Truncate(m.Title, 40)
 		if m.Status == "deprecated" {
 			title = "[deprecated] " + title
 		}
-		fmt.Printf("%-24s  %-14s  %-12s  %-8.2f  %s\n",
+		// Pad/format the raw row first, then wrap in ANSI so column edges align.
+		row := fmt.Sprintf("%-24s  %-14s  %-12s  %-8.2f  %s",
 			m.ID, m.Type, m.Status, m.Weight, title)
+		if format.IsClosed(m.Status) {
+			row = format.Muted(row, useColor)
+		}
+		fmt.Println(row)
 	}
 	return nil
 }
