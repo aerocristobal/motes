@@ -115,6 +115,36 @@ The Go test suite codifies this contract — see `cmd/mote/cmd_ls_empty_state_te
 
 ---
 
+## Show density (`mote show --short` / default / `--long`)
+
+`mote show` has three text modes and three JSON shapes, each tuned for a different consumer.
+
+| Mode | Use when | Stdout | Side effect |
+|---|---|---|---|
+| **default** | Inspecting one mote in detail | ~15-section rich text | Appends an access-batch entry (counts as a read) |
+| `--short` | Iterating across many motes in a loop | One line: `<icon> <id> <weight> [<type>] <title>` | **None.** Loop-pure — does NOT increment `access_count`, so scanning 30 ready motes won't skew weight decay |
+| `--long` | Debugging weight decay, prime injection, or deprecation chains | Default output + an `--- internal state ---` section (last_prime_at, audit_log entry count for this mote, promoted_to, strata_corpus, deprecated_by, status_changed_at, deprecation_chain) | Appends an access-batch entry |
+| `--short --json` | Loop with JSON parsing | Exactly five keys: `id, status, type, weight, title` | None |
+| `--long --json` | Forensic JSON; strict superset of `--json` | Every default-`--json` key plus `last_prime_at, audit_log_path, audit_log_entries_count, promoted_to, strata_corpus, deprecated_by, status_changed_at, deprecation_chain` | Appends an access-batch entry |
+| `--short --long` | (rejected) | empty | Exits 1; stderr `--short and --long are mutually exclusive`. No mote read, no access-batch append |
+
+**Status icons.** `--short` prefixes each line with a one-character lifecycle glyph: `○` active, `◐` in_progress, `✓` completed, `●` archived, `❄` deprecated. Set `NO_UNICODE=1` or pass `--ascii` to swap to the ASCII fallback (`o p x . -`).
+
+**Default-mode byte-stability.** The default output is covered by a golden-file snapshot test (`cmd/mote/testdata/show_default.golden`) so renderer changes that drift the output produce a CI failure rather than a silent regression. Regenerate with `UPDATE_GOLDEN=1 go test ./cmd/mote/ -run TestShow_DefaultOutput_ByteStableAgainstSnapshot`.
+
+**Loop pattern (the design driver):**
+
+```bash
+# 30 ready motes in 30 lines (was: 30 ready motes in ~600 lines of default output)
+for id in $(mote ls --ready --json | jq -r '.motes[].id'); do
+  mote show "$id" --short
+done
+```
+
+The Go test suite codifies these modes — see `cmd/mote/cmd_show_short_test.go`, `cmd/mote/cmd_show_long_test.go`, `cmd/mote/cmd_show_flags_test.go`, `cmd/mote/cmd_show_snapshot_test.go`, and `internal/format/icon_test.go`. The Gherkin specification lives at `features/agent_context/show_density.feature`.
+
+---
+
 ## Memory verbs (`remember` / `memories` / `recall` / `forget`)
 
 For short durable rules — "always run tests with -race", "auth uses JWT not sessions" — use the memory verbs instead of `mote add --type=lesson`:

@@ -1,0 +1,17 @@
+=== proj-T1ABC ===
+  type:            task
+  status:          active
+  title:           Add login flow
+  tags:            testing
+  weight:          0.50
+  origin:          normal
+  created_at:      2026-01-01T00:00:00Z
+  last_accessed:   2026-01-02T00:00:00Z
+  access_count:    7
+
+--- acceptance ---
+  [ ] 1. First criterion
+  Progress: 0/1
+
+--- body ---
+Body content.
