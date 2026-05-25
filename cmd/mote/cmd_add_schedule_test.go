@@ -32,7 +32,7 @@ func TestRunAdd_DueFlag_HappyPath(t *testing.T) {
 	}
 	// Tolerance: the CLI uses real time.Now(), so we can only assert the
 	// distance from now is roughly 2 days. Use a generous window.
-	delta := time.Until(m.DueAt)
+	delta := time.Until(*m.DueAt)
 	if delta < 47*time.Hour || delta > 49*time.Hour {
 		t.Errorf("DueAt distance from now: got %v, want ~48h", delta)
 	}
@@ -51,7 +51,7 @@ func TestRunAdd_DeferFlag_HappyPath(t *testing.T) {
 	if m.DeferUntil == nil {
 		t.Fatal("DeferUntil should be set")
 	}
-	delta := time.Until(m.DeferUntil)
+	delta := time.Until(*m.DeferUntil)
 	if delta < 5*time.Hour+30*time.Minute || delta > 6*time.Hour+30*time.Minute {
 		t.Errorf("DeferUntil distance from now: got %v, want ~6h", delta)
 	}

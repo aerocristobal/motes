@@ -25,7 +25,7 @@ func TestRunUpdate_DueFlag_HappyPath(t *testing.T) {
 	if got.DueAt == nil {
 		t.Fatal("DueAt should be set")
 	}
-	delta := time.Until(got.DueAt)
+	delta := time.Until(*got.DueAt)
 	if delta < 5*time.Hour+30*time.Minute || delta > 6*time.Hour+30*time.Minute {
 		t.Errorf("DueAt distance from now: got %v, want ~6h", delta)
 	}
