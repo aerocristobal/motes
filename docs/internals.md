@@ -28,6 +28,7 @@ Developer reference for architecture, storage, and design decisions. For usage i
 - **Dream vision types:** link_suggestion, contradiction, tag_refinement, staleness, compression, signal, merge_suggestion, action_extraction, decompose_suggestion.
 - **Lens mode vs voting:** `lens_mode.enabled: true` activates N runs with distinct mental model prompts; results are merged with `MergeLensResults` (tagged union — all visions kept, cross-lens matches tagged). `self_consistency_runs > 1` activates identical-prompt voting with `VoteVisions` (consensus filter — only majority visions kept). Mutually exclusive. The `merge_suggestion` vision merges 3+ redundant motes into one authoritative mote using `supersedes` links (auto-deprecation), with inbound/outbound link migration to the new merged mote. The `action_extraction` vision adds a prescriptive `Action` field to lesson/decision motes that lack one, surfaced prominently in `show`, `context`, and `prime`.
 - **Scoring formula** combines: base weight + edge bonus + status penalty + recency decay + retrieval strength + salience boost + tag specificity + interference penalty
+- **Prime truncation directive:** Every successful `mote prime` body begins with a fixed `[mote prime] ...` line (or carries it as the `truncation_notice` JSON field). The dispatcher captures the body, persists it atomically to `.memory/last_prime.txt`, and only then emits to stdout (or wraps in the hook envelope). When agent hosts truncate the displayed preview, the agent can `cat .memory/last_prime.txt` to recover the full priming context. The directive text is a single source-of-truth constant in `cmd/mote/cmd_prime.go` pinned by a test so wording drift fails CI.
 
 ## Storage Layout
 
@@ -38,6 +39,7 @@ Developer reference for architecture, storage, and design decisions. For usage i
 ├── config.yaml             # Scoring, priming, dream, strata config
 ├── constellations.jsonl    # Constellation cluster records
 ├── .access_batch.jsonl     # Batched access updates
+├── last_prime.txt          # Full body of the most recent `mote prime` (atomic write)
 ├── dream/
 │   ├── log.jsonl               # Dream run history
 │   ├── visions.jsonl           # Pending finalized visions

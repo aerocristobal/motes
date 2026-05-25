@@ -25,16 +25,29 @@ var (
 	primeMode string
 )
 
+// truncationDirective is prepended to every successful mote prime output
+// (as a leading text line for text/hook paths, and as the truncation_notice
+// field for --json). Agent hosts (Claude Code, Codex, Gemini CLI) silently
+// truncate hook output for display; this line tells the agent there is more
+// context on disk and where to find it.
+const truncationDirective = "[mote prime] If this output is truncated by your host, " +
+	"read the full persisted output at .memory/last_prime.txt before continuing; " +
+	"it may contain project memories and session rules not visible in the preview."
+
+// lastPrimeFilename is the basename of the persisted prime output, relative to .memory/.
+const lastPrimeFilename = "last_prime.txt"
+
 // PrimeOutput is the JSON output structure for mote prime --json.
 type PrimeOutput struct {
-	ReadyTasks    []MoteEntry        `json:"ready_tasks,omitempty"`
-	ActiveTasks   []MoteEntry        `json:"active_tasks"`
-	Decisions     []MoteEntry        `json:"decisions"`
-	Lessons       []MoteEntry        `json:"lessons"`
-	Explores      []MoteEntry        `json:"explores"`
-	ContentEchoes []MoteEntry        `json:"content_echoes,omitempty"`
-	Strata        []StrataEntry      `json:"strata,omitempty"`
-	CodeContext   []CodeContextEntry `json:"code_context,omitempty"`
+	TruncationNotice string             `json:"truncation_notice"`
+	ReadyTasks       []MoteEntry        `json:"ready_tasks,omitempty"`
+	ActiveTasks      []MoteEntry        `json:"active_tasks"`
+	Decisions        []MoteEntry        `json:"decisions"`
+	Lessons          []MoteEntry        `json:"lessons"`
+	Explores         []MoteEntry        `json:"explores"`
+	ContentEchoes    []MoteEntry        `json:"content_echoes,omitempty"`
+	Strata           []StrataEntry      `json:"strata,omitempty"`
+	CodeContext      []CodeContextEntry `json:"code_context,omitempty"`
 }
 
 // CodeContextEntry represents a strata chunk surfaced by git-diff file analysis.
@@ -76,44 +89,60 @@ func init() {
 	rootCmd.AddCommand(primeCmd)
 }
 
+// runPrime is the cobra dispatcher. It captures runPrimeInner's stdout so
+// the full prime body can be persisted to .memory/last_prime.txt for agents
+// whose host truncates the displayed preview, then either wraps the body in
+// the hook envelope (--hook) or writes it through to real stdout.
 func runPrime(cmd *cobra.Command, args []string) error {
-	if primeHook {
-		return runPrimeHook(cmd, args)
-	}
-	return runPrimeInner(cmd, args)
-}
-
-func runPrimeHook(cmd *cobra.Command, args []string) error {
-	// Capture stdout, wrap in additionalContext JSON
 	old := os.Stdout
 	r, w, err := os.Pipe()
 	if err != nil {
 		return err
 	}
 	os.Stdout = w
-
 	runErr := runPrimeInner(cmd, args)
-
 	w.Close()
 	os.Stdout = old
 
 	captured, _ := io.ReadAll(r)
 	if runErr != nil {
+		// Silent-failure boundary: no directive leaks, no file is written.
 		return runErr
 	}
 
-	text := strings.TrimSpace(string(captured))
+	persistLastPrime(captured)
+
+	if primeHook {
+		return emitHookEnvelope(captured)
+	}
+	_, _ = os.Stdout.Write(captured)
+	return nil
+}
+
+// emitHookEnvelope wraps body in {"additionalContext": "<body>"} for agent
+// host SessionStart/PreCompact hooks. Preserves the prior runPrimeHook
+// behavior of emitting "{}" when body is empty.
+func emitHookEnvelope(body []byte) error {
+	text := strings.TrimSpace(string(body))
 	if text == "" {
 		fmt.Println("{}")
 		return nil
 	}
-
 	out := struct {
 		AdditionalContext string `json:"additionalContext"`
 	}{AdditionalContext: text}
 	data, _ := json.Marshal(out)
 	fmt.Println(string(data))
 	return nil
+}
+
+// persistLastPrime writes body to .memory/last_prime.txt atomically.
+// Best-effort: a missing project root or a write failure does not block stdout.
+// (mustFindRoot returns the .memory/ path itself, not the project parent.)
+func persistLastPrime(body []byte) {
+	root := mustFindRoot()
+	path := filepath.Join(root, lastPrimeFilename)
+	_ = core.AtomicWrite(path, body, 0644)
 }
 
 func runPrimeInner(cmd *cobra.Command, args []string) error {
@@ -151,6 +180,15 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 	// Use session topics as fallback if no args given
 	if len(args) == 0 && session != nil && len(session.Topics) > 0 {
 		args = session.Topics
+	}
+
+	// Truncation directive — first line of every text/hook output so that
+	// head-N style truncation still preserves it. JSON output emits the
+	// directive as the truncation_notice struct field instead, to keep the
+	// payload valid JSON.
+	if !primeJSON {
+		fmt.Println(truncationDirective)
+		fmt.Println()
 	}
 
 	// Resume mode: abbreviated output — active tasks + session-accessed motes only
@@ -365,12 +403,13 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 			}
 		}
 		out := PrimeOutput{
-			ReadyTasks:    scoredMotesToEntries(readyTasks, nil),
-			ActiveTasks:   scoredMotesToEntries(activeTasks, nil),
-			Decisions:     scoredMotesToEntriesFromScored(decisions),
-			Lessons:       scoredMotesToEntriesFromScored(lessons),
-			Explores:      scoredMotesToEntriesFromScored(explores),
-			ContentEchoes: scoredMotesToEntriesFromScored(jsonEchoes),
+			TruncationNotice: truncationDirective,
+			ReadyTasks:       scoredMotesToEntries(readyTasks, nil),
+			ActiveTasks:      scoredMotesToEntries(activeTasks, nil),
+			Decisions:        scoredMotesToEntriesFromScored(decisions),
+			Lessons:          scoredMotesToEntriesFromScored(lessons),
+			Explores:         scoredMotesToEntriesFromScored(explores),
+			ContentEchoes:    scoredMotesToEntriesFromScored(jsonEchoes),
 		}
 		for _, sm := range allResults {
 			if sm.Mote.Type == "anchor" && sm.Mote.StrataCorpus != "" {
