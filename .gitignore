@@ -1,3 +1,7 @@
 /mote
 .memory/
 /release/
+/dist/
+.claude/
+coverage.out
+coverage-analysis.out
