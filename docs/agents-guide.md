@@ -81,6 +81,40 @@ If you find yourself unable to do something programmatically that's possible int
 
 ---
 
+## Empty-state contract (`--ready` / `--claim`)
+
+Autonomous agents poll the workspace in a loop, waiting for claimable work. The CLI guarantees a stable contract so a polling shell loop can tell a quiet workspace apart from a real failure without parsing stderr:
+
+| Command | Outcome | Exit code | Stdout |
+|---|---|---|---|
+| `mote ls --ready --json` | Nothing claimable (empty, all in flight, all blocked) | **0** | exactly `{"motes":[]}` |
+| `mote ls --ready --json` | One or more ready motes | **0** | `{"motes":[ … ]}` (object wraps array) |
+| `mote update <id> --claim` | Success | **0** | success line / JSON envelope |
+| `mote update <id> --claim` | Lost the race (mote already claimed) | **2** | `{"claimed":false, …}` if `--json` |
+| `mote update <id> --claim` | Other failure (bad ID, missing `MOTE_AGENT_ID`, blockers unfinished, terminal status) | **1** | stderr error |
+| Any command | Unknown flag, malformed args | **non-zero** | (no JSON envelope) |
+
+The exit-code split between **1** (real error) and **2** (contention) lets a shell script retry on contention while bailing on real errors:
+
+```bash
+while ! id=$(mote ls --ready --json | jq -er '.motes[0].id'); do sleep 30; done
+if ! mote update "$id" --claim; then
+  case $? in
+    2) continue ;;   # someone else got it first — just keep polling
+    *) exit 1 ;;     # real error — bail
+  esac
+fi
+```
+
+Two intentional details to be aware of:
+
+- **JSON shape is `{"motes":[…]}`, not a bare `[…]`.** This is different from `bd ready --json` (beads), which emits a top-level array. Both shapes round-trip cleanly through `jq`. Do not change this without coordinating with consumers; a `--bare-array` mode could be added in a follow-up if needed.
+- **`ls --ready` is design-robust against index drift.** It does not consult `.memory/index.jsonl`; it scans `nodes/` directly. A corrupt or out-of-date index does not break the polling loop. Malformed node files print a `warning: skipping <file>` line to stderr and are excluded from the result — they do not cause a non-zero exit. Use `mote doctor` to surface workspace inconsistencies; use `mote dream` (or `mote prime` on session start) to rebuild the index.
+
+The Go test suite codifies this contract — see `cmd/mote/cmd_ls_empty_state_test.go`, `cmd/mote/cmd_ls_polling_test.go`, `cmd/mote/cmd_update_claim_test.go`, and `cmd/mote/cmd_update_claim_contract_test.go`. The Gherkin specification lives at `features/cli/empty-state-contract.feature` (living documentation).
+
+---
+
 ## Agent-Specific Files
 
 | File | Audience | Read when |
