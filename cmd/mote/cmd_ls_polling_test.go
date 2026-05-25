@@ -85,22 +85,32 @@ func TestPollingLoop_TerminatesWhenWorkAppears(t *testing.T) {
 	}()
 
 	// After a delay, seed a ready mote. The poller should observe it within
-	// one or two more poll intervals.
+	// one or two more poll intervals — story §2 Scenario 8 requires "the
+	// loop exits within 6 seconds of T0" where the mote is created at
+	// T0+5s, i.e. ≤ 1s of discovery latency. We use tighter timing here
+	// (seedAfter=500ms, poll=100ms) but assert the same bound: discovery
+	// must complete within 1 second of seed time.
 	time.Sleep(seedAfter)
 	mm := core.NewMoteManager(root)
+	seededAt := time.Now()
 	seeded, err := mm.Create("task", "delayed ready task", core.CreateOpts{})
 	if err != nil {
 		close(stop)
 		t.Fatalf("seed: %v", err)
 	}
 
+	var discoveredAt time.Time
 	select {
 	case <-done:
-		// Poller returned. Validate.
+		discoveredAt = time.Now()
 	case <-time.After(deadline + time.Second):
 		close(stop)
 		<-done
 		t.Fatalf("polling did not observe new mote within deadline (%s)", deadline)
+	}
+
+	if latency := discoveredAt.Sub(seededAt); latency > time.Second {
+		t.Errorf("discovery latency %s exceeds 1s bound (story §2 Scenario 8)", latency)
 	}
 
 	mu.Lock()

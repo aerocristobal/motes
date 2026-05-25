@@ -16,20 +16,17 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"motes/internal/core"
-
-	"github.com/spf13/cobra"
 )
 
-// runLsViaCobra invokes `mote ls ...` through cobra, mirroring how a real
-// shell would launch the binary. It resets the ls flag globals before and
-// after so tests are hermetic.
-func runLsViaCobra(args []string) error {
+// resetLsFlags zeroes the ls flag globals so test invocations are hermetic.
+func resetLsFlags() {
 	lsType = ""
 	lsTag = ""
 	lsStatus = ""
@@ -38,20 +35,56 @@ func runLsViaCobra(args []string) error {
 	lsCompact = false
 	lsParent = ""
 	lsJSON = false
-	defer func() {
-		lsType = ""
-		lsTag = ""
-		lsStatus = ""
-		lsStale = false
-		lsReady = false
-		lsCompact = false
-		lsParent = ""
-		lsJSON = false
-	}()
+}
+
+// runLsViaCobra invokes `mote ls ...` through cobra, mirroring how a real
+// shell would launch the binary, with cobra error/usage output silenced
+// for clean test logs. Use runLsViaCobraNoisy when the test needs to
+// observe cobra's stderr writes (e.g., unknown-flag scenario).
+func runLsViaCobra(args []string) error {
+	resetLsFlags()
+	defer resetLsFlags()
 	rootCmd.SetArgs(args)
 	rootCmd.SilenceErrors = true
 	rootCmd.SilenceUsage = true
 	return rootCmd.Execute()
+}
+
+// runLsViaCobraNoisy is runLsViaCobra without SilenceErrors — cobra writes
+// its error message to stderr the way the real CLI does in production.
+// SilenceUsage stays true so we don't drown the test log in usage banners.
+func runLsViaCobraNoisy(args []string) error {
+	resetLsFlags()
+	defer resetLsFlags()
+	rootCmd.SetArgs(args)
+	rootCmd.SilenceErrors = false
+	rootCmd.SilenceUsage = true
+	return rootCmd.Execute()
+}
+
+// captureBothStreams redirects os.Stdout and os.Stderr around fn and
+// returns whatever each stream wrote. Used by tests that need to assert
+// "stderr is empty" or "stderr contains X" alongside stdout content.
+func captureBothStreams(t *testing.T, fn func()) (stdout, stderr string) {
+	t.Helper()
+	oldOut, oldErr := os.Stdout, os.Stderr
+	rOut, wOut, _ := os.Pipe()
+	rErr, wErr, _ := os.Pipe()
+	os.Stdout, os.Stderr = wOut, wErr
+
+	fn()
+
+	_ = wOut.Close()
+	_ = wErr.Close()
+	os.Stdout, os.Stderr = oldOut, oldErr
+
+	var sb bytes.Buffer
+	_, _ = io.Copy(&sb, rOut)
+	stdout = sb.String()
+	sb.Reset()
+	_, _ = io.Copy(&sb, rErr)
+	stderr = sb.String()
+	return stdout, stderr
 }
 
 // --- SCENARIO 1: empty workspace ---
@@ -61,7 +94,7 @@ func TestLs_ReadyJSON_EmptyWorkspace_ReturnsEmptyMotesArray(t *testing.T) {
 	defer cleanup()
 
 	var err error
-	stdout := captureStdout(func() {
+	stdout, stderr := captureBothStreams(t, func() {
 		err = runLsViaCobra([]string{"ls", "--ready", "--json"})
 	})
 
@@ -71,6 +104,9 @@ func TestLs_ReadyJSON_EmptyWorkspace_ReturnsEmptyMotesArray(t *testing.T) {
 	trimmed := strings.TrimSpace(stdout)
 	if trimmed != `{"motes":[]}` {
 		t.Errorf("expected stdout to be exactly {\"motes\":[]}, got: %q", trimmed)
+	}
+	if stderr != "" {
+		t.Errorf("expected empty stderr (story §2 Scenario 1), got: %q", stderr)
 	}
 
 	// Round-trip parse to catch shape drift (e.g., "motes":null).
@@ -106,7 +142,7 @@ func TestLs_ReadyJSON_AllInProgress_ReturnsEmptyMotesArray(t *testing.T) {
 	}
 
 	var err error
-	stdout := captureStdout(func() {
+	stdout, stderr := captureBothStreams(t, func() {
 		err = runLsViaCobra([]string{"ls", "--ready", "--json"})
 	})
 
@@ -115,6 +151,9 @@ func TestLs_ReadyJSON_AllInProgress_ReturnsEmptyMotesArray(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout) != `{"motes":[]}` {
 		t.Errorf("expected empty motes array, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Errorf("expected empty stderr (story §2 Scenario 2), got: %q", stderr)
 	}
 }
 
@@ -147,7 +186,7 @@ func TestLs_ReadyJSON_AllBlocked_ReturnsEmptyMotesArray(t *testing.T) {
 	}
 
 	var rerr error
-	stdout := captureStdout(func() {
+	stdout, stderr := captureBothStreams(t, func() {
 		rerr = runLsViaCobra([]string{"ls", "--ready", "--json"})
 	})
 
@@ -156,6 +195,9 @@ func TestLs_ReadyJSON_AllBlocked_ReturnsEmptyMotesArray(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout) != `{"motes":[]}` {
 		t.Errorf("expected empty motes array, got %q", stdout)
+	}
+	if stderr != "" {
+		t.Errorf("expected empty stderr (story §2 Scenario 3), got: %q", stderr)
 	}
 }
 
@@ -200,38 +242,28 @@ func TestLs_ReadyJSON_UnknownFlag_NonZeroExit(t *testing.T) {
 	_, cleanup := setupIntegrationTest(t)
 	defer cleanup()
 
-	// Capture both streams so we can assert "no partial JSON on stdout".
-	oldOut, oldErr := os.Stdout, os.Stderr
-	rOut, wOut, _ := os.Pipe()
-	rErr, wErr, _ := os.Pipe()
-	os.Stdout, os.Stderr = wOut, wErr
-
-	err := runLsViaCobra([]string{"ls", "--ready", "--json", "--not-a-real-flag"})
-
-	_ = wOut.Close()
-	_ = wErr.Close()
-	os.Stdout, os.Stderr = oldOut, oldErr
-
-	var sb bytes.Buffer
-	_, _ = sb.ReadFrom(rOut)
-	stdout := sb.String()
-	sb.Reset()
-	_, _ = sb.ReadFrom(rErr)
-	stderr := sb.String()
+	// Use the noisy variant so cobra writes its error to stderr the way
+	// the real CLI does — story §2 Scenario 5 requires "stderr contains
+	// an error message about the unknown flag".
+	var err error
+	stdout, stderr := captureBothStreams(t, func() {
+		err = runLsViaCobraNoisy([]string{"ls", "--ready", "--json", "--not-a-real-flag"})
+	})
 
 	if err == nil {
 		t.Fatal("expected error for unknown flag, got nil")
 	}
-	// The error from cobra mentions the bad flag.
 	if !strings.Contains(err.Error(), "not-a-real-flag") && !strings.Contains(err.Error(), "unknown flag") {
-		t.Errorf("expected error to name the unknown flag, got: %v", err)
+		t.Errorf("expected returned error to name the unknown flag, got: %v", err)
 	}
-	// No partial JSON envelope on stdout. Cobra may print usage to stdout
-	// when SilenceUsage is unset, but `{"motes":` must never appear.
+	if !strings.Contains(stderr, "not-a-real-flag") && !strings.Contains(stderr, "unknown flag") {
+		t.Errorf("expected stderr to describe the unknown flag (story §2 Scenario 5), got: %q", stderr)
+	}
+	// No partial JSON envelope anywhere on stdout. Specifically the empty
+	// envelope must NOT leak when flag parsing fails.
 	if strings.Contains(stdout, `{"motes":`) {
 		t.Errorf("stdout must not contain {\"motes\": when flag parsing fails; got %q", stdout)
 	}
-	_ = stderr // stderr content is implementation-defined; presence-of-error is enough via the returned err
 }
 
 // --- SCENARIO 6: graceful degradation when a node file is malformed ---
@@ -239,50 +271,52 @@ func TestLs_ReadyJSON_UnknownFlag_NonZeroExit(t *testing.T) {
 // `mote ls --ready` does NOT consult `.memory/index.jsonl`; it scans
 // `nodes/` directly via ReadAllParallel. The realistic "corrupt workspace"
 // failure mode is a malformed .md file in nodes/. The contract is graceful
-// degradation: warn on stderr, skip the file, return a well-formed JSON
-// envelope on stdout, exit 0.
+// degradation: warn on stderr, skip the file, surface valid motes
+// alongside, return a well-formed JSON envelope on stdout, exit 0.
 func TestLs_ReadyJSON_MalformedNode_GracefulDegradation(t *testing.T) {
 	root, cleanup := setupIntegrationTest(t)
 	defer cleanup()
 
+	// Seed one valid ready task — graceful degradation means it should
+	// still surface in the JSON envelope despite the broken sibling.
+	mm := core.NewMoteManager(root)
+	valid, err := mm.Create("task", "valid task next to garbage", core.CreateOpts{})
+	if err != nil {
+		t.Fatalf("seed valid: %v", err)
+	}
+
 	// Drop a garbage .md file directly into nodes/. ReadAllParallel must
 	// emit a stderr warning ("warning: skipping ...") and continue.
 	garbagePath := filepath.Join(root, "nodes", "motes-garbage.md")
-	if err := os.WriteFile(garbagePath, []byte("not valid frontmatter\n%%%---\n"), 0644); err != nil {
-		t.Fatalf("seed garbage: %v", err)
+	if werr := os.WriteFile(garbagePath, []byte("not valid frontmatter\n%%%---\n"), 0644); werr != nil {
+		t.Fatalf("seed garbage: %v", werr)
 	}
 
-	// Capture stderr alongside stdout — we need both to validate the
-	// degradation contract.
-	oldOut, oldErr := os.Stdout, os.Stderr
-	rOut, wOut, _ := os.Pipe()
-	rErr, wErr, _ := os.Pipe()
-	os.Stdout, os.Stderr = wOut, wErr
+	var rerr error
+	stdout, stderr := captureBothStreams(t, func() {
+		rerr = runLsViaCobra([]string{"ls", "--ready", "--json"})
+	})
 
-	err := runLsViaCobra([]string{"ls", "--ready", "--json"})
-
-	_ = wOut.Close()
-	_ = wErr.Close()
-	os.Stdout, os.Stderr = oldOut, oldErr
-
-	var sb bytes.Buffer
-	_, _ = sb.ReadFrom(rOut)
-	stdout := sb.String()
-	sb.Reset()
-	_, _ = sb.ReadFrom(rErr)
-	stderr := sb.String()
-
-	if err != nil {
-		t.Fatalf("graceful degradation contract: expected exit 0, got %v", err)
+	if rerr != nil {
+		t.Fatalf("graceful degradation contract: expected exit 0, got %v", rerr)
 	}
-	trimmed := strings.TrimSpace(stdout)
-	if trimmed != `{"motes":[]}` {
-		t.Errorf("expected empty motes array (no valid motes seeded), got %q", trimmed)
+
+	// Stdout must still be valid JSON and must surface the valid mote.
+	var parsed LsOutput
+	if uerr := json.Unmarshal([]byte(stdout), &parsed); uerr != nil {
+		t.Fatalf("expected well-formed JSON despite garbage node, got %q (%v)", stdout, uerr)
 	}
+	if len(parsed.Motes) != 1 {
+		t.Fatalf("expected exactly 1 mote (the valid one), got %d (stdout=%q)", len(parsed.Motes), stdout)
+	}
+	if parsed.Motes[0].ID != valid.ID {
+		t.Errorf("motes[0].id: got %q, want %q", parsed.Motes[0].ID, valid.ID)
+	}
+
 	if !strings.Contains(stderr, "warning: skipping") {
 		t.Errorf("expected stderr to contain skip warning, got %q", stderr)
 	}
+	if !strings.Contains(stderr, "motes-garbage.md") {
+		t.Errorf("expected stderr to name the skipped file motes-garbage.md, got %q", stderr)
+	}
 }
-
-// Silence unused-import warning for cobra when the package is re-shaped.
-var _ = cobra.Command{}
