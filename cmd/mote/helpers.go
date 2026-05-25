@@ -54,6 +54,19 @@ func computeFlowStats(motes []*core.Mote) FlowStats {
 	return fs
 }
 
+// exitCodeError lets a RunE return an explicit process exit code that main()
+// honors instead of the default 1. Use it when a command needs a distinct
+// exit code to convey semantic meaning to shell callers — for example,
+// `mote update --claim` returns code 2 on lost-race contention so shell
+// loops can retry without confusing it with a real error.
+type exitCodeError struct {
+	code int
+	err  error
+}
+
+func (e *exitCodeError) Error() string { return e.err.Error() }
+func (e *exitCodeError) Unwrap() error { return e.err }
+
 // findMemoryRoot walks cwd upward looking for a .memory/ directory.
 func findMemoryRoot() (string, error) {
 	cwd, err := os.Getwd()

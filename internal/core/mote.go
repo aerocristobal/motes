@@ -70,8 +70,8 @@ type Mote struct {
 	Status string   `yaml:"status"` // active|in_progress|deprecated|archived|completed
 	Title  string   `yaml:"title"`
 	Tags   []string `yaml:"tags"`
-	Weight float64  `yaml:"weight"` // 0.0-1.0
-	Origin string   `yaml:"origin"` // normal|failure|revert|hotfix|discovery
+	Weight float64  `yaml:"weight"`           // 0.0-1.0
+	Origin string   `yaml:"origin"`           // normal|failure|revert|hotfix|discovery
 	Action string   `yaml:"action,omitempty"` // Dream-extracted prescriptive summary
 
 	// Retrieval metadata (auto-managed)
@@ -127,6 +127,7 @@ type Mote struct {
 	// Agent tracking
 	CreatedBy  string `yaml:"created_by,omitempty"`
 	ModifiedBy string `yaml:"modified_by,omitempty"`
+	ClaimedBy  string `yaml:"claimed_by,omitempty"` // Agent that holds an atomic claim (set by `mote update --claim`)
 
 	// Global knowledge routing
 	OriginProject string `yaml:"origin_project,omitempty"`

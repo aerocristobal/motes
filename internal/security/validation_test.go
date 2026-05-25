@@ -16,13 +16,13 @@ func TestValidateCommand(t *testing.T) {
 		{"emacs", false},
 		{"/usr/bin/vim", false},
 		{"code", false},
-		{"", true},                      // empty
-		{"vi; rm -rf /", true},          // semicolon injection
-		{"vi | cat /etc/passwd", true},  // pipe injection
-		{"vi && rm -rf /", true},        // && injection
-		{"vi || rm -rf /", true},        // || injection
-		{"$(rm -rf /)", true},           // command substitution
-		{"vi\nrm -rf /", true},          // newline injection
+		{"", true},                     // empty
+		{"vi; rm -rf /", true},         // semicolon injection
+		{"vi | cat /etc/passwd", true}, // pipe injection
+		{"vi && rm -rf /", true},       // && injection
+		{"vi || rm -rf /", true},       // || injection
+		{"$(rm -rf /)", true},          // command substitution
+		{"vi\nrm -rf /", true},         // newline injection
 	}
 
 	for _, tt := range tests {
@@ -43,14 +43,14 @@ func TestValidateMoteID(t *testing.T) {
 		{"motes-T1234567890abcdef", false},
 		{"proj-D987654321fedcba", false},
 		{"test-L123", false},
-		{"", true},                                // empty
-		{"motes-T../../../etc/passwd", true},      // path traversal
-		{"motes-T123/456", true},                  // forward slash
-		{"motes-T123\\456", true},                 // backslash
-		{"motes-T123\x00", true},                  // null byte
-		{"motes-T123\n", true},                    // newline
-		{"motes-T123\t", true},                    // tab
-		{string(make([]byte, 300)), true},         // too long
+		{"", true},                           // empty
+		{"motes-T../../../etc/passwd", true}, // path traversal
+		{"motes-T123/456", true},             // forward slash
+		{"motes-T123\\456", true},            // backslash
+		{"motes-T123\x00", true},             // null byte
+		{"motes-T123\n", true},               // newline
+		{"motes-T123\t", true},               // tab
+		{string(make([]byte, 300)), true},    // too long
 	}
 
 	for _, tt := range tests {
@@ -72,12 +72,12 @@ func TestValidateCorpusName(t *testing.T) {
 		{"source-code", false},
 		{"my_corpus", false},
 		{"corpus.v1", false},
-		{"", true},                    // empty
-		{"docs/../../../etc", true},   // path traversal
-		{"docs/subdir", true},         // forward slash
-		{"docs\\subdir", true},        // backslash
-		{"CON", true},                 // reserved Windows name
-		{"docs\x00", true},            // null byte
+		{"", true},                        // empty
+		{"docs/../../../etc", true},       // path traversal
+		{"docs/subdir", true},             // forward slash
+		{"docs\\subdir", true},            // backslash
+		{"CON", true},                     // reserved Windows name
+		{"docs\x00", true},                // null byte
 		{string(make([]byte, 200)), true}, // too long
 	}
 
@@ -100,11 +100,11 @@ func TestValidateTag(t *testing.T) {
 		{"security", false},
 		{"bug-fix", false},
 		{"v1.0", false},
-		{"", true},                     // empty
+		{"", true},                        // empty
 		{string(make([]byte, 200)), true}, // too long
-		{"tag with spaces", true},      // invalid chars
-		{"tag@invalid", true},          // invalid chars
-		{"tag#invalid", true},          // invalid chars
+		{"tag with spaces", true},         // invalid chars
+		{"tag@invalid", true},             // invalid chars
+		{"tag#invalid", true},             // invalid chars
 	}
 
 	for _, tt := range tests {
@@ -112,6 +112,46 @@ func TestValidateTag(t *testing.T) {
 			err := ValidateTag(tt.tag)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ValidateTag(%q) error = %v, wantErr %v", tt.tag, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateAgentID(t *testing.T) {
+	// 65-char path-traversal-shaped string to also exercise traversal rejection
+	tooLong := strings.Repeat("a", 101)
+	bidi := "claude‮-alpha"    // Right-to-Left Override
+	bidiIso := "claude⁦-alpha" // First Strong Isolate
+
+	tests := []struct {
+		name    string
+		id      string
+		wantErr bool
+	}{
+		{"valid_simple", "claude-alpha", false},
+		{"valid_with_digits", "codex-beta-01", false},
+		{"valid_underscore", "agent_42", false},
+		{"valid_dotted", "agent.v1", false},
+		{"empty", "", true},
+		{"path_traversal", "../../etc/pwd", true},
+		{"forward_slash", "/abs/path", true},
+		{"backslash", "claude\\alpha", true},
+		{"semicolon_injection", "claude;rm -rf /", true},
+		{"null_byte", "claude\x00alpha", true},
+		{"newline", "claude\nalpha", true},
+		{"tab", "claude\talpha", true},
+		{"too_long_101", tooLong, true},
+		{"bidi_rlo", bidi, true},
+		{"bidi_fsi", bidiIso, true},
+		{"space", "claude alpha", true},
+		{"at_sign", "claude@alpha", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateAgentID(tt.id)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateAgentID(%q) error = %v, wantErr %v", tt.id, err, tt.wantErr)
 			}
 		})
 	}
@@ -125,10 +165,10 @@ func TestValidateWeight(t *testing.T) {
 		{0.0, false},
 		{0.5, false},
 		{1.0, false},
-		{-0.1, true},  // negative
-		{1.1, true},   // too large
-		{-1.0, true},  // negative
-		{2.0, true},   // too large
+		{-0.1, true}, // negative
+		{1.1, true},  // too large
+		{-1.0, true}, // negative
+		{2.0, true},  // too large
 	}
 
 	for _, tt := range tests {

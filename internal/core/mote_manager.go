@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,26 @@ import (
 
 	"motes/internal/security"
 )
+
+// Sentinel errors for the atomic-claim primitive. Callers use errors.Is
+// to distinguish lost-race contention (ErrAlreadyClaimed → CLI exit 2)
+// from real errors (everything else → exit 1).
+var (
+	ErrAlreadyClaimed = errors.New("mote already claimed")
+	ErrNotClaimable   = errors.New("mote not claimable")
+	ErrNotReady       = errors.New("mote not ready")
+)
+
+// ClaimResult is returned by MoteManager.Claim. On success Claimed is true
+// and ClaimedBy carries the winning agent ID. On ErrAlreadyClaimed the
+// result is non-nil with Claimed=false and CurrentClaimedBy/CurrentStatus
+// populated for the caller's JSON output.
+type ClaimResult struct {
+	Claimed          bool   `json:"claimed"`
+	ClaimedBy        string `json:"claimed_by,omitempty"`
+	CurrentClaimedBy string `json:"current_claimed_by,omitempty"`
+	CurrentStatus    string `json:"current_status,omitempty"`
+}
 
 type MoteManager struct {
 	root           string
@@ -392,12 +413,12 @@ type UpdateOpts struct {
 	Status        *string
 	Title         *string
 	Weight        *float64
-	Tags          []string   // nil = no change, non-nil = replace
+	Tags          []string // nil = no change, non-nil = replace
 	Body          *string
 	DeprecatedBy  *string
 	Parent        *string
-	Acceptance    []string   // nil = no change, non-nil = replace
-	AcceptanceMet []bool     // nil = no change, non-nil = replace
+	Acceptance    []string // nil = no change, non-nil = replace
+	AcceptanceMet []bool   // nil = no change, non-nil = replace
 	Size          *string
 	Action        *string
 	LastAccessed  *time.Time
@@ -670,6 +691,115 @@ func transitiveReady(m *Mote, moteMap map[string]*Mote) bool {
 		queue = append(queue, dep.DependsOn...)
 	}
 	return true
+}
+
+// countUnfinishedBlockers BFS-counts transitive dependencies that are still
+// live (active or in_progress). Mirrors transitiveReady's traversal shape.
+func countUnfinishedBlockers(m *Mote, moteMap map[string]*Mote) int {
+	visited := map[string]bool{m.ID: true}
+	queue := make([]string, len(m.DependsOn))
+	copy(queue, m.DependsOn)
+
+	count := 0
+	for len(queue) > 0 {
+		depID := queue[0]
+		queue = queue[1:]
+		if visited[depID] {
+			continue
+		}
+		visited[depID] = true
+
+		dep, ok := moteMap[depID]
+		if !ok {
+			count++
+			continue
+		}
+		if IsLive(dep.Status) {
+			count++
+			continue
+		}
+		queue = append(queue, dep.DependsOn...)
+	}
+	return count
+}
+
+// Claim atomically transitions a ready task mote from status=active to
+// status=in_progress and stamps claimedBy as the assignee. The transition
+// is compare-and-swap under the existing per-mote file lock: between any
+// two concurrent callers, exactly one returns Claimed=true and the rest
+// receive ErrAlreadyClaimed.
+//
+// Returns ErrNotClaimable (wrapped) for non-task types or terminal statuses
+// (completed, archived, deprecated). Returns ErrNotReady (wrapped) when
+// blockers are unfinished. Returns ErrAlreadyClaimed (wrapped) when another
+// agent already holds the mote — in that case ClaimResult is non-nil with
+// current claim metadata for the caller's JSON output.
+func (mm *MoteManager) Claim(moteID, claimedBy string) (*ClaimResult, error) {
+	lock, err := mm.LockMote(moteID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = lock.Unlock() }()
+
+	m, err := mm.Read(moteID)
+	if err != nil {
+		return nil, err
+	}
+
+	if m.Type != "task" {
+		return nil, fmt.Errorf("%w: only task motes can be claimed (got type=%s)",
+			ErrNotClaimable, m.Type)
+	}
+
+	switch m.Status {
+	case "active":
+		// fall through to claim
+	case "in_progress":
+		return &ClaimResult{
+				Claimed:          false,
+				CurrentClaimedBy: m.ClaimedBy,
+				CurrentStatus:    m.Status,
+			},
+			fmt.Errorf("%w by %s", ErrAlreadyClaimed, m.ClaimedBy)
+	default:
+		return nil, fmt.Errorf("%w: status=%s", ErrNotClaimable, m.Status)
+	}
+
+	if len(m.DependsOn) > 0 {
+		all, err := mm.ReadAllWithGlobal()
+		if err != nil {
+			return nil, err
+		}
+		moteMap := make(map[string]*Mote, len(all))
+		for _, x := range all {
+			moteMap[x.ID] = x
+		}
+		if !transitiveReady(m, moteMap) {
+			n := countUnfinishedBlockers(m, moteMap)
+			return nil, fmt.Errorf("%w: %d unfinished blocker(s)", ErrNotReady, n)
+		}
+	}
+
+	now := time.Now().UTC()
+	m.Status = "in_progress"
+	m.ClaimedBy = claimedBy
+	m.StatusChangedAt = &now
+	m.ModifiedBy = ResolveAgentID()
+
+	data, err := SerializeMote(m)
+	if err != nil {
+		return nil, err
+	}
+	path, err := mm.moteFilePath(moteID)
+	if err != nil {
+		return nil, fmt.Errorf("get file path: %w", err)
+	}
+	if err := AtomicWrite(path, data, 0644); err != nil {
+		return nil, err
+	}
+
+	mm.auditLog("claim", moteID, []string{"status", "claimed_by"})
+	return &ClaimResult{Claimed: true, ClaimedBy: claimedBy}, nil
 }
 
 func hasTag(m *Mote, tag string) bool {

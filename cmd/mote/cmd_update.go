@@ -2,6 +2,8 @@
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -29,7 +31,12 @@ var (
 	updateParent string
 	updateForce  bool
 	updateQuiet  bool
+	updateClaim  bool
+	updateJSON   bool
 )
+
+// fieldMutationFlags lists the flags that are mutually exclusive with --claim.
+var fieldMutationFlags = []string{"status", "title", "weight", "add-tag", "body", "accept", "size", "parent"}
 
 func init() {
 	updateCmd.Flags().StringVar(&updateStatus, "status", "", "New status (active|in_progress|completed|archived|deprecated)")
@@ -42,15 +49,27 @@ func init() {
 	updateCmd.Flags().StringVar(&updateParent, "parent", "", "Parent mote ID")
 	updateCmd.Flags().BoolVar(&updateForce, "force", false, "Bypass security scan blocks (for false positives)")
 	updateCmd.Flags().BoolVar(&updateQuiet, "quiet", false, "Suppress security scan warnings on stderr")
+	updateCmd.Flags().BoolVar(&updateClaim, "claim", false, "Atomically claim a ready task: status=active → in_progress, stamp claimed_by from MOTE_AGENT_ID")
+	updateCmd.Flags().BoolVar(&updateJSON, "json", false, "Emit result as JSON (currently only meaningful with --claim)")
 	rootCmd.AddCommand(updateCmd)
 }
 
 func runUpdate(cmd *cobra.Command, args []string) error {
-	if !cmd.Flags().Changed("status") && !cmd.Flags().Changed("title") && !cmd.Flags().Changed("weight") && !cmd.Flags().Changed("add-tag") && !cmd.Flags().Changed("body") && !cmd.Flags().Changed("accept") && !cmd.Flags().Changed("size") && !cmd.Flags().Changed("parent") {
-		return fmt.Errorf("at least one flag required: --status, --title, --weight, --add-tag, --body, --accept, --size, --parent")
+	moteID := args[0]
+
+	if cmd.Flags().Changed("claim") {
+		for _, f := range fieldMutationFlags {
+			if cmd.Flags().Changed(f) {
+				return &exitCodeError{code: 1,
+					err: fmt.Errorf("--claim is mutually exclusive with --%s", f)}
+			}
+		}
+		return runUpdateClaim(moteID)
 	}
 
-	moteID := args[0]
+	if !cmd.Flags().Changed("status") && !cmd.Flags().Changed("title") && !cmd.Flags().Changed("weight") && !cmd.Flags().Changed("add-tag") && !cmd.Flags().Changed("body") && !cmd.Flags().Changed("accept") && !cmd.Flags().Changed("size") && !cmd.Flags().Changed("parent") {
+		return fmt.Errorf("at least one flag required: --status, --title, --weight, --add-tag, --body, --accept, --size, --parent, --claim")
+	}
 
 	// Validate mote ID
 	if err := security.ValidateMoteID(moteID); err != nil {
@@ -244,6 +263,74 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	return nil
+}
+
+// ClaimOutput is the JSON shape printed by `mote update <id> --claim --json`.
+// On success Claimed=true and Status/ClaimedBy are populated. On lost-race
+// contention Claimed=false and CurrentStatus/CurrentClaimedBy carry the
+// existing claim metadata so callers can surface it without a re-read.
+type ClaimOutput struct {
+	ID               string `json:"id"`
+	Claimed          bool   `json:"claimed"`
+	Status           string `json:"status,omitempty"`
+	ClaimedBy        string `json:"claimed_by,omitempty"`
+	CurrentStatus    string `json:"current_status,omitempty"`
+	CurrentClaimedBy string `json:"current_claimed_by,omitempty"`
+}
+
+// runUpdateClaim handles `mote update <id> --claim [--json]`. MOTE_AGENT_ID
+// must be set and validated — the claim identity has audit consequences, so
+// we deliberately do NOT use core.ResolveAgentID (which falls back to
+// hostname-PID).
+func runUpdateClaim(moteID string) error {
+	agentID := os.Getenv("MOTE_AGENT_ID")
+	if agentID == "" {
+		return &exitCodeError{code: 1, err: fmt.Errorf("MOTE_AGENT_ID is required for --claim")}
+	}
+	if err := security.ValidateAgentID(agentID); err != nil {
+		return &exitCodeError{code: 1, err: fmt.Errorf("invalid MOTE_AGENT_ID: %w", err)}
+	}
+	if err := security.ValidateMoteID(moteID); err != nil {
+		return &exitCodeError{code: 1, err: fmt.Errorf("invalid mote ID: %w", err)}
+	}
+
+	root, err := findMemoryRoot()
+	if err != nil {
+		return &exitCodeError{code: 1, err: err}
+	}
+	mm := core.NewMoteManager(root)
+
+	result, claimErr := mm.Claim(moteID, agentID)
+
+	if updateJSON && result != nil {
+		out := ClaimOutput{
+			ID:               moteID,
+			Claimed:          result.Claimed,
+			ClaimedBy:        result.ClaimedBy,
+			CurrentStatus:    result.CurrentStatus,
+			CurrentClaimedBy: result.CurrentClaimedBy,
+		}
+		if result.Claimed {
+			out.Status = "in_progress"
+		}
+		data, mErr := json.MarshalIndent(out, "", "  ")
+		if mErr != nil {
+			return &exitCodeError{code: 1, err: fmt.Errorf("marshal json: %w", mErr)}
+		}
+		fmt.Println(string(data))
+	}
+
+	if claimErr != nil {
+		if errors.Is(claimErr, core.ErrAlreadyClaimed) {
+			return &exitCodeError{code: 2, err: claimErr}
+		}
+		return &exitCodeError{code: 1, err: claimErr}
+	}
+
+	if !updateJSON {
+		_, _ = fmt.Fprintf(os.Stdout, "Claimed %s as %s\n", moteID, agentID)
+	}
 	return nil
 }
 

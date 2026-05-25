@@ -149,6 +149,44 @@ func ValidateTag(tag string) error {
 	return nil
 }
 
+// ValidateAgentID checks if a MOTE_AGENT_ID value is safe to use as an audit
+// identifier (e.g. when stamping the assignee of an atomically claimed mote).
+// Tighter than ValidateTag — it also rejects path separators and Unicode bidi
+// control characters that could spoof identity in audit logs.
+func ValidateAgentID(id string) error {
+	if id == "" {
+		return fmt.Errorf("empty agent ID")
+	}
+
+	if len(id) > 100 {
+		return fmt.Errorf("agent ID too long (max 100 chars)")
+	}
+
+	if !utf8.ValidString(id) {
+		return fmt.Errorf("agent ID contains invalid UTF-8")
+	}
+
+	if strings.Contains(id, "..") {
+		return fmt.Errorf("agent ID contains path traversal sequence")
+	}
+
+	if strings.ContainsAny(id, "\x00\r\n\t/\\") {
+		return fmt.Errorf("agent ID contains null, control, or path characters")
+	}
+
+	for _, r := range id {
+		if (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) {
+			return fmt.Errorf("agent ID contains Unicode bidi control characters")
+		}
+	}
+
+	if matched, _ := regexp.MatchString(`^[a-zA-Z0-9._-]+$`, id); !matched {
+		return fmt.Errorf("agent ID contains invalid characters")
+	}
+
+	return nil
+}
+
 // ValidateWeight checks if a weight value is in valid range.
 func ValidateWeight(weight float64) error {
 	if weight < 0.0 || weight > 1.0 {
