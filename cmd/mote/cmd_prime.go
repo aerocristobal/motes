@@ -20,9 +20,10 @@ import (
 )
 
 var (
-	primeJSON bool
-	primeHook bool
-	primeMode string
+	primeJSON  bool
+	primeHook  bool
+	primeMode  string
+	primeDebug bool
 )
 
 // truncationDirective is prepended to every successful mote prime output
@@ -86,18 +87,69 @@ func init() {
 	primeCmd.Flags().BoolVar(&primeJSON, "json", false, "Output in JSON format")
 	primeCmd.Flags().BoolVar(&primeHook, "hook", false, "Wrap output in {\"additionalContext\": ...} JSON for hooks")
 	primeCmd.Flags().StringVar(&primeMode, "mode", "startup", "Output mode: startup (full), resume (abbreviated), compact (full + body snippets)")
+	primeCmd.Flags().BoolVar(&primeDebug, "debug", false, "Surface underlying errors instead of failing silently (also: MOTE_DEBUG=1)")
 	rootCmd.AddCommand(primeCmd)
+}
+
+// primeDebugEnabled reports whether the silent-failure escape hatch is active.
+// Either the --debug flag or MOTE_DEBUG=1/true/yes (case-insensitive) opts in.
+func primeDebugEnabled() bool {
+	if primeDebug {
+		return true
+	}
+	v := os.Getenv("MOTE_DEBUG")
+	return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes")
+}
+
+// emitSilentEnvelope writes the mode-appropriate empty payload to stdout for
+// the silent-failure path. Default text mode emits nothing; --hook emits "{}"
+// (matching emitHookEnvelope's empty-body behavior); --json emits an empty
+// PrimeOutput envelope so downstream parsers see the stable schema.
+func emitSilentEnvelope() {
+	switch {
+	case primeHook:
+		fmt.Println("{}")
+	case primeJSON:
+		empty := PrimeOutput{
+			ActiveTasks: []MoteEntry{},
+			Decisions:   []MoteEntry{},
+			Lessons:     []MoteEntry{},
+			Explores:    []MoteEntry{},
+		}
+		data, _ := json.Marshal(empty)
+		fmt.Println(string(data))
+	}
 }
 
 // runPrime is the cobra dispatcher. It captures runPrimeInner's stdout so
 // the full prime body can be persisted to .memory/last_prime.txt for agents
 // whose host truncates the displayed preview, then either wraps the body in
 // the hook envelope (--hook) or writes it through to real stdout.
-func runPrime(cmd *cobra.Command, args []string) error {
+//
+// Silent-failure contract (STORY-BR-23-4): any error from runPrimeInner —
+// missing .memory/, corrupt index, permission denied, or a recovered panic —
+// is converted into a silent exit 0 with the mode-appropriate empty payload
+// on stdout. Set MOTE_DEBUG=1 or pass --debug to surface the underlying error.
+func runPrime(cmd *cobra.Command, args []string) (returnErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if primeDebugEnabled() {
+				returnErr = fmt.Errorf("prime panic: %v", r)
+				return
+			}
+			emitSilentEnvelope()
+			returnErr = nil
+		}
+	}()
+
 	old := os.Stdout
 	r, w, err := os.Pipe()
 	if err != nil {
-		return err
+		if primeDebugEnabled() {
+			return err
+		}
+		emitSilentEnvelope()
+		return nil
 	}
 	os.Stdout = w
 	runErr := runPrimeInner(cmd, args)
@@ -106,8 +158,11 @@ func runPrime(cmd *cobra.Command, args []string) error {
 
 	captured, _ := io.ReadAll(r)
 	if runErr != nil {
-		// Silent-failure boundary: no directive leaks, no file is written.
-		return runErr
+		if primeDebugEnabled() {
+			return runErr
+		}
+		emitSilentEnvelope()
+		return nil
 	}
 
 	persistLastPrime(captured)
@@ -138,15 +193,24 @@ func emitHookEnvelope(body []byte) error {
 
 // persistLastPrime writes body to .memory/last_prime.txt atomically.
 // Best-effort: a missing project root or a write failure does not block stdout.
-// (mustFindRoot returns the .memory/ path itself, not the project parent.)
+// (findMemoryRoot returns the .memory/ path itself, not the project parent.)
+// Uses the non-fatal findMemoryRoot so it composes with the silent-failure
+// trap in runPrime — a successful prime that races against rmdir doesn't
+// crash the binary via os.Exit.
 func persistLastPrime(body []byte) {
-	root := mustFindRoot()
+	root, err := findMemoryRoot()
+	if err != nil {
+		return
+	}
 	path := filepath.Join(root, lastPrimeFilename)
 	_ = core.AtomicWrite(path, body, 0644)
 }
 
 func runPrimeInner(cmd *cobra.Command, args []string) error {
-	root := mustFindRoot()
+	root, err := findMemoryRoot()
+	if err != nil {
+		return err
+	}
 	cfg, err := core.LoadConfig(root)
 	if err != nil {
 		return err
