@@ -20,10 +20,11 @@ import (
 )
 
 var (
-	primeJSON  bool
-	primeHook  bool
-	primeMode  string
-	primeDebug bool
+	primeJSON         bool
+	primeHook         bool
+	primeMode         string
+	primeDebug        bool
+	primeMemoriesOnly bool
 )
 
 // truncationDirective is prepended to every successful mote prime output
@@ -41,6 +42,7 @@ const lastPrimeFilename = "last_prime.txt"
 // PrimeOutput is the JSON output structure for mote prime --json.
 type PrimeOutput struct {
 	TruncationNotice string             `json:"truncation_notice"`
+	Memories         []MemoryEntry      `json:"memories"`
 	ReadyTasks       []MoteEntry        `json:"ready_tasks,omitempty"`
 	ActiveTasks      []MoteEntry        `json:"active_tasks"`
 	Decisions        []MoteEntry        `json:"decisions"`
@@ -49,6 +51,12 @@ type PrimeOutput struct {
 	ContentEchoes    []MoteEntry        `json:"content_echoes,omitempty"`
 	Strata           []StrataEntry      `json:"strata,omitempty"`
 	CodeContext      []CodeContextEntry `json:"code_context,omitempty"`
+}
+
+// MemoryEntry represents a single durable memory in JSON output.
+type MemoryEntry struct {
+	Key  string `json:"key"`
+	Body string `json:"body"`
 }
 
 // CodeContextEntry represents a strata chunk surfaced by git-diff file analysis.
@@ -88,6 +96,7 @@ func init() {
 	primeCmd.Flags().BoolVar(&primeHook, "hook", false, "Wrap output in {\"additionalContext\": ...} JSON for hooks")
 	primeCmd.Flags().StringVar(&primeMode, "mode", "startup", "Output mode: startup (full), resume (abbreviated), compact (full + body snippets)")
 	primeCmd.Flags().BoolVar(&primeDebug, "debug", false, "Surface underlying errors instead of failing silently (also: MOTE_DEBUG=1)")
+	primeCmd.Flags().BoolVar(&primeMemoriesOnly, "memories-only", false, "Emit only the persistent-memories section (compact hook contexts)")
 	rootCmd.AddCommand(primeCmd)
 }
 
@@ -111,6 +120,7 @@ func emitSilentEnvelope() {
 		fmt.Println("{}")
 	case primeJSON:
 		empty := PrimeOutput{
+			Memories:    []MemoryEntry{},
 			ActiveTasks: []MoteEntry{},
 			Decisions:   []MoteEntry{},
 			Lessons:     []MoteEntry{},
@@ -253,6 +263,21 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 	if !primeJSON {
 		fmt.Println(truncationDirective)
 		fmt.Println()
+	}
+
+	// Persistent memories — durable rules saved via `mote remember`. Always
+	// rendered before any other section so they survive bottom-up truncation
+	// by agent hosts (same rationale as truncationDirective above).
+	memStore := core.NewMemoryStore(root)
+	memories, memErr := memStore.List("")
+	if memErr != nil && primeDebugEnabled() {
+		return memErr
+	}
+	if primeMemoriesOnly {
+		return emitMemoriesOnly(memories)
+	}
+	if len(memories) > 0 && !primeJSON {
+		printMemoriesSection(memories)
 	}
 
 	// Resume mode: abbreviated output — active tasks + session-accessed motes only
@@ -480,6 +505,7 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 		}
 		out := PrimeOutput{
 			TruncationNotice: truncationDirective,
+			Memories:         memoriesToEntries(memories),
 			ReadyTasks:       scoredMotesToEntries(readyTasks, nil),
 			ActiveTasks:      scoredMotesToEntries(activeTasks, nil),
 			Decisions:        scoredMotesToEntriesFromScored(decisions),
@@ -712,6 +738,61 @@ func printProactiveStrata(motes []*core.Mote, topic string) {
 			s.corpus, s.hint, s.overlap)
 	}
 	fmt.Println()
+}
+
+// printMemoriesSection renders the `## Persistent memories` section in
+// text mode. Caller checks len(memories) > 0 before invoking.
+func printMemoriesSection(memories []core.MemoryRecord) {
+	fmt.Println("## Persistent memories")
+	fmt.Println()
+	keyWidth := 0
+	for _, m := range memories {
+		if len(m.Key) > keyWidth {
+			keyWidth = len(m.Key)
+		}
+	}
+	for _, m := range memories {
+		fmt.Printf("  %-*s  %s\n", keyWidth, m.Key, format.Truncate(m.Body, 200))
+	}
+	fmt.Println()
+}
+
+// memoriesToEntries converts MemoryRecord slices to the JSON envelope
+// type. Always returns a non-nil slice so the JSON output is stable.
+func memoriesToEntries(memories []core.MemoryRecord) []MemoryEntry {
+	entries := make([]MemoryEntry, 0, len(memories))
+	for _, m := range memories {
+		entries = append(entries, MemoryEntry{Key: m.Key, Body: m.Body})
+	}
+	return entries
+}
+
+// emitMemoriesOnly renders the --memories-only short-circuit output.
+// Text mode emits just the memories section (after the already-printed
+// truncationDirective). JSON mode emits a PrimeOutput envelope with only
+// Memories and TruncationNotice populated; downstream parsers see the
+// stable schema with empty arrays for the suppressed sections.
+func emitMemoriesOnly(memories []core.MemoryRecord) error {
+	if primeJSON {
+		out := PrimeOutput{
+			TruncationNotice: truncationDirective,
+			Memories:         memoriesToEntries(memories),
+			ActiveTasks:      []MoteEntry{},
+			Decisions:        []MoteEntry{},
+			Lessons:          []MoteEntry{},
+			Explores:         []MoteEntry{},
+		}
+		data, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal memories-only: %w", err)
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+	if len(memories) > 0 {
+		printMemoriesSection(memories)
+	}
+	return nil
 }
 
 func filterByType(results []core.ScoredMote, moteType string) []core.ScoredMote {

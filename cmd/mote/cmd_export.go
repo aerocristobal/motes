@@ -13,8 +13,11 @@ import (
 
 var exportCmd = &cobra.Command{
 	Use:   "export",
-	Short: "Export motes as JSONL",
-	RunE:  runExport,
+	Short: "Export motes and memories as a JSON envelope",
+	Long: `Emit a single JSON object with top-level "motes" and "memories"
+arrays. NOTE: This is a breaking change from the prior JSONL output —
+consumers that line-split must switch to whole-document JSON parsing.`,
+	RunE: runExport,
 }
 
 var (
@@ -50,6 +53,22 @@ type ExportMote struct {
 	AcceptanceMet  []bool             `json:"acceptance_met,omitempty"`
 	Size           string             `json:"size,omitempty"`
 	ExternalRefs   []core.ExternalRef `json:"external_refs,omitempty"`
+}
+
+// ExportMemory is the JSON representation of a memory for export.
+type ExportMemory struct {
+	Key       string    `json:"key"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ExportEnvelope is the top-level shape of `mote export --json` and
+// `mote export` output. Both arrays are always present (possibly empty)
+// so consumers can parse without nil-checks.
+type ExportEnvelope struct {
+	Motes    []ExportMote   `json:"motes"`
+	Memories []ExportMemory `json:"memories"`
 }
 
 func init() {
@@ -102,6 +121,29 @@ func runExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("list motes: %w", err)
 	}
 
+	envelope := ExportEnvelope{
+		Motes:    make([]ExportMote, 0, len(motes)),
+		Memories: []ExportMemory{},
+	}
+	for _, m := range motes {
+		envelope.Motes = append(envelope.Motes, moteToExport(m))
+	}
+
+	// Memories ignore the --type / --tag / --status filters because they
+	// have no type/tag/status — they're flat key/body pairs.
+	store := core.NewMemoryStore(root)
+	memories, memErr := store.List("")
+	if memErr == nil {
+		for _, mr := range memories {
+			envelope.Memories = append(envelope.Memories, ExportMemory{
+				Key:       mr.Key,
+				Body:      mr.Body,
+				CreatedAt: mr.CreatedAt,
+				UpdatedAt: mr.UpdatedAt,
+			})
+		}
+	}
+
 	w := os.Stdout
 	if exportOutput != "" {
 		f, err := os.Create(exportOutput)
@@ -113,14 +155,14 @@ func runExport(cmd *cobra.Command, args []string) error {
 	}
 
 	enc := json.NewEncoder(w)
-	for _, m := range motes {
-		if err := enc.Encode(moteToExport(m)); err != nil {
-			return fmt.Errorf("encode mote %s: %w", m.ID, err)
-		}
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(envelope); err != nil {
+		return fmt.Errorf("encode export envelope: %w", err)
 	}
 
 	if exportOutput != "" {
-		fmt.Fprintf(os.Stderr, "Exported %d motes to %s\n", len(motes), exportOutput)
+		fmt.Fprintf(os.Stderr, "Exported %d motes and %d memories to %s\n",
+			len(envelope.Motes), len(envelope.Memories), exportOutput)
 	}
 	return nil
 }

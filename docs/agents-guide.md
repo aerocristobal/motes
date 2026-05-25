@@ -115,6 +115,63 @@ The Go test suite codifies this contract — see `cmd/mote/cmd_ls_empty_state_te
 
 ---
 
+## Memory verbs (`remember` / `memories` / `recall` / `forget`)
+
+For short durable rules — "always run tests with -race", "auth uses JWT not sessions" — use the memory verbs instead of `mote add --type=lesson`:
+
+| Verb | Purpose |
+|---|---|
+| `mote remember "<text>" [--key K] [--force] [--no-clobber] [--json]` | Save a memory. Key auto-derived from text via slugify if `--key` omitted. |
+| `mote memories [substring] [--json]` | List all memories, optionally filtered (case-insensitive, matches key OR body). Sorted ascending by key. |
+| `mote recall <key>` | Print one memory's body. Exits 2 if not found. |
+| `mote forget <key>` | Delete a memory. Exits 2 if not found. Writes a `memory.delete` audit entry. |
+
+Memories surface automatically in every `mote prime` output under a `## Persistent memories` heading positioned **before** every other section, so they survive bottom-up truncation by agent hosts. Use `mote prime --memories-only` in compact hook contexts to skip every other section.
+
+### Memories vs lessons (when to use which)
+
+**Memories** are flat key/body pairs stored at `.memory/memory.json`. They are **outside** the mote graph: no scoring, no edges, no contradiction detection, no concept index, no global promotion. They exist to seed `mote prime` output with terse rules.
+
+**Lessons** (`mote add --type=lesson`) are full motes in the graph: they have weight, decay, can be linked with `[[wikilinks]]`, participate in dream cycles, get suggested via `mote search`, and can be promoted across projects. Use lessons for narrative knowledge with context and relationships.
+
+A useful split: if the next session needs to **see it on every prime**, it's a memory. If the next session needs to **find it by topic**, it's a lesson.
+
+### Auto-slugification rules
+
+When no `--key` is given, `mote remember` derives one from the body:
+
+- ASCII letters (lowercased) and digits are preserved.
+- Whitespace and punctuation collapse to a single hyphen.
+- Non-ASCII characters are dropped (no Unicode normalization).
+- Runs of hyphens collapse to one; leading/trailing hyphens are trimmed.
+- Truncated to 50 characters.
+- On collision, a `-2`, `-3`, … suffix is appended.
+
+`"always run tests with -race flag"` → `always-run-tests-with-race-flag`.
+
+### Defaults and flags
+
+- **Duplicate `--key` overwrites by default** (verb-as-intent: `remember` means "make this true now"). Pass `--no-clobber` to fail instead.
+- **Empty or whitespace-only bodies are rejected** (`mote remember ""` exits non-zero).
+- **Body length is capped at 1000 bytes** — longer durable notes belong in `mote add --type=lesson`.
+- **Security scan parity with `mote add`**: bodies are scanned for credentials and private keys before persistence. Hits block the write; `--force` bypasses and is recorded in the audit log as `security_override`.
+- **Exit codes**: `0` success, `1` real error, `2` "memory not found" (mirrors `mote update --claim`'s contention exit). The split lets a polling shell distinguish a missing key from an I/O failure.
+
+### Export and import round-trip
+
+`mote export` now emits a **JSON envelope**:
+
+```json
+{
+  "motes":    [ { …mote… }, … ],
+  "memories": [ { "key": "…", "body": "…", "created_at": "…", "updated_at": "…" }, … ]
+}
+```
+
+This is a breaking change from the prior JSONL stream. `mote import` accepts both shapes — envelope inputs round-trip memories too; legacy JSONL inputs import motes only.
+
+---
+
 ## Agent-Specific Files
 
 | File | Audience | Read when |
