@@ -4,12 +4,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
 	"motes/internal/format"
+	"motes/internal/jsonenv"
 	"motes/internal/strata"
 )
 
@@ -125,7 +127,13 @@ func runContext(cmd *cobra.Command, args []string) error {
 			Topic:   topic,
 			Results: scoredMotesToEntriesFromScored(results),
 		}
-		data, err := json.MarshalIndent(out, "", "  ")
+		var data []byte
+		if jsonenv.Mode() == jsonenv.ModeEnvelope {
+			data, err = json.MarshalIndent(jsonenv.Wrap(out), "", "  ")
+		} else {
+			jsonenv.EmitDeprecationNotice(os.Stderr)
+			data, err = json.MarshalIndent(out, "", "  ")
+		}
 		if err != nil {
 			return fmt.Errorf("marshal json: %w", err)
 		}

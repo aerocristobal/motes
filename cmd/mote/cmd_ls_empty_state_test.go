@@ -68,6 +68,22 @@ func runLsViaCobraNoisy(args []string) error {
 	return rootCmd.Execute()
 }
 
+// stripJSONDeprecationNotice removes the STORY-JSCHEMA-001 one-line legacy
+// JSON deprecation notice from a captured stderr buffer. The notice is the
+// new contract introduced in v0.4.35 and is orthogonal to the empty-state
+// assertions in this file (which predate it). Tests that want to verify
+// stderr is otherwise empty can compose: `strip…(stderr) != ""`.
+func stripJSONDeprecationNotice(s string) string {
+	out := []string{}
+	for _, line := range strings.Split(s, "\n") {
+		if strings.Contains(line, "MOTE_JSON_ENVELOPE") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
+
 // captureBothStreams redirects os.Stdout and os.Stderr around fn and
 // returns whatever each stream wrote. Used by tests that need to assert
 // "stderr is empty" or "stderr contains X" alongside stdout content.
@@ -111,8 +127,8 @@ func TestLs_ReadyJSON_EmptyWorkspace_ReturnsEmptyMotesArray(t *testing.T) {
 	if trimmed != `{"motes":[]}` {
 		t.Errorf("expected stdout to be exactly {\"motes\":[]}, got: %q", trimmed)
 	}
-	if stderr != "" {
-		t.Errorf("expected empty stderr (story §2 Scenario 1), got: %q", stderr)
+	if rest := stripJSONDeprecationNotice(stderr); strings.TrimSpace(rest) != "" {
+		t.Errorf("expected empty stderr aside from the legacy JSON deprecation notice (story §2 Scenario 1), got: %q", stderr)
 	}
 
 	// Round-trip parse to catch shape drift (e.g., "motes":null).
@@ -158,8 +174,8 @@ func TestLs_ReadyJSON_AllInProgress_ReturnsEmptyMotesArray(t *testing.T) {
 	if strings.TrimSpace(stdout) != `{"motes":[]}` {
 		t.Errorf("expected empty motes array, got %q", stdout)
 	}
-	if stderr != "" {
-		t.Errorf("expected empty stderr (story §2 Scenario 2), got: %q", stderr)
+	if rest := stripJSONDeprecationNotice(stderr); strings.TrimSpace(rest) != "" {
+		t.Errorf("expected empty stderr aside from the legacy JSON deprecation notice (story §2 Scenario 2), got: %q", stderr)
 	}
 }
 
@@ -202,8 +218,8 @@ func TestLs_ReadyJSON_AllBlocked_ReturnsEmptyMotesArray(t *testing.T) {
 	if strings.TrimSpace(stdout) != `{"motes":[]}` {
 		t.Errorf("expected empty motes array, got %q", stdout)
 	}
-	if stderr != "" {
-		t.Errorf("expected empty stderr (story §2 Scenario 3), got: %q", stderr)
+	if rest := stripJSONDeprecationNotice(stderr); strings.TrimSpace(rest) != "" {
+		t.Errorf("expected empty stderr aside from the legacy JSON deprecation notice (story §2 Scenario 3), got: %q", stderr)
 	}
 }
 

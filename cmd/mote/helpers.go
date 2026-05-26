@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"motes/internal/core"
+	"motes/internal/jsonenv"
 	"motes/internal/security"
 	"motes/internal/strata"
 )
@@ -66,6 +68,22 @@ type exitCodeError struct {
 
 func (e *exitCodeError) Error() string { return e.err.Error() }
 func (e *exitCodeError) Unwrap() error { return e.err }
+
+// jsonEnvErr returns the right error type for a JSON-emitting command's RunE.
+// When the caller requested --json AND envelope mode is active, it returns a
+// *jsonenv.EnvelopedError so main() emits the structured error envelope on
+// stderr. Otherwise it returns an *exitCodeError so the prose-error behaviour
+// is preserved byte-for-byte for legacy callers.
+//
+// Stable codes live in docs/JSON_SCHEMA.md §5; add new sites there at the same
+// time as adding them here.
+func jsonEnvErr(jsonFlag bool, code string, exit int, format string, args ...any) error {
+	msg := fmt.Sprintf(format, args...)
+	if jsonFlag && jsonenv.Mode() == jsonenv.ModeEnvelope {
+		return &jsonenv.EnvelopedError{Code: code, Message: msg, ExitCode: exit}
+	}
+	return &exitCodeError{code: exit, err: errors.New(msg)}
+}
 
 // findMemoryRoot walks cwd upward looking for a .memory/ directory.
 func findMemoryRoot() (string, error) {

@@ -15,49 +15,50 @@ import (
 	"motes/internal/core"
 	"motes/internal/dream"
 	"motes/internal/format"
+	"motes/internal/jsonenv"
 	"motes/internal/strata"
 )
 
 // StatsOutput is the JSON output structure for mote stats --json.
 type StatsOutput struct {
-	TotalMotes            int            `json:"total_motes"`
-	StatusCounts          map[string]int `json:"status_counts"`
-	Accessed7             int            `json:"accessed_7d"`
-	Accessed30            int            `json:"accessed_30d"`
-	Accessed90            int            `json:"accessed_90d"`
-	NeverAccessed         int            `json:"never_accessed"`
-	TotalTags             int            `json:"total_tags"`
-	OverloadedTags        int            `json:"overloaded_tags"`
-	SingletonTags         int            `json:"singleton_tags"`
-	Contradictions        int            `json:"contradictions"`
-	PendingVisions        int            `json:"pending_visions"`
-	DreamRuns             int            `json:"dream_runs,omitempty"`
-	DreamInputTokens      int            `json:"dream_input_tokens,omitempty"`
-	DreamOutputTokens     int            `json:"dream_output_tokens,omitempty"`
-	DreamEstimatedCost    float64        `json:"dream_estimated_cost,omitempty"`
-	DreamTotalVisions     int            `json:"dream_total_visions,omitempty"`
-	DreamTotalApplied     int            `json:"dream_total_applied,omitempty"`
-	DreamTotalDeferred    int            `json:"dream_total_deferred,omitempty"`
-	DreamAcceptanceRate   float64        `json:"dream_acceptance_rate,omitempty"`
-	DreamCostPerAccepted  float64        `json:"dream_cost_per_accepted,omitempty"`
-	PrimeHitRate          float64        `json:"prime_hit_rate,omitempty"`
-	PrimeSessions         int            `json:"prime_sessions,omitempty"`
-	Created7d             int            `json:"created_7d,omitempty"`
-	Created30d            int            `json:"created_30d,omitempty"`
-	Created90d            int            `json:"created_90d,omitempty"`
-	Deprecated7d          int            `json:"deprecated_7d,omitempty"`
-	Deprecated30d         int            `json:"deprecated_30d,omitempty"`
-	Deprecated90d         int            `json:"deprecated_90d,omitempty"`
-	NetGrowth7d           int            `json:"net_growth_7d,omitempty"`
-	NetGrowth30d          int            `json:"net_growth_30d,omitempty"`
-	NetGrowth90d          int            `json:"net_growth_90d,omitempty"`
-	GraphDecisions        int            `json:"graph_decisions,omitempty"`
-	GraphLessons          int            `json:"graph_lessons,omitempty"`
-	GraphExplorations     int            `json:"graph_explorations,omitempty"`
-	GraphKnowledgeCount   int            `json:"graph_knowledge_count,omitempty"`
-	GraphAvgLinks         float64        `json:"graph_avg_links,omitempty"`
-	GraphCrossSession     int            `json:"graph_cross_session_motes,omitempty"`
-	GraphAgeDays          int            `json:"graph_age_days,omitempty"`
+	TotalMotes           int            `json:"total_motes"`
+	StatusCounts         map[string]int `json:"status_counts"`
+	Accessed7            int            `json:"accessed_7d"`
+	Accessed30           int            `json:"accessed_30d"`
+	Accessed90           int            `json:"accessed_90d"`
+	NeverAccessed        int            `json:"never_accessed"`
+	TotalTags            int            `json:"total_tags"`
+	OverloadedTags       int            `json:"overloaded_tags"`
+	SingletonTags        int            `json:"singleton_tags"`
+	Contradictions       int            `json:"contradictions"`
+	PendingVisions       int            `json:"pending_visions"`
+	DreamRuns            int            `json:"dream_runs,omitempty"`
+	DreamInputTokens     int            `json:"dream_input_tokens,omitempty"`
+	DreamOutputTokens    int            `json:"dream_output_tokens,omitempty"`
+	DreamEstimatedCost   float64        `json:"dream_estimated_cost,omitempty"`
+	DreamTotalVisions    int            `json:"dream_total_visions,omitempty"`
+	DreamTotalApplied    int            `json:"dream_total_applied,omitempty"`
+	DreamTotalDeferred   int            `json:"dream_total_deferred,omitempty"`
+	DreamAcceptanceRate  float64        `json:"dream_acceptance_rate,omitempty"`
+	DreamCostPerAccepted float64        `json:"dream_cost_per_accepted,omitempty"`
+	PrimeHitRate         float64        `json:"prime_hit_rate,omitempty"`
+	PrimeSessions        int            `json:"prime_sessions,omitempty"`
+	Created7d            int            `json:"created_7d,omitempty"`
+	Created30d           int            `json:"created_30d,omitempty"`
+	Created90d           int            `json:"created_90d,omitempty"`
+	Deprecated7d         int            `json:"deprecated_7d,omitempty"`
+	Deprecated30d        int            `json:"deprecated_30d,omitempty"`
+	Deprecated90d        int            `json:"deprecated_90d,omitempty"`
+	NetGrowth7d          int            `json:"net_growth_7d,omitempty"`
+	NetGrowth30d         int            `json:"net_growth_30d,omitempty"`
+	NetGrowth90d         int            `json:"net_growth_90d,omitempty"`
+	GraphDecisions       int            `json:"graph_decisions,omitempty"`
+	GraphLessons         int            `json:"graph_lessons,omitempty"`
+	GraphExplorations    int            `json:"graph_explorations,omitempty"`
+	GraphKnowledgeCount  int            `json:"graph_knowledge_count,omitempty"`
+	GraphAvgLinks        float64        `json:"graph_avg_links,omitempty"`
+	GraphCrossSession    int            `json:"graph_cross_session_motes,omitempty"`
+	GraphAgeDays         int            `json:"graph_age_days,omitempty"`
 }
 
 var statsCmd = &cobra.Command{
@@ -225,7 +226,13 @@ func runStats(cmd *cobra.Command, args []string) error {
 			GraphCrossSession:    gv.crossSession,
 			GraphAgeDays:         gv.ageDays,
 		}
-		data, err := json.MarshalIndent(out, "", "  ")
+		var data []byte
+		if jsonenv.Mode() == jsonenv.ModeEnvelope {
+			data, err = json.MarshalIndent(jsonenv.Wrap(out), "", "  ")
+		} else {
+			jsonenv.EmitDeprecationNotice(os.Stderr)
+			data, err = json.MarshalIndent(out, "", "  ")
+		}
 		if err != nil {
 			return fmt.Errorf("marshal json: %w", err)
 		}

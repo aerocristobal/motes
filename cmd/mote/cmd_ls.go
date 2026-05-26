@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"motes/internal/core"
 	"motes/internal/format"
+	"motes/internal/jsonenv"
 )
 
 var lsCmd = &cobra.Command{
@@ -127,6 +129,15 @@ func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput 
 
 	if len(motes) == 0 {
 		if jsonOutput {
+			// Sprint-2 §23.16: empty must be `[]`, never `null` — agents poll
+			// on the presence of `motes` and shape-check on the array type.
+			// Legacy mode keeps the byte-exact compact form `{"motes":[]}` so
+			// callers that grep on the literal stay green. Envelope mode goes
+			// through the standard wrap helper.
+			if jsonenv.Mode() == jsonenv.ModeEnvelope {
+				return emitLsJSON(LsOutput{Motes: []LsMoteEntry{}})
+			}
+			jsonenv.EmitDeprecationNotice(os.Stderr)
 			fmt.Println(`{"motes":[]}`)
 			return nil
 		}
@@ -151,12 +162,7 @@ func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput 
 				Title:  m.Title,
 			}
 		}
-		data, err := json.MarshalIndent(LsOutput{Motes: entries}, "", "  ")
-		if err != nil {
-			return fmt.Errorf("marshal json: %w", err)
-		}
-		fmt.Println(string(data))
-		return nil
+		return emitLsJSON(LsOutput{Motes: entries})
 	}
 
 	if compact {
@@ -184,5 +190,27 @@ func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput 
 		}
 		fmt.Println(row)
 	}
+	return nil
+}
+
+// emitLsJSON serializes an LsOutput in either envelope or legacy mode.
+// Centralised here so the empty-list shortcut and the populated path share the
+// same envelope branch. Used by `mote ls --json` and `mote pulse --json`
+// (the latter routes through doLs).
+func emitLsJSON(out LsOutput) error {
+	var (
+		data []byte
+		err  error
+	)
+	if jsonenv.Mode() == jsonenv.ModeEnvelope {
+		data, err = json.MarshalIndent(jsonenv.Wrap(out), "", "  ")
+	} else {
+		jsonenv.EmitDeprecationNotice(os.Stderr)
+		data, err = json.MarshalIndent(out, "", "  ")
+	}
+	if err != nil {
+		return fmt.Errorf("marshal json: %w", err)
+	}
+	fmt.Println(string(data))
 	return nil
 }

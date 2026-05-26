@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/internal/jsonenv"
 )
 
 var doctorCmd = &cobra.Command{
@@ -387,7 +388,56 @@ func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.Edge
 		}
 	}
 
+	// STORY-JSCHEMA-001 Scenario 8: detect drift between the compile-time
+	// registry of JSON shapes (internal/jsonenv.RegisteredShapes) and what
+	// docs/JSON_SCHEMA.md actually documents. Missing docs → one finding;
+	// individual missing shape names → one finding each. Both are integrity
+	// errors that push doctor's exit code to 1.
+	issues = append(issues, jsonSchemaDocDrift(jsonSchemaDocPath(), jsonenv.RegisteredShapes())...)
+
 	return issues
+}
+
+// jsonSchemaDocPath resolves docs/JSON_SCHEMA.md relative to the current
+// working directory. Doctor is typically invoked from a project root, so a
+// simple relative path is sufficient — we don't try to walk up to a repo root
+// because the file lives in the consumer's own checkout, not in .memory/.
+func jsonSchemaDocPath() string {
+	return filepath.Join("docs", "JSON_SCHEMA.md")
+}
+
+// jsonSchemaDocDrift returns findings when registered shapes are missing from
+// the JSON schema docs file. Exposed so cmd_doctor_schema_test.go can drive it
+// against arbitrary inputs without needing a real working directory.
+func jsonSchemaDocDrift(docPath string, shapes []string) []doctorIssue {
+	body, err := os.ReadFile(docPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []doctorIssue{{
+				Category: "json_schema_doc_missing",
+				MoteID:   docPath,
+				Detail:   "docs/JSON_SCHEMA.md is missing; every shape in internal/jsonenv.RegisteredShapes() must be documented there",
+			}}
+		}
+		// Unreadable doc file — surface as a finding so it doesn't pass silently.
+		return []doctorIssue{{
+			Category: "json_schema_doc_missing",
+			MoteID:   docPath,
+			Detail:   fmt.Sprintf("cannot read %s: %v", docPath, err),
+		}}
+	}
+	doc := string(body)
+	var out []doctorIssue
+	for _, shape := range shapes {
+		if !strings.Contains(doc, shape) {
+			out = append(out, doctorIssue{
+				Category: "undocumented_json_shape",
+				MoteID:   shape,
+				Detail:   fmt.Sprintf("%q is registered in internal/jsonenv but not mentioned in %s", shape, docPath),
+			})
+		}
+	}
+	return out
 }
 
 // detectDependsCycles finds cycles in depends_on edges using three-color DFS.

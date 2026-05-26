@@ -2,19 +2,21 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 
 	"github.com/spf13/cobra"
 	"motes/internal/format"
+	"motes/internal/jsonenv"
 )
 
 var rootCmd = &cobra.Command{
 	Use:     "mote",
 	Short:   "AI-native context and memory system",
 	Long:    "Motes is an AI-native context and memory system. Knowledge is stored as atomic units (motes) linked in two dimensions: dependency links and semantic links.",
-	Version: "0.4.34",
+	Version: "0.4.35",
 }
 
 // noColorFlag is bound to the persistent --no-color flag on rootCmd. Renderers
@@ -36,6 +38,20 @@ func useColorOutput() bool {
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
+		// Envelope mode (STORY-JSCHEMA-001): a JSON-emitting command in
+		// envelope mode returns *jsonenv.EnvelopedError so we can serialize
+		// the error envelope onto stderr instead of printing prose. Order
+		// matters — check the more specific type first.
+		var ee *jsonenv.EnvelopedError
+		if errors.As(err, &ee) {
+			data, mErr := json.Marshal(jsonenv.WrapError(ee.Code, ee.Message))
+			if mErr != nil {
+				fmt.Fprintln(os.Stderr, ee.Message)
+				os.Exit(ee.ExitCode)
+			}
+			fmt.Fprintln(os.Stderr, string(data))
+			os.Exit(ee.ExitCode)
+		}
 		var ec *exitCodeError
 		if errors.As(err, &ec) {
 			fmt.Fprintln(os.Stderr, ec.err)

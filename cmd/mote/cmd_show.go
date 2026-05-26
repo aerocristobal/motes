@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"motes/internal/core"
 	"motes/internal/format"
+	"motes/internal/jsonenv"
 )
 
 // ShowOutput is the JSON output structure for mote show --json.
@@ -173,16 +174,21 @@ func getConceptEntries(moteID string, idx *core.EdgeIndex) []ConceptEntry {
 }
 
 func runShow(cmd *cobra.Command, args []string) error {
+	// Whether any of the JSON paths is selected. --execution-only emits JSON
+	// even without --json, so it counts. Both flags also trigger the envelope
+	// error path so error messages on stderr stay structured for parsers.
+	jsonFlag := showJSON || showExecutionOnly
+
 	// Mutex checks run BEFORE any side effect (no mote read, no access-batch
 	// append) — pure validation errors with stable stderr text for scripts.
 	if showShort && showLong {
-		return &exitCodeError{code: 1, err: fmt.Errorf("--short and --long are mutually exclusive")}
+		return jsonEnvErr(jsonFlag, "MOTE_INVALID_FLAG", 1, "--short and --long are mutually exclusive")
 	}
 	// STORY-EREAD-001 Scenario 3: --execution-only is a *content filter*,
 	// not a format toggle. The output is already JSON; combining it with
 	// --json is ambiguous, so it's a hard error.
 	if showExecutionOnly && showJSON {
-		return &exitCodeError{code: 1, err: fmt.Errorf("--execution-only is mutually exclusive with --json")}
+		return jsonEnvErr(jsonFlag, "MOTE_INVALID_FLAG", 1, "--execution-only is mutually exclusive with --json")
 	}
 
 	root := mustFindRoot()
@@ -191,7 +197,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 	m, err := mm.Read(args[0])
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &exitCodeError{code: 1, err: fmt.Errorf("mote not found: %s", args[0])}
+			return jsonEnvErr(jsonFlag, "MOTE_NOT_FOUND", 1, "mote not found: %s", args[0])
 		}
 		return err
 	}
@@ -205,11 +211,9 @@ func runShow(cmd *cobra.Command, args []string) error {
 			ExecutionMode:            m.ExecutionMode,
 			ExecutionParallelGroup:   m.ExecutionParallelGroup,
 		}
-		data, err := json.MarshalIndent(out, "", "  ")
-		if err != nil {
-			return fmt.Errorf("marshal json: %w", err)
+		if err := emitShowJSON(out); err != nil {
+			return err
 		}
-		fmt.Println(string(data))
 		// Inspect-only trace: distinct from a normal "read" so a compliance
 		// reviewer can later reconstruct "did the orchestrator inspect
 		// metadata before dispatching the subagent?". A `read_body` event is
@@ -231,12 +235,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 				Weight: m.Weight,
 				Title:  m.Title,
 			}
-			data, err := json.MarshalIndent(out, "", "  ")
-			if err != nil {
-				return fmt.Errorf("marshal json: %w", err)
-			}
-			fmt.Println(string(data))
-			return nil
+			return emitShowJSON(out)
 		}
 		fmt.Print(renderShort(m, ascii))
 		// Suppress AppendAccessBatch so loop iteration over many ready motes
@@ -246,17 +245,13 @@ func runShow(cmd *cobra.Command, args []string) error {
 
 	if showJSON {
 		base := buildShowOutput(m, mm, idx)
-		var data []byte
+		var payload any = base
 		if showLong {
-			long := buildShowLongOutput(base, m, root)
-			data, err = json.MarshalIndent(long, "", "  ")
-		} else {
-			data, err = json.MarshalIndent(base, "", "  ")
+			payload = buildShowLongOutput(base, m, root)
 		}
-		if err != nil {
-			return fmt.Errorf("marshal json: %w", err)
+		if err := emitShowJSON(payload); err != nil {
+			return err
 		}
-		fmt.Println(string(data))
 		_ = mm.AppendAccessBatch(m.ID)
 		return nil
 	}
@@ -266,6 +261,29 @@ func runShow(cmd *cobra.Command, args []string) error {
 		emitLongInternalState(m, mm, root)
 	}
 	_ = mm.AppendAccessBatch(m.ID)
+	return nil
+}
+
+// emitShowJSON serializes a `mote show` JSON payload in envelope or legacy
+// mode. Centralised so all four show paths (default / --short / --long /
+// --execution-only) share the same envelope branch. In envelope mode the
+// payload is wrapped under .data; in legacy mode the existing raw shape is
+// preserved and a one-line stderr deprecation notice fires (once per process).
+func emitShowJSON(payload any) error {
+	var (
+		data []byte
+		err  error
+	)
+	if jsonenv.Mode() == jsonenv.ModeEnvelope {
+		data, err = json.MarshalIndent(jsonenv.Wrap(payload), "", "  ")
+	} else {
+		jsonenv.EmitDeprecationNotice(os.Stderr)
+		data, err = json.MarshalIndent(payload, "", "  ")
+	}
+	if err != nil {
+		return fmt.Errorf("marshal json: %w", err)
+	}
+	fmt.Println(string(data))
 	return nil
 }
 
