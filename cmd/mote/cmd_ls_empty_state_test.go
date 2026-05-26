@@ -39,6 +39,8 @@ func resetLsFlags() {
 	lsIncludeDeferred = false
 	lsDueBefore = ""
 	lsDueAfter = ""
+	lsMetadataField = nil
+	lsHasMetadataKey = nil
 }
 
 // runLsViaCobra invokes `mote ls ...` through cobra, mirroring how a real

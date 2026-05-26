@@ -32,6 +32,8 @@ var searchType string
 var searchTag string
 var searchStatus string
 var searchExcludeStatus string
+var searchMetadataField []string
+var searchHasMetadataKey []string
 
 var searchCmd = &cobra.Command{
 	Use:   "search <query...>",
@@ -47,11 +49,19 @@ func init() {
 	searchCmd.Flags().StringVar(&searchTag, "tag", "", "Filter by tag")
 	searchCmd.Flags().StringVar(&searchStatus, "status", "", "Filter by status")
 	searchCmd.Flags().StringVar(&searchExcludeStatus, "exclude-status", "", "Exclude motes with this status")
+	searchCmd.Flags().StringArrayVar(&searchMetadataField, "metadata-field", nil, "Filter by frontmatter key=value (repeatable; ANDs with text match)")
+	searchCmd.Flags().StringArrayVar(&searchHasMetadataKey, "has-metadata-key", nil, "Filter to motes with this frontmatter key present (repeatable; ANDs with text match)")
 	rootCmd.AddCommand(searchCmd)
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
 	query := strings.Join(args, " ")
+
+	// Parse + validate metadata flags before any store I/O (STORY-MQRY-001).
+	metaFields, hasKeys, err := resolveMetadataFlags(searchMetadataField, searchHasMetadataKey)
+	if err != nil {
+		return err
+	}
 
 	root := mustFindRoot()
 	mm := core.NewMoteManager(root)
@@ -67,7 +77,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	// Pre-filter motes before building BM25 index
-	hasFilter := searchType != "" || searchTag != "" || searchStatus != "" || searchExcludeStatus != ""
+	hasFilter := searchType != "" || searchTag != "" || searchStatus != "" || searchExcludeStatus != "" || len(metaFields) > 0 || len(hasKeys) > 0
 	if hasFilter {
 		var filtered []*core.Mote
 		for _, m := range motes {
@@ -81,6 +91,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 				continue
 			}
 			if searchExcludeStatus != "" && m.Status == searchExcludeStatus {
+				continue
+			}
+			if !core.MotePassesMetadata(m, metaFields, hasKeys) {
 				continue
 			}
 			filtered = append(filtered, m)

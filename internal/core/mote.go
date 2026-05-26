@@ -161,6 +161,14 @@ type Mote struct {
 	// Non-YAML (populated after parse)
 	Body     string `yaml:"-"` // markdown content below frontmatter
 	FilePath string `yaml:"-"` // absolute path to .md file
+
+	// RawFrontmatter is the schema-agnostic view of the YAML frontmatter,
+	// populated by ParseMote alongside the typed fields above. It is the only
+	// way to distinguish `key: ""` (explicit empty string) from an absent key
+	// once typed fields with `omitempty` have been unmarshaled. Used by the
+	// `--metadata-field` / `--has-metadata-key` query surface (STORY-MQRY-001).
+	// Not serialized.
+	RawFrontmatter map[string]any `yaml:"-" json:"-"`
 }
 
 type frontmatterParts struct {
@@ -241,6 +249,12 @@ func ParseMote(path string) (*Mote, error) {
 	}
 	var m Mote
 	if err := yaml.Unmarshal([]byte(parts.frontmatter), &m); err != nil {
+		return nil, fmt.Errorf("bad frontmatter in %s: %w", path, err)
+	}
+	// Capture the schema-agnostic view of the frontmatter for metadata queries.
+	// This is the only way to distinguish `key: ""` from a missing key (typed
+	// fields with omitempty collapse both to Go's zero value).
+	if err := yaml.Unmarshal([]byte(parts.frontmatter), &m.RawFrontmatter); err != nil {
 		return nil, fmt.Errorf("bad frontmatter in %s: %w", path, err)
 	}
 	m.Body = parts.body

@@ -61,6 +61,42 @@ func FuzzValidateCommand(f *testing.F) {
 	})
 }
 
+func FuzzValidateMetadataKey(f *testing.F) {
+	f.Add("")
+	f.Add("execution_mode")
+	f.Add("UPPER_CASE")
+	f.Add("with_underscores_123")
+	f.Add("execution.mode")
+	f.Add("../etc/passwd")
+	f.Add("$(rm -rf ~)")
+	f.Add("foo bar")
+	f.Add("foo;bar")
+	f.Add("foo`bar")
+	f.Add("‮")
+	f.Add("\x00key")
+	f.Add(string(make([]byte, MetadataKeyMaxLen+1)))
+
+	f.Fuzz(func(t *testing.T, s string) {
+		_ = ValidateMetadataKey(s) // must not panic
+	})
+}
+
+func FuzzValidateMetadataValue(f *testing.F) {
+	f.Add("")
+	f.Add("parallel")
+	f.Add("group-A")
+	f.Add("foo=bar")
+	f.Add("hello world")
+	f.Add("‮rlo")
+	f.Add("foo\x00bar")
+	f.Add("\xff\xfe")
+	f.Add(string(make([]byte, MetadataValueMaxLen+1)))
+
+	f.Fuzz(func(t *testing.T, s string) {
+		_ = ValidateMetadataValue(s) // must not panic
+	})
+}
+
 func FuzzScanBodyContent(f *testing.F) {
 	f.Add("")
 	f.Add("normal text")

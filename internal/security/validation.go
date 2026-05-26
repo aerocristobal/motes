@@ -296,6 +296,80 @@ func validateExecutionFreeForm(name, value string) error {
 	return nil
 }
 
+// MetadataKeyMaxLen caps `--metadata-field key` and `--has-metadata-key key`
+// inputs at the read-time query surface. Per STORY-MQRY-001 §4 Q1.
+const MetadataKeyMaxLen = 256
+
+// MetadataValueMaxLen caps `--metadata-field key=value` values. Larger than
+// the 256-char cap on execution_* writes because the filter is schema-agnostic
+// and may match future fields that legitimately hold longer values.
+const MetadataValueMaxLen = 4096
+
+var metadataKeyRe = regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+
+// ValidateMetadataKey enforces the read-time validation surface for metadata
+// query keys. Keys must be alphanumeric + underscore only — no dots (no nested
+// traversal), no slashes (no path traversal), no shell metacharacters, no
+// whitespace, no Unicode bidi controls, no NUL byte. Empty rejected.
+//
+// Per STORY-MQRY-001 §4 Q1 (validator location) and §4 Q3 (any well-formed
+// key accepted; schema validity is decided by "returns empty result for
+// unknown keys").
+func ValidateMetadataKey(key string) error {
+	if key == "" {
+		return fmt.Errorf("invalid metadata key: empty")
+	}
+
+	if len(key) > MetadataKeyMaxLen {
+		return fmt.Errorf("metadata key too long (max %d chars)", MetadataKeyMaxLen)
+	}
+
+	if !utf8.ValidString(key) {
+		return fmt.Errorf("invalid metadata key: contains invalid UTF-8")
+	}
+
+	for _, r := range key {
+		if (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) {
+			return fmt.Errorf("invalid metadata key: contains Unicode bidi control characters")
+		}
+	}
+
+	if !metadataKeyRe.MatchString(key) {
+		return fmt.Errorf("invalid metadata key: only [a-zA-Z0-9_] allowed")
+	}
+
+	return nil
+}
+
+// ValidateMetadataValue enforces shape constraints on `--metadata-field
+// key=value` values. The filter operates against already-loaded motes — no
+// SQL or shell interpolation — so this is purely a defence-in-depth check
+// against pathologically large or audit-log-spoofing inputs. Empty allowed
+// (it matches motes with the key explicitly set to "").
+//
+// Per STORY-MQRY-001 §4 Q2 (4096-char cap) and the "Adversarial values"
+// scenario outline (bidi, NUL byte, length).
+func ValidateMetadataValue(value string) error {
+	if len(value) > MetadataValueMaxLen {
+		return fmt.Errorf("invalid metadata value: too long (max %d chars)", MetadataValueMaxLen)
+	}
+
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("invalid metadata value: contains invalid UTF-8")
+	}
+
+	for _, r := range value {
+		if r == 0 {
+			return fmt.Errorf("invalid metadata value: contains NUL byte")
+		}
+		if (r >= 0x202A && r <= 0x202E) || (r >= 0x2066 && r <= 0x2069) {
+			return fmt.Errorf("invalid metadata value: contains Unicode bidi control characters")
+		}
+	}
+
+	return nil
+}
+
 // ValidateBodySize checks if body content is within reasonable size limits.
 func ValidateBodySize(body string) error {
 	const maxBodySize = 1 * 1024 * 1024 // 1MB

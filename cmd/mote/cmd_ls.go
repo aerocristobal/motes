@@ -47,6 +47,9 @@ var (
 	lsIncludeDeferred bool
 	lsDueBefore       string
 	lsDueAfter        string
+
+	lsMetadataField  []string
+	lsHasMetadataKey []string
 )
 
 func init() {
@@ -63,10 +66,21 @@ func init() {
 	lsCmd.Flags().BoolVar(&lsIncludeDeferred, "include-deferred", false, "When combined with --ready, do not hide motes whose defer_until is still in the future")
 	lsCmd.Flags().StringVar(&lsDueBefore, "due-before", "", "Filter to motes with due_at strictly before this time (accepts the same formats as --due)")
 	lsCmd.Flags().StringVar(&lsDueAfter, "due-after", "", "Filter to motes with due_at strictly after this time (accepts the same formats as --due)")
+	lsCmd.Flags().StringArrayVar(&lsMetadataField, "metadata-field", nil, "Filter by frontmatter key=value (repeatable; ANDs with other --metadata-field and --has-metadata-key flags)")
+	lsCmd.Flags().StringArrayVar(&lsHasMetadataKey, "has-metadata-key", nil, "Filter to motes that have this frontmatter key present (repeatable; ANDs with --metadata-field)")
 	rootCmd.AddCommand(lsCmd)
 }
 
 func runLs(cmd *cobra.Command, args []string) error {
+	// Parse + validate metadata flags first so a malformed query is rejected
+	// before any store I/O. (STORY-MQRY-001 security boundary: the filter
+	// operates on already-loaded motes, but we still reject bad input early
+	// to keep error messages stable.)
+	metaFields, hasKeys, err := resolveMetadataFlags(lsMetadataField, lsHasMetadataKey)
+	if err != nil {
+		return err
+	}
+
 	filters := core.ListFilters{
 		Type:            lsType,
 		Tag:             lsTag,
@@ -76,6 +90,8 @@ func runLs(cmd *cobra.Command, args []string) error {
 		Parent:          lsParent,
 		Overdue:         lsOverdue,
 		IncludeDeferred: lsIncludeDeferred,
+		MetadataFields:  metaFields,
+		HasMetadataKeys: hasKeys,
 	}
 
 	// Parse --due-before / --due-after eagerly so a bad time spec is

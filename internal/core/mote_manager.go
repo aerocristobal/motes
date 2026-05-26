@@ -86,6 +86,19 @@ type ListFilters struct {
 	IncludeDeferred bool
 	DueBefore       *time.Time
 	DueAfter        *time.Time
+
+	// Structured metadata filter (STORY-MQRY-001).
+	// MetadataFields keeps motes whose RawFrontmatter[k] equals v (string-
+	// compared, case-sensitive) for every (k, v) entry. An empty value v
+	// matches motes where the key is present and the YAML value is the empty
+	// string (or YAML null — both are "the key was set but empty").
+	// HasMetadataKeys keeps motes whose RawFrontmatter contains every listed
+	// key (presence-check, regardless of value).
+	// Both AND across entries; both AND with each other and with all other
+	// filters. Keys must be pre-validated by security.ValidateMetadataKey;
+	// values by security.ValidateMetadataValue. List() does NOT re-validate.
+	MetadataFields  map[string]string
+	HasMetadataKeys []string
 }
 
 type AccessBatchEntry struct {
@@ -800,6 +813,9 @@ func (mm *MoteManager) List(filters ListFilters) ([]*Mote, error) {
 				continue
 			}
 		}
+		if !MotePassesMetadata(m, filters.MetadataFields, filters.HasMetadataKeys) {
+			continue
+		}
 		result = append(result, m)
 	}
 
@@ -1046,6 +1062,52 @@ func hasTag(m *Mote, tag string) bool {
 		}
 	}
 	return false
+}
+
+// MotePassesMetadata reports whether m's frontmatter satisfies every
+// (key, value) entry in fields AND has every key listed in hasKeys.
+// Empty filters return true. Used by `mote ls`, `mote ls --ready`, and
+// `mote search` to AND a structured-metadata predicate onto the existing
+// filter pipeline (STORY-MQRY-001).
+//
+// Lookup is against m.RawFrontmatter (populated by ParseMote). A nil map is
+// equivalent to an empty frontmatter — only an empty filter matches. Value
+// comparison is case-sensitive; non-string scalars are stringified via
+// fmt.Sprintf("%v", v). YAML null and the empty string both compare equal
+// to "" so `key=` matches both the explicit empty string and a bare `key:`.
+func MotePassesMetadata(m *Mote, fields map[string]string, hasKeys []string) bool {
+	if len(fields) == 0 && len(hasKeys) == 0 {
+		return true
+	}
+	raw := m.RawFrontmatter
+	for k, want := range fields {
+		v, ok := raw[k]
+		if !ok {
+			return false
+		}
+		if metadataValueString(v) != want {
+			return false
+		}
+	}
+	for _, k := range hasKeys {
+		if _, ok := raw[k]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// metadataValueString converts a YAML-decoded scalar into the comparable
+// string form used by --metadata-field. nil → "" so YAML null and `key: ""`
+// are indistinguishable to the filter (both are "the key was set but empty").
+func metadataValueString(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprintf("%v", v)
 }
 
 // Deprecate sets a mote's status to deprecated and records who deprecated it.
