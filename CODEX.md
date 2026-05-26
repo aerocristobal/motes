@@ -214,6 +214,12 @@ The `.codex/hooks.json` checked into this repo only loads when you grant project
 
 ---
 
+## Dispatching subagents
+
+Before spawning a subagent to enact a mote, read execution metadata before prose — see `docs/agents-guide.md#read-execution-metadata-before-prose`. A running subagent cannot change its model or reasoning effort after launch, so `mote show <id> --execution-only | jq .` decides dispatch.
+
+---
+
 ## Pointers
 
 - **Codex docs:** [hooks](https://developers.openai.com/codex/hooks), [skills](https://developers.openai.com/codex/skills), [AGENTS.md](https://developers.openai.com/codex/guides/agents-md)

@@ -43,3 +43,11 @@ This tags mote frontmatter with `agent:` for traceability in multi-agent session
 - Do NOT create task motes — only the parent agent manages tasks
 - Do NOT run `mote prime` or `mote session-end` — the parent handles lifecycle
 - Capture before returning — findings not captured are lost
+
+## Execution metadata (read at dispatch)
+
+Your model and reasoning effort were chosen from execution metadata at dispatch time and cannot be changed. The parent orchestrator read your dispatch mote's `execution_*` fields via `mote show <id> --execution-only` before launching you; that decision is final for this run.
+
+If you believe the metadata is wrong, capture a `decision` mote explaining why and let the parent orchestrator re-dispatch — do not attempt to re-spawn yourself with different settings.
+
+Full contract: `docs/agents-guide.md#read-execution-metadata-before-prose`.

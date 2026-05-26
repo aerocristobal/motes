@@ -107,6 +107,12 @@ The `internal/dream/gemini_invoker.go` invoker sets `responseMimeType: applicati
 
 ---
 
+## Dispatching subagents
+
+Before spawning a subagent to enact a mote, read execution metadata before prose — see `docs/agents-guide.md#read-execution-metadata-before-prose`. A running subagent cannot change its model or reasoning effort after launch, so `mote show <id> --execution-only | jq .` decides dispatch.
+
+---
+
 ## Pointers
 
 - **Gemini CLI docs:** [hooks](https://geminicli.com/docs/hooks/), [skills](https://geminicli.com/docs/cli/skills/), [GEMINI.md](https://geminicli.com/docs/cli/gemini-md/)

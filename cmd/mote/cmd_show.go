@@ -100,11 +100,29 @@ type ConceptEntry struct {
 }
 
 var (
-	showJSON  bool
-	showShort bool
-	showLong  bool
-	showASCII bool
+	showJSON          bool
+	showShort         bool
+	showLong          bool
+	showASCII         bool
+	showExecutionOnly bool
 )
+
+// ShowExecutionOnlyOutput is the strictly-bounded JSON shape returned by
+// `mote show <id> --execution-only` (STORY-EREAD-001). It contains the mote
+// ID plus the five execution_* fields and NOTHING ELSE — no body, no title,
+// no tags, no weight. Orchestrators dispatching subagents read this BEFORE
+// the body prose, because a running subagent cannot change its model or
+// reasoning effort after launch. Fields use omitempty so a mote with no
+// execution metadata serializes as `{"id":"motes-xyz"}` (per the empty-state
+// contract from sprint-2 §23.16 — no metadata is not an error).
+type ShowExecutionOnlyOutput struct {
+	ID                       string `json:"id"`
+	ExecutionAgentType       string `json:"execution_agent_type,omitempty"`
+	ExecutionSuggestedModel  string `json:"execution_suggested_model,omitempty"`
+	ExecutionReasoningEffort string `json:"execution_reasoning_effort,omitempty"`
+	ExecutionMode            string `json:"execution_mode,omitempty"`
+	ExecutionParallelGroup   string `json:"execution_parallel_group,omitempty"`
+}
 
 var showCmd = &cobra.Command{
 	Use:   "show <id>",
@@ -118,6 +136,8 @@ func init() {
 	showCmd.Flags().BoolVar(&showShort, "short", false, "One-line dense output for loop iteration")
 	showCmd.Flags().BoolVar(&showLong, "long", false, "Verbose forensic output with internal-state section")
 	showCmd.Flags().BoolVar(&showASCII, "ascii", false, "Use ASCII status icons (also honors NO_UNICODE)")
+	showCmd.Flags().BoolVar(&showExecutionOnly, "execution-only", false,
+		"Emit only id + execution_* fields as JSON for orchestrators (see docs/agents-guide.md#read-execution-metadata-before-prose)")
 	// Silence cobra's default error/usage rendering so main()'s handling of
 	// *exitCodeError is the sole source of stderr output on failure — preserves
 	// byte-stable stderr text for scripts and tests.
@@ -153,10 +173,16 @@ func getConceptEntries(moteID string, idx *core.EdgeIndex) []ConceptEntry {
 }
 
 func runShow(cmd *cobra.Command, args []string) error {
-	// Mutex check runs BEFORE any side effect (no mote read, no access-batch
-	// append) — Scenario 5 requires the rejection to be a pure validation error.
+	// Mutex checks run BEFORE any side effect (no mote read, no access-batch
+	// append) — pure validation errors with stable stderr text for scripts.
 	if showShort && showLong {
 		return &exitCodeError{code: 1, err: fmt.Errorf("--short and --long are mutually exclusive")}
+	}
+	// STORY-EREAD-001 Scenario 3: --execution-only is a *content filter*,
+	// not a format toggle. The output is already JSON; combining it with
+	// --json is ambiguous, so it's a hard error.
+	if showExecutionOnly && showJSON {
+		return &exitCodeError{code: 1, err: fmt.Errorf("--execution-only is mutually exclusive with --json")}
 	}
 
 	root := mustFindRoot()
@@ -168,6 +194,28 @@ func runShow(cmd *cobra.Command, args []string) error {
 			return &exitCodeError{code: 1, err: fmt.Errorf("mote not found: %s", args[0])}
 		}
 		return err
+	}
+
+	if showExecutionOnly {
+		out := ShowExecutionOnlyOutput{
+			ID:                       m.ID,
+			ExecutionAgentType:       m.ExecutionAgentType,
+			ExecutionSuggestedModel:  m.ExecutionSuggestedModel,
+			ExecutionReasoningEffort: m.ExecutionReasoningEffort,
+			ExecutionMode:            m.ExecutionMode,
+			ExecutionParallelGroup:   m.ExecutionParallelGroup,
+		}
+		data, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal json: %w", err)
+		}
+		fmt.Println(string(data))
+		// Inspect-only trace: distinct from a normal "read" so a compliance
+		// reviewer can later reconstruct "did the orchestrator inspect
+		// metadata before dispatching the subagent?". A `read_body` event is
+		// never emitted in this branch.
+		_ = mm.AppendAccessBatchExecution(m.ID)
+		return nil
 	}
 
 	im := core.NewIndexManager(root)

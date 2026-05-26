@@ -93,6 +93,11 @@ type AccessBatchEntry struct {
 	AccessedAt string `json:"accessed_at"`
 	AgentID    string `json:"agent_id,omitempty"`
 	Primed     bool   `json:"primed,omitempty"`
+	// Action distinguishes read kinds for downstream audit. "" / "read" are a
+	// normal full read; "read_execution" is an inspect-only trace emitted by
+	// `mote show --execution-only` (STORY-EREAD-001). Older entries written
+	// before this field existed deserialize with Action == "".
+	Action string `json:"action,omitempty"`
 }
 
 // PrimeSessionStats records which motes were primed vs. actually accessed in a session.
@@ -1182,19 +1187,28 @@ func (mm *MoteManager) ReadAllWithGlobal() ([]*Mote, error) {
 	return local, nil
 }
 
-// AppendAccessBatch appends an access record to .access_batch.jsonl.
+// AppendAccessBatch appends a normal read record to .access_batch.jsonl.
 // Uses flock to serialize across processes.
 func (mm *MoteManager) AppendAccessBatch(moteID string) error {
-	return mm.appendAccessBatchEntry(moteID, false)
+	return mm.appendAccessBatchEntry(moteID, "read", false)
 }
 
 // AppendAccessBatchPrimed appends a primed access record to .access_batch.jsonl.
 // Used by mote prime to mark motes that were surfaced (not explicitly accessed).
 func (mm *MoteManager) AppendAccessBatchPrimed(moteID string) error {
-	return mm.appendAccessBatchEntry(moteID, true)
+	return mm.appendAccessBatchEntry(moteID, "read", true)
 }
 
-func (mm *MoteManager) appendAccessBatchEntry(moteID string, primed bool) error {
+// AppendAccessBatchExecution appends an inspect-only "read_execution" event.
+// Emitted by `mote show <id> --execution-only` so an auditor can later
+// reconstruct that an orchestrator inspected dispatch metadata before
+// launching a subagent (STORY-EREAD-001). The event is append-only and is
+// NOT de-duplicated: each call is a discrete inspect.
+func (mm *MoteManager) AppendAccessBatchExecution(moteID string) error {
+	return mm.appendAccessBatchEntry(moteID, "read_execution", false)
+}
+
+func (mm *MoteManager) appendAccessBatchEntry(moteID, action string, primed bool) error {
 	batchLock, err := mm.LockBatch()
 	if err != nil {
 		return err
@@ -1209,6 +1223,7 @@ func (mm *MoteManager) appendAccessBatchEntry(moteID string, primed bool) error 
 		AccessedAt: mm.clock.Now().UTC().Format(time.RFC3339),
 		AgentID:    ResolveAgentID(),
 		Primed:     primed,
+		Action:     action,
 	}
 	line, err := json.Marshal(entry)
 	if err != nil {

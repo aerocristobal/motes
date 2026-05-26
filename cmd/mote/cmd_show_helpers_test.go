@@ -2,14 +2,43 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"motes/internal/core"
 )
+
+// readAccessBatchEntriesFromDir parses .access_batch.jsonl under memDir into
+// AccessBatchEntry records. Returns nil if the file is missing. Used by
+// CLI-level tests that want to assert the action/agent fields written by
+// runShow's access-log calls.
+func readAccessBatchEntriesFromDir(t *testing.T, memDir string) []core.AccessBatchEntry {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(memDir, ".access_batch.jsonl"))
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		t.Fatalf("read access batch: %v", err)
+	}
+	var out []core.AccessBatchEntry
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		if line == "" {
+			continue
+		}
+		var e core.AccessBatchEntry
+		if err := json.Unmarshal([]byte(line), &e); err != nil {
+			t.Fatalf("parse access batch line %q: %v", line, err)
+		}
+		out = append(out, e)
+	}
+	return out
+}
 
 // captureBoth captures stdout and stderr around fn. Returned in (stdout, stderr) order.
 // (A package-level captureStderr already exists in cmd_update_claim_test.go;
@@ -92,4 +121,5 @@ func resetShowFlags() {
 	showShort = false
 	showLong = false
 	showASCII = false
+	showExecutionOnly = false
 }

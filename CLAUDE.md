@@ -58,6 +58,10 @@ See [docs/internals.md](docs/internals.md) for architecture, storage layout, and
 
 When debugging unfamiliar errors in motes itself, search for prior lessons first: `mote search "<error>" --type=lesson`. The full trigger/skip rules are in the `/mote-retrieve` skill.
 
+## Dispatching subagents
+
+Before spawning a subagent to enact a mote, read execution metadata before prose — see `docs/agents-guide.md#read-execution-metadata-before-prose`. A running subagent cannot change its model or reasoning effort after launch, so `mote show <id> --execution-only | jq .` decides dispatch.
+
 ## Motes
 
 This project uses motes for all planning, memory, and task tracking. Knowledge is stored in `.memory/`.

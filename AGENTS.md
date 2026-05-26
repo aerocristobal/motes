@@ -52,6 +52,7 @@ of record.
 | Add a CLI command | `cmd/mote/cmd_<name>.go` + `init()` registers with `rootCmd` |
 | Add a mote field | `internal/core/mote.go` (`Mote` struct) — also update index, search, frontmatter parser |
 | Set orchestration hints | `--execution-agent-type`, `--execution-suggested-model`, `--execution-reasoning-effort` (`low\|medium\|high`), `--execution-mode` (`local\|delegated\|parallel`), `--execution-parallel-group` on `mote add` / `mote update` |
+| Dispatch a subagent | Read execution metadata before prose — see `docs/agents-guide.md#read-execution-metadata-before-prose` (`mote show <id> --execution-only`) |
 | Tune scoring | `internal/scoring/` + `ScoringConfig` in `internal/core/config.go` |
 | Tune dream cycle | `internal/dream/` + `DreamConfig` in `internal/core/config.go` |
 | Add a config field | `internal/core/config.go` struct + `DefaultConfig()` + `internal/core/config_yaml.go` for user-facing comments + `docs/configuration.md` row |

@@ -227,11 +227,61 @@ mote add --type=task --title="ingest batch 1" \
 
 Clear a single field with an empty string: `mote update <id> --execution-parallel-group=""`. Unset fields are omitted from the frontmatter and from `mote show --json` output.
 
-`mote show` surfaces an `--- execution ---` section above the body, and `mote show --json` emits the keys above `body`, so the orchestrator's first read sees the dispatch hints. The *contract* that says "orchestrators MUST read the metadata before launching" is a separate forthcoming story (STORY-EREAD-001).
+`mote show` surfaces an `--- execution ---` section above the body, and `mote show --json` emits the keys above `body`, so the orchestrator's first read sees the dispatch hints.
 
 Editing an `execution_*` field on a mote that is currently claimed (i.e. a subagent has already been dispatched) emits a stderr warning — `changing execution metadata after dispatch has no effect on the running subagent` — and records `change_after_launch: true` on the audit entry. The edit is permitted because the operator may legitimately be staging the value for the next dispatch.
 
 Promote and crystallize strip `execution_*` fields: orchestration hints are workflow-local, not knowledge-layer artifacts.
+
+---
+
+## Read execution metadata before prose
+
+This is the operational contract a parent orchestrator agent (Claude / Codex / Gemini) MUST follow before dispatching a subagent to enact a mote.
+
+> **When enacting a mote, inspect the structured execution metadata BEFORE using `body`, `description`, or prose to choose execution mode, delegation, model, reasoning effort, or parallel group:**
+>
+> ```bash
+> mote show <id> --execution-only | jq .
+> ```
+>
+> The execution metadata keys are **authoritative when present**. Use the body for the work scope and any prose narrative for rationale or fallback context. Parent / orchestrator agents must read these fields before spawning subagents because **a running subagent cannot change its model or reasoning effort after launch** — the first read decides everything.
+
+### Why a dedicated flag
+
+`mote show <id> --json` already places every `execution_*` key ahead of `body` in the serialized JSON, so a streaming parser sees dispatch hints first. `--execution-only` is a stricter affordance for orchestrators that want a single keystroke contract: the output is bounded to the mote `id` and the five `execution_*` keys, and nothing else can leak in if the schema grows.
+
+### Output shape
+
+```bash
+$ mote show motes-abc --execution-only | jq .
+{
+  "id": "motes-abc",
+  "execution_agent_type": "mote-subagent",
+  "execution_suggested_model": "haiku",
+  "execution_reasoning_effort": "low",
+  "execution_mode": "parallel",
+  "execution_parallel_group": "ingest-2026-05"
+}
+```
+
+A mote with no execution metadata returns `{"id":"motes-xyz"}` — no metadata is not an error (composes with the empty-state contract for `--ready`).
+
+### What this does NOT do
+
+- It does NOT refuse to emit body before execution. The contract is enforced by *documentation*, not by code. We make the easy path the right path: the JSON places execution first, and `--execution-only` makes the contract-honoring read a single keystroke.
+- It does NOT launch the subagent. `mote` itself never dispatches anything; the orchestrator owns dispatch.
+- It is NOT mutually exclusive with anything except `--json` (the output is already JSON; combining the two is ambiguous, so it's a hard error).
+
+### Audit dimension
+
+Calls to `mote show <id> --execution-only` are recorded in `.access_batch.jsonl` with `action: "read_execution"`, distinct from the default `action: "read"`. A compliance reviewer can later reconstruct "did the orchestrator inspect execution metadata before dispatching subagent Y?" by filtering the access log on this action. The log is append-only — multiple inspects in the same session each get their own entry.
+
+### Subagent side of the contract
+
+When a subagent starts work on a mote with `execution_*` metadata, it should record in its own logs (or in a `mote add --type=decision` capture) that "my model and reasoning effort were chosen from execution metadata at dispatch time and cannot be changed". The `mote-subagent` skill mirrors this rule.
+
+The Gherkin specification for this story lives at `features/execution/read-before-prose.feature`. The Go tests live at `cmd/mote/cmd_show_execution_only_test.go`, `internal/core/access_log_execution_test.go`, and `cmd/mote/cmd_show_contract_docs_test.go`.
 
 ---
 
