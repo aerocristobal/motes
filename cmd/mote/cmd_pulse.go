@@ -27,5 +27,5 @@ func runPulse(cmd *cobra.Command, args []string) error {
 	return doLs(core.ListFilters{
 		Status: "active",
 		Type:   "task",
-	}, true, pulseCompact, pulseJSON)
+	}, true, pulseCompact, pulseJSON, false)
 }

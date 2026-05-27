@@ -65,10 +65,29 @@ Source: `cmd/mote/cmd_ls.go::LsOutput`.
 | `motes[].status` | string | yes | `active`, `in_progress`, `completed`, `deprecated`, `archived`. |
 | `motes[].weight` | number | yes | Composite score (real). |
 | `motes[].title` | string  | yes | Free text. |
+| `motes[].ready_explanation` | object | no | Present only when `mote ls --ready --explain` is used (STORY-EXPLAIN-001). Additive optional field — does not bump `schema_version` per §2. See sub-fields below. |
+| `motes[].ready_explanation.reason` | string | yes (within parent) | `"no blockers"` or `"N of N blocking deps closed (id1 Xd ago, …)"`. |
+| `motes[].ready_explanation.cleared_blockers` | array | yes (within parent) | Direct `DependsOn` ids in declared order. Empty `[]` for motes with no blockers. |
+| `motes[].ready_explanation.cleared_blockers[].id` | string | yes | Blocker mote id. |
+| `motes[].ready_explanation.cleared_blockers[].cleared_at` | string | no | RFC 3339 timestamp; omitted for legacy motes without `StatusChangedAt` or for blockers missing from the graph. |
+| `motes[].ready_explanation.parent` | object | no | Omitted when the mote has no parent or the parent id can't be resolved. |
+| `motes[].ready_explanation.parent.id` | string | yes (within parent) | Parent mote id. |
+| `motes[].ready_explanation.parent.status` | string | yes (within parent) | Parent's `status` enum value. |
+| `motes[].ready_explanation.parent.is_closed` | bool | yes (within parent) | `true` when parent status is one of `completed`, `deprecated`, `archived`. |
+| `motes[].ready_explanation.freshness` | object | yes (within parent) | Always populated when `ready_explanation` is present. |
+| `motes[].ready_explanation.freshness.seconds_since_last_access` | int | yes | `0` when `never_accessed` is `true`. |
+| `motes[].ready_explanation.freshness.stale` | bool | yes | `true` when the mote has not been accessed within 14 days (also `true` when `never_accessed` is `true`). |
+| `motes[].ready_explanation.freshness.never_accessed` | bool | yes | `true` when `LastAccessed` is unset. |
 
 Envelope-mode example:
 ```bash
 MOTE_JSON_ENVELOPE=1 mote ls --json | jq '.data.motes[] | {id, status}'
+```
+
+`--ready --explain` example (envelope mode):
+```bash
+MOTE_JSON_ENVELOPE=1 mote ls --ready --explain --json \
+  | jq '.data.motes[] | {id, reason: .ready_explanation.reason, stale: .ready_explanation.freshness.stale}'
 ```
 
 ### 4.2 `pulse.list.v1` — `mote pulse --json`

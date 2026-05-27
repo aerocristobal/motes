@@ -64,6 +64,14 @@ When a `defer_until` value is in the past, the mote is treated as not-deferred
 for the purpose of the ready filter, but the field is **not auto-cleared**:
 the value remains as a record of "I deferred this until X".
 
+### Freshness on `--ready --explain`
+
+`mote ls --ready --explain` annotates each ready mote with a `freshness:` line
+derived from `last_accessed`. Motes untouched for **14 days** (one fortnightly
+sprint) are flagged `stale — not touched in 14d`; motes with no recorded access
+render as `never accessed` (also treated as stale). The threshold is the
+constant `core.DefaultFreshnessThreshold` and is not currently configurable.
+
 ## Overdue surfacing
 
 `mote ls --overdue` returns motes where:

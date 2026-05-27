@@ -113,6 +113,24 @@ Two intentional details to be aware of:
 
 The Go test suite codifies this contract — see `cmd/mote/cmd_ls_empty_state_test.go`, `cmd/mote/cmd_ls_polling_test.go`, `cmd/mote/cmd_update_claim_test.go`, and `cmd/mote/cmd_update_claim_contract_test.go`. The Gherkin specification lives at `features/cli/empty-state-contract.feature` (living documentation).
 
+### Choosing between two ready motes (`--explain`)
+
+When `mote ls --ready` returns multiple candidates, `--explain` adds a per-mote justification block so the agent can pick without follow-up `mote show` calls. It is only valid alongside `--ready` — `mote ls --explain` without `--ready` exits **2** with `--explain requires --ready` on stderr.
+
+The block carries three lines under each mote: `ready because:` (cleared-blocker history), `parent epic:` (parent id + status — flagged `CLOSED — completed` when the parent is closed), and `freshness:` (`Nd (fresh)`, `Nd (stale — not touched in 14d)`, or `never accessed`). The stale threshold is 14 days, sized to one fortnightly sprint.
+
+```
+$ mote ls --ready --explain
+ID                        TYPE            STATUS        WEIGHT    TITLE
+--------------------------------------------------------------------------------
+motes-Abc123              task            active        0.85      Implement OAuth refresh flow
+  ready because: 2 of 2 blocking deps closed (motes-Blk1 3d ago, motes-Blk2 21d ago)
+  parent epic: motes-EpicAuth (in_progress)
+  freshness: 2d (fresh)
+```
+
+In `--json` mode the same content lives under each entry's `ready_explanation` object; see `docs/JSON_SCHEMA.md §4.1`. Plain mode (`--ready --explain --plain`) preserves the same three lines, two-space-indented under the mote row, with no ANSI escapes.
+
 ---
 
 ## Show density (`mote show --short` / default / `--long`)

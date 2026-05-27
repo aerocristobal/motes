@@ -35,6 +35,7 @@ func resetLsFlags() {
 	lsCompact = false
 	lsParent = ""
 	lsJSON = false
+	lsExplain = false
 	lsOverdue = false
 	lsIncludeDeferred = false
 	lsDueBefore = ""
@@ -47,9 +48,15 @@ func resetLsFlags() {
 // shell would launch the binary, with cobra error/usage output silenced
 // for clean test logs. Use runLsViaCobraNoisy when the test needs to
 // observe cobra's stderr writes (e.g., unknown-flag scenario).
+//
+// Persistent root flags (--plain, --pretty, --no-color) are reset to zero
+// before AND after invocation so that an earlier test that set them by
+// argument cannot leak into the current invocation's outputMode resolution.
 func runLsViaCobra(args []string) error {
 	resetLsFlags()
+	resetPersistentLayoutFlags()
 	defer resetLsFlags()
+	defer resetPersistentLayoutFlags()
 	rootCmd.SetArgs(args)
 	rootCmd.SilenceErrors = true
 	rootCmd.SilenceUsage = true
@@ -61,11 +68,24 @@ func runLsViaCobra(args []string) error {
 // SilenceUsage stays true so we don't drown the test log in usage banners.
 func runLsViaCobraNoisy(args []string) error {
 	resetLsFlags()
+	resetPersistentLayoutFlags()
 	defer resetLsFlags()
+	defer resetPersistentLayoutFlags()
 	rootCmd.SetArgs(args)
 	rootCmd.SilenceErrors = false
 	rootCmd.SilenceUsage = true
 	return rootCmd.Execute()
+}
+
+// resetPersistentLayoutFlags zeroes the rootCmd-level layout-mode flags so
+// they don't leak across test invocations. Cobra parses flag values into the
+// pointed globals but never clears them on subsequent Execute() calls, so a
+// test that runs `--plain` leaves plainFlag=true for the next test until we
+// explicitly clear it.
+func resetPersistentLayoutFlags() {
+	plainFlag = false
+	prettyFlag = false
+	noColorFlag = false
 }
 
 // stripJSONDeprecationNotice removes the STORY-JSCHEMA-001 one-line legacy
