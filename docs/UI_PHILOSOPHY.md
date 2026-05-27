@@ -90,11 +90,48 @@ not a supported configuration knob.
 ## 7. What this isn't (yet)
 
 We deliberately did not adopt a styled-output library (e.g. `lipgloss`) or
-introduce semantic color tokens. The current toolbox is one helper
-(`Muted`), one decision (`IsClosed`), one env var (`NO_COLOR`), one flag
-(`--no-color`). If a future story needs adaptive color, status palettes, or
-multi-style rendering, `format.Muted` can become a one-line delegation to a
-heavier library without touching any renderer.
+introduce semantic color tokens. The current toolbox is the `Muted` helper,
+the `IsClosed` decision, `NO_COLOR` / `--no-color` (color axis), and as of
+`v0.4.36` `--plain` / `--pretty` (layout axis — see below).
+
+If a future story needs adaptive color, status palettes, or multi-style
+rendering, `format.Muted` can become a one-line delegation to a heavier
+library without touching any renderer.
+
+### What landed in v0.4.36 (STORY-PLAIN-001)
+
+`mote` now has two orthogonal output axes:
+
+| Axis    | Flags                              | What it controls                                          |
+|---------|------------------------------------|-----------------------------------------------------------|
+| color   | `--no-color`, `NO_COLOR`           | Whether ANSI escapes are emitted                          |
+| layout  | `--plain`, `--pretty`              | Whether Tufte chrome (headers, padded columns) is emitted |
+
+The two are independent:
+
+- `--no-color` strips ANSI but **keeps** the pretty Tufte layout. Existing
+  scripts that pass `--no-color` see no layout change.
+- `--plain` strips ANSI **and** collapses the layout to one record per line
+  (or `key: value` per field for object views).
+- `--pretty` is the inverse of TTY detection: it forces ANSI + padded
+  columns even on a pipe (useful for CI logs and capture sessions).
+
+`--json`, `--pretty`, and `--plain` are mutually exclusive. Default (no
+mode flag) preserves the pre-`v0.4.36` behaviour: TTY → styled, non-TTY →
+no color but Tufte layout intact. A `TestLs_NonTTY_ByteStableAgainstSnapshot`
+guards that default against drift.
+
+The mode decision lives in `cmd/mote/main.go::outputMode(jsonFlag bool)`
+— a single function returning `ModeAuto` / `ModeJSON` / `ModePretty` /
+`ModePlain` so renderers branch on one value, not three flags.
+
+### Still out of scope
+
+- Adaptive color / semantic color tokens (status = green/yellow/red, etc.).
+- A styled-output library (`lipgloss`, `tablewriter`, etc.).
+- Markdown or HTML output modes.
+- `--plain` on write commands (`add`, `update`, …) — their output is
+  already minimal confirmation text.
 
 ## 8. Adding color to a new view
 

@@ -119,6 +119,11 @@ func runLs(cmd *cobra.Command, args []string) error {
 }
 
 func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput bool) error {
+	mode, err := outputMode(jsonOutput)
+	if err != nil {
+		return err
+	}
+
 	root := mustFindRoot()
 	mm := core.NewMoteManager(root)
 
@@ -128,7 +133,8 @@ func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput 
 	}
 
 	if len(motes) == 0 {
-		if jsonOutput {
+		switch mode {
+		case ModeJSON:
 			// Sprint-2 §23.16: empty must be `[]`, never `null` — agents poll
 			// on the presence of `motes` and shape-check on the array type.
 			// Legacy mode keeps the byte-exact compact form `{"motes":[]}` so
@@ -140,9 +146,13 @@ func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput 
 			jsonenv.EmitDeprecationNotice(os.Stderr)
 			fmt.Println(`{"motes":[]}`)
 			return nil
+		case ModePlain:
+			// Plain on empty list is silent — agents looping on `wc -l` see 0.
+			return nil
+		default:
+			fmt.Println("No motes found.")
+			return nil
 		}
-		fmt.Println("No motes found.")
-		return nil
 	}
 
 	if sortByWeight {
@@ -151,7 +161,7 @@ func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput 
 		})
 	}
 
-	if jsonOutput {
+	if mode == ModeJSON {
 		entries := make([]LsMoteEntry, len(motes))
 		for i, m := range motes {
 			entries[i] = LsMoteEntry{
@@ -163,6 +173,10 @@ func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput 
 			}
 		}
 		return emitLsJSON(LsOutput{Motes: entries})
+	}
+
+	if mode == ModePlain {
+		return emitLsPlain(motes)
 	}
 
 	if compact {
@@ -189,6 +203,23 @@ func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput 
 			row = format.Muted(row, useColor)
 		}
 		fmt.Println(row)
+	}
+	return nil
+}
+
+// emitLsPlain writes one mote per line in colorless, line-oriented form for
+// STORY-PLAIN-001. Each line is `<id> <type> <status> <weight> <title>` with
+// single-space separators. Deprecated rows keep the textual `[deprecated]`
+// prefix on the title (sprint-2 UI-PHIL backward-compat marker), positioned
+// AFTER the id so the mote id remains the first whitespace-delimited token —
+// Scenario 6 requires `awk '{print $1}'` to extract the id reliably.
+func emitLsPlain(motes []*core.Mote) error {
+	for _, m := range motes {
+		title := m.Title
+		if m.Status == "deprecated" {
+			title = "[deprecated] " + title
+		}
+		fmt.Printf("%s %s %s %.2f %s\n", m.ID, m.Type, m.Status, m.Weight, title)
 	}
 	return nil
 }

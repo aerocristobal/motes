@@ -55,12 +55,17 @@ func init() {
 }
 
 func runSearch(cmd *cobra.Command, args []string) error {
+	mode, err := outputMode(searchJSON)
+	if err != nil {
+		return err
+	}
+
 	query := strings.Join(args, " ")
 
 	// Parse + validate metadata flags before any store I/O (STORY-MQRY-001).
-	metaFields, hasKeys, err := resolveMetadataFlags(searchMetadataField, searchHasMetadataKey)
-	if err != nil {
-		return err
+	metaFields, hasKeys, mferr := resolveMetadataFlags(searchMetadataField, searchHasMetadataKey)
+	if mferr != nil {
+		return mferr
 	}
 
 	root := mustFindRoot()
@@ -134,15 +139,19 @@ func runSearch(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(results) == 0 {
-		if searchJSON {
+		switch mode {
+		case ModeJSON:
 			fmt.Println(`{"query":"` + query + `","results":[]}`)
 			return nil
+		case ModePlain:
+			return nil
+		default:
+			fmt.Println("No matching motes found.")
+			return nil
 		}
-		fmt.Println("No matching motes found.")
-		return nil
 	}
 
-	if searchJSON {
+	if mode == ModeJSON {
 		entries := make([]SearchResultEntry, 0, len(results))
 		for _, r := range results {
 			m := moteMap[r.Chunk.ID]
@@ -156,11 +165,25 @@ func runSearch(cmd *cobra.Command, args []string) error {
 				Score: r.Score,
 			})
 		}
-		data, err := json.MarshalIndent(SearchOutput{Query: query, Results: entries}, "", "  ")
-		if err != nil {
-			return fmt.Errorf("marshal json: %w", err)
+		data, jerr := json.MarshalIndent(SearchOutput{Query: query, Results: entries}, "", "  ")
+		if jerr != nil {
+			return fmt.Errorf("marshal json: %w", jerr)
 		}
 		fmt.Println(string(data))
+		return nil
+	}
+
+	if mode == ModePlain {
+		// STORY-PLAIN-001: `<id> <type> <score> <title>` per line — id is the
+		// first whitespace-delimited token to match the ls/pulse/context plain
+		// convention.
+		for _, r := range results {
+			m := moteMap[r.Chunk.ID]
+			if m == nil {
+				continue
+			}
+			fmt.Printf("%s %s %.3f %s\n", m.ID, m.Type, r.Score, m.Title)
+		}
 		return nil
 	}
 

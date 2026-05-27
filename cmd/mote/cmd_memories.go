@@ -34,11 +34,16 @@ func init() {
 }
 
 func runMemories(cmd *cobra.Command, args []string) error {
+	mode, err := outputMode(memoriesJSON)
+	if err != nil {
+		return err
+	}
+
 	root, err := findMemoryRoot()
 	if err != nil {
 		// No .memory/ → treat as empty list, matching how `mote ls` behaves
 		// in fresh repos.
-		if memoriesJSON {
+		if mode == ModeJSON {
 			fmt.Println(`{"memories":[]}`)
 		}
 		return nil
@@ -53,8 +58,19 @@ func runMemories(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("list memories: %w", err)
 	}
 
-	if memoriesJSON {
+	if mode == ModeJSON {
 		return emitMemoriesJSON(records)
+	}
+
+	if mode == ModePlain {
+		// STORY-PLAIN-001: no padding, one record per line. Body still truncated
+		// to memoryBodySnippet — the snippet is a UX contract for the listing
+		// view across both pretty and plain modes; full bodies live behind
+		// `mote recall <key>`.
+		for _, r := range records {
+			fmt.Printf("%s: %s\n", r.Key, format.Truncate(r.Body, memoryBodySnippet))
+		}
+		return nil
 	}
 
 	if len(records) == 0 {

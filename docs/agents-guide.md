@@ -285,6 +285,31 @@ The Gherkin specification for this story lives at `features/execution/read-befor
 
 ---
 
+## Pipeline usage
+
+Mote read commands have three output modes. Choose by the consumer:
+
+| Consumer                                  | Recommended flag | Why                                                              |
+|-------------------------------------------|------------------|------------------------------------------------------------------|
+| Programmatic parser (script, MCP wrapper) | `--json`         | Schema-versioned envelope — see `docs/JSON_SCHEMA.md`            |
+| Shell pipeline (`grep`, `awk`, `cut`)     | `--plain`        | One record per line, no ANSI, no padded columns, no Tufte chrome |
+| Human at a terminal                       | *(default)*      | TTY detection auto-picks color + Tufte layout                    |
+| Captured terminal (CI logs, chat paste)   | `--pretty`       | Forces ANSI + Tufte chrome even when stdout is a pipe            |
+
+`--json`, `--plain`, and `--pretty` are mutually exclusive — combining any two returns exit code 2 with stderr naming the conflict. `--no-color` is orthogonal: it strips ANSI but leaves the layout unchanged (the pre-`v0.4.36` non-TTY behaviour).
+
+### Plain shape conventions
+
+- **Lists** (`ls`, `pulse`, `search`, `context`): one mote per line, mote id is the first whitespace-delimited token (so `awk '{print $1}'` extracts ids reliably). Deprecated rows keep the textual `[deprecated]` prefix, positioned after the id.
+- **Objects** (`show` default / `--short` / `--long` / `--execution-only`, `memories`): `key: value` per line with no padding. The mote body is appended after a blank line so awk ranges like `/^body:/,/^$/` work.
+- **Stats**: one fact per line; keys mirror the JSON field names (`total_motes`, `status_active`, …). Top-accessed entries flatten to `top_accessed: <id> <count> "<title>"` rows.
+- **recall**: already raw line-oriented text — `--plain` is accepted but inert.
+- **Empty result sets** under `--plain` emit zero stdout (no "No motes found." chrome) so polling loops can `wc -l`.
+
+For the JSON envelope contract and shape registry, see `docs/JSON_SCHEMA.md`. For the philosophy behind the two axes (color vs layout) see `docs/UI_PHILOSOPHY.md` §7.
+
+---
+
 ## Agent-Specific Files
 
 | File | Audience | Read when |

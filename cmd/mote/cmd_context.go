@@ -38,6 +38,11 @@ func init() {
 }
 
 func runContext(cmd *cobra.Command, args []string) error {
+	mode, err := outputMode(contextJSON)
+	if err != nil {
+		return err
+	}
+
 	root := mustFindRoot()
 
 	if len(args) == 0 {
@@ -51,9 +56,9 @@ func runContext(cmd *cobra.Command, args []string) error {
 	}
 
 	topic := strings.Join(args, " ")
-	cfg, err := core.LoadConfig(root)
-	if err != nil {
-		return err
+	cfg, lerr := core.LoadConfig(root)
+	if lerr != nil {
+		return lerr
 	}
 
 	if contextPlanning {
@@ -122,7 +127,7 @@ func runContext(cmd *cobra.Command, args []string) error {
 	})
 
 	// JSON output mode
-	if contextJSON {
+	if mode == ModeJSON {
 		out := ContextOutput{
 			Topic:   topic,
 			Results: scoredMotesToEntriesFromScored(results),
@@ -139,6 +144,20 @@ func runContext(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Println(string(data))
 		// Batch access updates
+		for _, sm := range results {
+			_ = mm.AppendAccessBatch(sm.Mote.ID)
+		}
+		return nil
+	}
+
+	// Plain mode — STORY-PLAIN-001. One result per line `<id> <type> <score> <title>`.
+	// Contradictions become `contradiction: <id1> <id2>` rows so they remain in the
+	// stream for greppers but stop dominating the visual flow.
+	if mode == ModePlain {
+		for _, sm := range results {
+			fmt.Printf("%s %s %.3f %s\n", sm.Mote.ID, sm.Mote.Type, sm.Score, sm.Mote.Title)
+		}
+		emitContextContradictionsPlain(results, idx)
 		for _, sm := range results {
 			_ = mm.AppendAccessBatch(sm.Mote.ID)
 		}
@@ -176,6 +195,36 @@ func runContext(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// emitContextContradictionsPlain flattens the contradiction warnings into
+// `contradiction: <id1> <id2>` lines. Skipped in plain mode if there are none,
+// so the stream stays empty-output-on-empty-state for downstream loops.
+func emitContextContradictionsPlain(results []core.ScoredMote, idx *core.EdgeIndex) {
+	resultSet := make(map[string]*core.Mote)
+	for _, sm := range results {
+		resultSet[sm.Mote.ID] = sm.Mote
+	}
+	type pair struct{ a, b string }
+	seen := make(map[pair]bool)
+	for _, sm := range results {
+		if sm.Mote.Status == "deprecated" {
+			continue
+		}
+		for _, cID := range sm.Mote.Contradicts {
+			other, ok := resultSet[cID]
+			if !ok || other.Status == "deprecated" {
+				continue
+			}
+			p := pair{sm.Mote.ID, cID}
+			pr := pair{cID, sm.Mote.ID}
+			if !seen[p] && !seen[pr] {
+				seen[p] = true
+				fmt.Printf("contradiction: %s %s\n", sm.Mote.ID, cID)
+			}
+		}
+	}
+	_ = idx // unused — kept for future cross-result contradictions via the index
 }
 
 func augmentFromStrata(root string, cfg *core.Config, topic string, results []core.ScoredMote) {

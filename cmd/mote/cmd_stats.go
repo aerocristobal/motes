@@ -79,6 +79,11 @@ func init() {
 }
 
 func runStats(cmd *cobra.Command, args []string) error {
+	mode, err := outputMode(statsJSON)
+	if err != nil {
+		return err
+	}
+
 	root := mustFindRoot()
 	cfg, err := core.LoadConfig(root)
 	if err != nil {
@@ -185,47 +190,56 @@ func runStats(cmd *cobra.Command, args []string) error {
 		dreamCostPerAccepted = dreamCost.estimatedCost / float64(dreamCost.totalApplied)
 	}
 
-	if statsJSON {
-		out := StatsOutput{
-			TotalMotes:           len(motes),
-			StatusCounts:         statusCounts,
-			Accessed7:            accessed7,
-			Accessed30:           accessed30,
-			Accessed90:           accessed90,
-			NeverAccessed:        neverAccessed,
-			TotalTags:            len(idx.TagStats),
-			OverloadedTags:       overloaded,
-			SingletonTags:        singletons,
-			Contradictions:       contradictions,
-			PendingVisions:       pendingVisions,
-			DreamRuns:            dreamCost.runs,
-			DreamInputTokens:     dreamCost.inputTokens,
-			DreamOutputTokens:    dreamCost.outputTokens,
-			DreamEstimatedCost:   dreamCost.estimatedCost,
-			DreamTotalVisions:    dreamCost.totalVisions,
-			DreamTotalApplied:    dreamCost.totalApplied,
-			DreamTotalDeferred:   dreamCost.totalDeferred,
-			DreamAcceptanceRate:  dreamAcceptRate,
-			DreamCostPerAccepted: dreamCostPerAccepted,
-			PrimeHitRate:         rollingHitRate,
-			PrimeSessions:        len(primeStats),
-			Created7d:            flow.Created7d,
-			Created30d:           flow.Created30d,
-			Created90d:           flow.Created90d,
-			Deprecated7d:         flow.Deprecated7d,
-			Deprecated30d:        flow.Deprecated30d,
-			Deprecated90d:        flow.Deprecated90d,
-			NetGrowth7d:          flow.Created7d - flow.Deprecated7d,
-			NetGrowth30d:         flow.Created30d - flow.Deprecated30d,
-			NetGrowth90d:         flow.Created90d - flow.Deprecated90d,
-			GraphDecisions:       gv.decisions,
-			GraphLessons:         gv.lessons,
-			GraphExplorations:    gv.explorations,
-			GraphKnowledgeCount:  gv.decisions + gv.lessons + gv.explorations,
-			GraphAvgLinks:        gv.avgLinks,
-			GraphCrossSession:    gv.crossSession,
-			GraphAgeDays:         gv.ageDays,
-		}
+	// STORY-PLAIN-001: build the StatsOutput once; both ModeJSON and ModePlain
+	// (one-fact-per-line) consume it. Default and pretty modes keep the existing
+	// rich text branch below.
+	out := StatsOutput{
+		TotalMotes:           len(motes),
+		StatusCounts:         statusCounts,
+		Accessed7:            accessed7,
+		Accessed30:           accessed30,
+		Accessed90:           accessed90,
+		NeverAccessed:        neverAccessed,
+		TotalTags:            len(idx.TagStats),
+		OverloadedTags:       overloaded,
+		SingletonTags:        singletons,
+		Contradictions:       contradictions,
+		PendingVisions:       pendingVisions,
+		DreamRuns:            dreamCost.runs,
+		DreamInputTokens:     dreamCost.inputTokens,
+		DreamOutputTokens:    dreamCost.outputTokens,
+		DreamEstimatedCost:   dreamCost.estimatedCost,
+		DreamTotalVisions:    dreamCost.totalVisions,
+		DreamTotalApplied:    dreamCost.totalApplied,
+		DreamTotalDeferred:   dreamCost.totalDeferred,
+		DreamAcceptanceRate:  dreamAcceptRate,
+		DreamCostPerAccepted: dreamCostPerAccepted,
+		PrimeHitRate:         rollingHitRate,
+		PrimeSessions:        len(primeStats),
+		Created7d:            flow.Created7d,
+		Created30d:           flow.Created30d,
+		Created90d:           flow.Created90d,
+		Deprecated7d:         flow.Deprecated7d,
+		Deprecated30d:        flow.Deprecated30d,
+		Deprecated90d:        flow.Deprecated90d,
+		NetGrowth7d:          flow.Created7d - flow.Deprecated7d,
+		NetGrowth30d:         flow.Created30d - flow.Deprecated30d,
+		NetGrowth90d:         flow.Created90d - flow.Deprecated90d,
+		GraphDecisions:       gv.decisions,
+		GraphLessons:         gv.lessons,
+		GraphExplorations:    gv.explorations,
+		GraphKnowledgeCount:  gv.decisions + gv.lessons + gv.explorations,
+		GraphAvgLinks:        gv.avgLinks,
+		GraphCrossSession:    gv.crossSession,
+		GraphAgeDays:         gv.ageDays,
+	}
+
+	if mode == ModePlain {
+		emitStatsPlain(out, motes)
+		return nil
+	}
+
+	if mode == ModeJSON {
 		var data []byte
 		if jsonenv.Mode() == jsonenv.ModeEnvelope {
 			data, err = json.MarshalIndent(jsonenv.Wrap(out), "", "  ")
@@ -395,6 +409,84 @@ func runStats(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// emitStatsPlain writes one fact per line for STORY-PLAIN-001. Keys mirror the
+// JSON field names so a consumer can use the same parser for both. The 7d/30d/90d
+// tables and the top-accessed table flatten to repeated keyed lines so each line
+// is independently grep-friendly. The "0" defaults are emitted only when their
+// JSON-side counterparts are populated (omitempty-aligned).
+func emitStatsPlain(out StatsOutput, motes []*core.Mote) {
+	fmt.Printf("total_motes: %d\n", out.TotalMotes)
+	statusKeys := make([]string, 0, len(out.StatusCounts))
+	for k := range out.StatusCounts {
+		statusKeys = append(statusKeys, k)
+	}
+	sort.Strings(statusKeys)
+	for _, k := range statusKeys {
+		fmt.Printf("status_%s: %d\n", k, out.StatusCounts[k])
+	}
+	fmt.Printf("accessed_7d: %d\n", out.Accessed7)
+	fmt.Printf("accessed_30d: %d\n", out.Accessed30)
+	fmt.Printf("accessed_90d: %d\n", out.Accessed90)
+	fmt.Printf("never_accessed: %d\n", out.NeverAccessed)
+	fmt.Printf("total_tags: %d\n", out.TotalTags)
+	fmt.Printf("overloaded_tags: %d\n", out.OverloadedTags)
+	fmt.Printf("singleton_tags: %d\n", out.SingletonTags)
+	fmt.Printf("contradictions: %d\n", out.Contradictions)
+	fmt.Printf("pending_visions: %d\n", out.PendingVisions)
+	if out.DreamRuns > 0 {
+		fmt.Printf("dream_runs: %d\n", out.DreamRuns)
+		fmt.Printf("dream_input_tokens: %d\n", out.DreamInputTokens)
+		fmt.Printf("dream_output_tokens: %d\n", out.DreamOutputTokens)
+		fmt.Printf("dream_estimated_cost: %.4f\n", out.DreamEstimatedCost)
+		fmt.Printf("dream_total_visions: %d\n", out.DreamTotalVisions)
+		fmt.Printf("dream_total_applied: %d\n", out.DreamTotalApplied)
+		fmt.Printf("dream_total_deferred: %d\n", out.DreamTotalDeferred)
+		fmt.Printf("dream_acceptance_rate: %.4f\n", out.DreamAcceptanceRate)
+		fmt.Printf("dream_cost_per_accepted: %.4f\n", out.DreamCostPerAccepted)
+	}
+	if out.PrimeSessions > 0 {
+		fmt.Printf("prime_hit_rate: %.4f\n", out.PrimeHitRate)
+		fmt.Printf("prime_sessions: %d\n", out.PrimeSessions)
+	}
+	fmt.Printf("created_7d: %d\n", out.Created7d)
+	fmt.Printf("created_30d: %d\n", out.Created30d)
+	fmt.Printf("created_90d: %d\n", out.Created90d)
+	fmt.Printf("deprecated_7d: %d\n", out.Deprecated7d)
+	fmt.Printf("deprecated_30d: %d\n", out.Deprecated30d)
+	fmt.Printf("deprecated_90d: %d\n", out.Deprecated90d)
+	fmt.Printf("net_growth_7d: %d\n", out.NetGrowth7d)
+	fmt.Printf("net_growth_30d: %d\n", out.NetGrowth30d)
+	fmt.Printf("net_growth_90d: %d\n", out.NetGrowth90d)
+	if out.GraphKnowledgeCount > 0 {
+		fmt.Printf("graph_decisions: %d\n", out.GraphDecisions)
+		fmt.Printf("graph_lessons: %d\n", out.GraphLessons)
+		fmt.Printf("graph_explorations: %d\n", out.GraphExplorations)
+		fmt.Printf("graph_knowledge_count: %d\n", out.GraphKnowledgeCount)
+		fmt.Printf("graph_avg_links: %.2f\n", out.GraphAvgLinks)
+		fmt.Printf("graph_cross_session_motes: %d\n", out.GraphCrossSession)
+		fmt.Printf("graph_age_days: %d\n", out.GraphAgeDays)
+	}
+
+	// Top-5 accessed — flatten the table into one keyed line per row so grep
+	// can extract it as `mote stats --plain | grep ^top_accessed:`.
+	sorted := make([]*core.Mote, len(motes))
+	copy(sorted, motes)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].AccessCount > sorted[j].AccessCount
+	})
+	limit := 5
+	if len(sorted) < limit {
+		limit = len(sorted)
+	}
+	for i := 0; i < limit; i++ {
+		m := sorted[i]
+		if m.AccessCount == 0 {
+			break
+		}
+		fmt.Printf("top_accessed: %s %d %q\n", m.ID, m.AccessCount, m.Title)
+	}
 }
 
 func showDecayPreview(motes []*core.Mote, cfg *core.Config) error {

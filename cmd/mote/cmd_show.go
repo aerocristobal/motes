@@ -175,8 +175,9 @@ func getConceptEntries(moteID string, idx *core.EdgeIndex) []ConceptEntry {
 
 func runShow(cmd *cobra.Command, args []string) error {
 	// Whether any of the JSON paths is selected. --execution-only emits JSON
-	// even without --json, so it counts. Both flags also trigger the envelope
-	// error path so error messages on stderr stay structured for parsers.
+	// by default even without --json, so it counts for the JSCHEMA-001 error
+	// envelope decision. The plain/pretty branches below explicitly override
+	// this when the user asks for a different layout.
 	jsonFlag := showJSON || showExecutionOnly
 
 	// Mutex checks run BEFORE any side effect (no mote read, no access-batch
@@ -191,6 +192,14 @@ func runShow(cmd *cobra.Command, args []string) error {
 		return jsonEnvErr(jsonFlag, "MOTE_INVALID_FLAG", 1, "--execution-only is mutually exclusive with --json")
 	}
 
+	// STORY-PLAIN-001 mutex: --json / --pretty / --plain are mutually exclusive.
+	// --execution-only is NOT a mode flag for this purpose — it composes with
+	// --plain/--pretty as a content filter.
+	mode, err := outputMode(showJSON)
+	if err != nil {
+		return err
+	}
+
 	root := mustFindRoot()
 	mm := core.NewMoteManager(root)
 
@@ -203,6 +212,9 @@ func runShow(cmd *cobra.Command, args []string) error {
 	}
 
 	if showExecutionOnly {
+		// --execution-only is a content filter; the rendering of those fields
+		// follows the global mode flag. Default (no mode flag) preserves the
+		// pre-STORY-PLAIN JSON contract; --plain emits key:value lines.
 		out := ShowExecutionOnlyOutput{
 			ID:                       m.ID,
 			ExecutionAgentType:       m.ExecutionAgentType,
@@ -211,13 +223,13 @@ func runShow(cmd *cobra.Command, args []string) error {
 			ExecutionMode:            m.ExecutionMode,
 			ExecutionParallelGroup:   m.ExecutionParallelGroup,
 		}
-		if err := emitShowJSON(out); err != nil {
-			return err
+		if mode == ModePlain {
+			emitShowExecutionOnlyPlain(out)
+		} else {
+			if err := emitShowJSON(out); err != nil {
+				return err
+			}
 		}
-		// Inspect-only trace: distinct from a normal "read" so a compliance
-		// reviewer can later reconstruct "did the orchestrator inspect
-		// metadata before dispatching the subagent?". A `read_body` event is
-		// never emitted in this branch.
 		_ = mm.AppendAccessBatchExecution(m.ID)
 		return nil
 	}
@@ -227,7 +239,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 
 	if showShort {
 		ascii := showASCII || format.IconASCIIFromEnv()
-		if showJSON {
+		if mode == ModeJSON {
 			out := ShowShortOutput{
 				ID:     m.ID,
 				Status: m.Status,
@@ -237,13 +249,17 @@ func runShow(cmd *cobra.Command, args []string) error {
 			}
 			return emitShowJSON(out)
 		}
+		if mode == ModePlain {
+			emitShortPlain(m)
+			return nil
+		}
 		fmt.Print(renderShort(m, ascii))
 		// Suppress AppendAccessBatch so loop iteration over many ready motes
 		// does not inflate access_count and skew weight decay (Scenario 9, Q3).
 		return nil
 	}
 
-	if showJSON {
+	if mode == ModeJSON {
 		base := buildShowOutput(m, mm, idx)
 		var payload any = base
 		if showLong {
@@ -251,6 +267,15 @@ func runShow(cmd *cobra.Command, args []string) error {
 		}
 		if err := emitShowJSON(payload); err != nil {
 			return err
+		}
+		_ = mm.AppendAccessBatch(m.ID)
+		return nil
+	}
+
+	if mode == ModePlain {
+		emitShowPlain(m, mm, idx)
+		if showLong {
+			emitLongInternalStatePlain(m, mm, root)
 		}
 		_ = mm.AppendAccessBatch(m.ID)
 		return nil
@@ -285,6 +310,181 @@ func emitShowJSON(payload any) error {
 	}
 	fmt.Println(string(data))
 	return nil
+}
+
+// emitShowPlain writes the default content set in plain key:value form for
+// STORY-PLAIN-001. No Tufte headers (`=== … ===`), no padding (no `%-16s`),
+// no `--- section ---` dividers. Lists become repeated keyed lines so each
+// data point fits on one grep-able row. The body is appended after a blank
+// line so awk can extract it with `/^body:/,/^$/`-style ranges.
+func emitShowPlain(m *core.Mote, mm *core.MoteManager, idx *core.EdgeIndex) {
+	fmt.Printf("id: %s\n", m.ID)
+	fmt.Printf("type: %s\n", m.Type)
+	fmt.Printf("status: %s\n", m.Status)
+	fmt.Printf("title: %s\n", m.Title)
+	for _, tag := range m.Tags {
+		fmt.Printf("tag: %s\n", tag)
+	}
+	fmt.Printf("weight: %.2f\n", m.Weight)
+	fmt.Printf("origin: %s\n", m.Origin)
+	if m.Size != "" {
+		fmt.Printf("size: %s\n", m.Size)
+	}
+	if m.Action != "" {
+		fmt.Printf("action: %s\n", m.Action)
+	}
+	if m.Parent != "" {
+		fmt.Printf("parent: %s\n", m.Parent)
+	}
+	fmt.Printf("created_at: %s\n", m.CreatedAt.Format(time.RFC3339))
+	if m.LastAccessed != nil {
+		fmt.Printf("last_accessed: %s\n", m.LastAccessed.Format(time.RFC3339))
+	}
+	fmt.Printf("access_count: %d\n", m.AccessCount)
+
+	if m.ExecutionAgentType != "" {
+		fmt.Printf("execution_agent_type: %s\n", m.ExecutionAgentType)
+	}
+	if m.ExecutionSuggestedModel != "" {
+		fmt.Printf("execution_suggested_model: %s\n", m.ExecutionSuggestedModel)
+	}
+	if m.ExecutionReasoningEffort != "" {
+		fmt.Printf("execution_reasoning_effort: %s\n", m.ExecutionReasoningEffort)
+	}
+	if m.ExecutionMode != "" {
+		fmt.Printf("execution_mode: %s\n", m.ExecutionMode)
+	}
+	if m.ExecutionParallelGroup != "" {
+		fmt.Printf("execution_parallel_group: %s\n", m.ExecutionParallelGroup)
+	}
+
+	for _, ref := range m.ExternalRefs {
+		if ref.URL != "" {
+			fmt.Printf("external_ref: %s %s %s\n", ref.Provider, ref.ID, ref.URL)
+		} else {
+			fmt.Printf("external_ref: %s %s\n", ref.Provider, ref.ID)
+		}
+	}
+
+	plainLinks(m.DependsOn, "depends_on")
+	plainLinks(m.Blocks, "blocks")
+	plainLinks(m.RelatesTo, "relates_to")
+	plainLinks(m.BuildsOn, "builds_on")
+	plainLinks(m.Contradicts, "contradicts")
+	plainLinks(m.Supersedes, "supersedes")
+	plainLinks(m.CausedBy, "caused_by")
+	plainLinks(m.InformedBy, "informed_by")
+	plainLinks(m.DiscoveredFrom, "discovered_from")
+	plainLinks(discoveredChildren(idx, m.ID), "discovered")
+
+	for _, blID := range core.ExtractBodyLinks(m.Body, m.ID) {
+		fmt.Printf("body_link: %s\n", blID)
+	}
+
+	for _, c := range getConceptEntries(m.ID, idx) {
+		distinctive := ""
+		if c.Distinctive {
+			distinctive = " distinctive"
+		}
+		fmt.Printf("concept: %s freq=%d idf=%.2f%s\n", c.Term, c.Frequency, c.IDF, distinctive)
+	}
+
+	if children, err := mm.Children(m.ID); err == nil {
+		for _, c := range children {
+			fmt.Printf("child: %s %s %q\n", c.ID, c.Status, c.Title)
+		}
+	}
+
+	for i, a := range m.Acceptance {
+		met := false
+		if i < len(m.AcceptanceMet) {
+			met = m.AcceptanceMet[i]
+		}
+		state := "open"
+		if met {
+			state = "met"
+		}
+		fmt.Printf("acceptance: %d %s %s\n", i+1, state, a)
+	}
+
+	if m.Body != "" {
+		fmt.Println()
+		fmt.Print(m.Body)
+		if m.Body[len(m.Body)-1] != '\n' {
+			fmt.Println()
+		}
+	}
+}
+
+// plainLinks emits one `<label>: <id>` line per target. Used by emitShowPlain;
+// kept tiny so the renderer stays scannable.
+func plainLinks(ids []string, label string) {
+	for _, id := range ids {
+		fmt.Printf("%s: %s\n", label, id)
+	}
+}
+
+// emitLongInternalStatePlain mirrors emitLongInternalState for plain mode —
+// each forensic field as a single `key: value` line, no `--- internal state ---`
+// header, no padding, no `(never)` placeholders (absent fields are simply omitted).
+func emitLongInternalStatePlain(m *core.Mote, mm *core.MoteManager, root string) {
+	if t := lastPrimeAt(root); t != "" {
+		fmt.Printf("last_prime_at: %s\n", t)
+	}
+	fmt.Printf("audit_log_path: %s\n", filepath.Join(root, "audit.jsonl"))
+	fmt.Printf("audit_log_entries_count: %d\n", countAuditEntries(root, m.ID))
+	if m.PromotedTo != "" {
+		fmt.Printf("promoted_to: %s\n", m.PromotedTo)
+	}
+	if m.StrataCorpus != "" {
+		fmt.Printf("strata_corpus: %s\n", m.StrataCorpus)
+		if m.StrataQueryHint != "" {
+			fmt.Printf("strata_query_hint: %s\n", m.StrataQueryHint)
+		}
+		fmt.Printf("strata_query_count: %d\n", m.StrataQueryCount)
+		if m.StrataLastQueried != nil {
+			fmt.Printf("strata_last_queried: %s\n", m.StrataLastQueried.Format(time.RFC3339))
+		}
+	}
+	if m.DeprecatedBy != "" {
+		fmt.Printf("deprecated_by: %s\n", m.DeprecatedBy)
+		for _, hop := range walkDeprecationChain(mm, m) {
+			fmt.Printf("deprecation_chain: %s\n", hop)
+		}
+	}
+	if m.StatusChangedAt != nil {
+		fmt.Printf("status_changed_at: %s\n", m.StatusChangedAt.Format(time.RFC3339))
+	}
+}
+
+// emitShortPlain is the --short --plain rendering: a single line with no icon
+// and no ANSI. The shape is `<id> <weight> [<type>] <title>` matching the
+// pretty form minus the icon prefix.
+func emitShortPlain(m *core.Mote) {
+	title := format.Truncate(m.Title, 60)
+	fmt.Printf("%s %.2f [%s] %s\n", m.ID, m.Weight, m.Type, title)
+}
+
+// emitShowExecutionOnlyPlain emits the execution-metadata content selector in
+// plain key:value form. Empty fields are omitted (matches the omitempty rule
+// from STORY-EREAD-001 / sprint-2 §23.16 empty-state contract).
+func emitShowExecutionOnlyPlain(o ShowExecutionOnlyOutput) {
+	fmt.Printf("id: %s\n", o.ID)
+	if o.ExecutionAgentType != "" {
+		fmt.Printf("execution_agent_type: %s\n", o.ExecutionAgentType)
+	}
+	if o.ExecutionSuggestedModel != "" {
+		fmt.Printf("execution_suggested_model: %s\n", o.ExecutionSuggestedModel)
+	}
+	if o.ExecutionReasoningEffort != "" {
+		fmt.Printf("execution_reasoning_effort: %s\n", o.ExecutionReasoningEffort)
+	}
+	if o.ExecutionMode != "" {
+		fmt.Printf("execution_mode: %s\n", o.ExecutionMode)
+	}
+	if o.ExecutionParallelGroup != "" {
+		fmt.Printf("execution_parallel_group: %s\n", o.ExecutionParallelGroup)
+	}
 }
 
 // renderShort produces the single-line dense form:

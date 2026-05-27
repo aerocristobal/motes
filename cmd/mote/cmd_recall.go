@@ -24,6 +24,13 @@ func init() {
 }
 
 func runRecall(cmd *cobra.Command, args []string) error {
+	// STORY-PLAIN-001: recall already emits raw line-oriented body text — both
+	// --plain and --pretty are accepted as no-ops, but we still call outputMode
+	// so the mutex check enforces "at most one mode flag" exit code 2.
+	if _, mErr := outputMode(false); mErr != nil {
+		return mErr
+	}
+
 	root, err := findMemoryRoot()
 	if err != nil {
 		// No .memory/ at all → treat as not-found per the recall contract,
