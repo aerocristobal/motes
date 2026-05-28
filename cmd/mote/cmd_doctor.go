@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/internal/githooks"
 	"motes/internal/jsonenv"
 )
 
@@ -25,6 +27,7 @@ func init() {
 	rootCmd.AddCommand(doctorCmd)
 	doctorCmd.Flags().Bool("cross-project", false, "validate cross-project refs by loading all discovered projects under --projects-root")
 	doctorCmd.Flags().String("projects-root", "", "root directory to scan for sibling projects (default: parent of current project)")
+	doctorCmd.Flags().Bool("fix", false, "Repair mote-managed git-hook drift in place (never touches user-authored hooks)")
 }
 
 // extractMotePrefix returns the project prefix of a mote ID (e.g. "turingpi" from "turingpi-Txxx").
@@ -117,6 +120,17 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	advisories := runDoctorAdvisories(idx, moteMap, cfg)
 	advisories = append(advisories, runDoctorProviderAdvisories(cfg)...)
 
+	// STORY-HOOKINST-001: detect drift in mote-managed git hooks. When --fix
+	// is set and drift is present, repair it in-place by re-invoking the
+	// install path (which never touches user-authored hooks).
+	cwd, _ := os.Getwd()
+	fix, _ := cmd.Flags().GetBool("fix")
+	driftIssues, fixedPaths := runGithookDriftCheck(cwd, fix)
+	for _, p := range fixedPaths {
+		fmt.Printf("Fixed git-hook drift: %s\n", p)
+	}
+	issues = append(issues, driftIssues...)
+
 	// Separate cross_project_ref advisories from integrity errors.
 	var errorIssues, crossRefs []doctorIssue
 	for _, iss := range issues {
@@ -182,6 +196,66 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		os.Exit(1)
 	}
 	return nil
+}
+
+// runGithookDriftCheck classifies mote-managed git hooks at cwd. Returns
+// drift issues for any hook that has drifted from the binary-embedded
+// template, plus (when fix is set) the paths of files just repaired. Files
+// repaired in the same call do NOT appear in the returned issues slice.
+//
+// Not-a-git-repo is treated as silent (no findings) — `mote doctor` runs in
+// many contexts where git is irrelevant. User-authored hooks (conflict)
+// are also silent here; doctor's job is to surface mote-owned drift, not
+// to second-guess the developer's own scripts.
+func runGithookDriftCheck(cwd string, fix bool) ([]doctorIssue, []string) {
+	report, err := githooks.Install(cwd, githooks.InstallOpts{DryRun: true})
+	if errors.Is(err, githooks.ErrNotGitRepo) {
+		return nil, nil
+	}
+	if err != nil && !errors.Is(err, githooks.ErrConflict) {
+		// I/O or template-load failure — surface as a finding so it's not lost.
+		return []doctorIssue{{
+			Category: "git_hook_check",
+			MoteID:   "-",
+			Detail:   fmt.Sprintf("could not classify git hooks: %v", err),
+		}}, nil
+	}
+
+	var drifted []string
+	for _, ev := range report.Events {
+		if ev.Action == githooks.ActionUpdate {
+			drifted = append(drifted, ev.Path)
+		}
+	}
+	if len(drifted) == 0 {
+		return nil, nil
+	}
+
+	if fix {
+		// Repair drifted hooks. Force is intentionally false: drift on
+		// mote-managed files does not need force (the sentinel already
+		// declares mote owns them), and we never want --fix to clobber
+		// a genuine user-authored hook.
+		_, fixErr := githooks.Install(cwd, githooks.InstallOpts{})
+		if fixErr != nil && !errors.Is(fixErr, githooks.ErrConflict) {
+			return []doctorIssue{{
+				Category: "git_hook_fix",
+				MoteID:   "-",
+				Detail:   fmt.Sprintf("repair failed: %v", fixErr),
+			}}, nil
+		}
+		return nil, drifted
+	}
+
+	out := make([]doctorIssue, 0, len(drifted))
+	for _, p := range drifted {
+		out = append(out, doctorIssue{
+			Category: "git_hook_drift",
+			MoteID:   "-",
+			Detail:   fmt.Sprintf("%s drifted from embedded template (run `mote doctor --fix` or `mote githooks install`)", p),
+		})
+	}
+	return out, nil
 }
 
 func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.EdgeIndex, moteMap map[string]*core.Mote, cfg *core.Config) []doctorIssue {

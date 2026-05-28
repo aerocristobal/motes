@@ -4,6 +4,7 @@ The head of this list (the first `- **vX.Y.Z** —` bullet) is the canonical use
 
 ## Version History
 
+- **v0.4.39** — First-class `mote githooks install` from binary-embedded templates (post-checkout + pre-commit); `mote onboard` installs them automatically; `mote doctor --fix` repairs mote-managed drift (STORY-HOOKINST-001).
 - **v0.4.38** — CI hygiene: `check-doc-flags` subcommand and `doc-flags` CI job fail the build on stale flag references in docs (STORY-DOCFLAGS-001).
 - **v0.4.37** — `mote ls --ready --explain` surfaces per-mote justification for why each mote is ready (dep status, claim availability, score components).
 - **v0.4.36** — `--plain` and `--pretty` layout modes for read commands; orthogonal to `--no-color`; mutually exclusive with each other and with `--json` (STORY-PLAIN-001).

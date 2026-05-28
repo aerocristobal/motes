@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# mote pre-commit hook — refuses commits that stage edits to derived index
+# files. The agent-surface equivalent lives in claudehooks/block-mote-rm.sh;
+# this hook applies the same rule on the git surface for non-Claude tooling.
+# Bypass with `git commit --no-verify` after running `mote index rebuild`.
+set -euo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+block=""
+while IFS= read -r path; do
+  case "$path" in
+    .memory/index.jsonl|.memory/mote_bm25.json)
+      block="${block}${path}"$'\n'
+      ;;
+    .memory/strata/*/bm25.json)
+      block="${block}${path}"$'\n'
+      ;;
+  esac
+done <<< "$staged"
+
+if [ -n "$block" ]; then
+  echo "mote: refusing commit — derived index files are staged:" >&2
+  printf '  %s\n' $block >&2
+  echo "Run \`mote index rebuild\` to regenerate them, then re-stage the source motes." >&2
+  echo "Bypass with \`git commit --no-verify\` if you are certain." >&2
+  exit 1
+fi
+
+exit 0

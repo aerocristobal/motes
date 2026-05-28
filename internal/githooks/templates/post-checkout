@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# mote post-checkout hook — refreshes agent context after a branch switch
+# or checkout. Non-blocking: never fails the checkout, even if mote is not
+# on PATH or the prime command errors.
+set -euo pipefail
+command -v mote >/dev/null 2>&1 || exit 0
+mote prime --hook --mode=resume >/dev/null 2>&1 || true

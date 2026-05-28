@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/internal/githooks"
 	"motes/skills"
 )
 
@@ -293,7 +295,7 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 		if geminiEnabled(home) {
 			ensureGeminiGlobalShim(home, true)
 		}
-		ensurePreCommitHook(cwd, true)
+		ensureProjectGithooks(cwd, true)
 		return nil
 	}
 
@@ -362,12 +364,47 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 		}
 	}
 
-	// Install pre-commit hook
-	if err := ensurePreCommitHook(cwd, false); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: pre-commit hook: %v\n", err)
-	}
+	// Install per-project git hooks (post-checkout, pre-commit) from
+	// binary-embedded templates. See STORY-HOOKINST-001.
+	ensureProjectGithooks(cwd, false)
 
 	return nil
+}
+
+// ensureProjectGithooks runs githooks.Install for the project at cwd,
+// degrading expected failure modes (not a git repo, user-authored conflict)
+// to non-fatal one-line notes so onboard continues. Returns nothing because
+// onboard never fails on hook install — the same pattern as the other
+// ensure* helpers in this file.
+func ensureProjectGithooks(cwd string, dryRun bool) {
+	report, err := githooks.Install(cwd, githooks.InstallOpts{DryRun: dryRun})
+	if errors.Is(err, githooks.ErrNotGitRepo) {
+		// One-line note (STORY-HOOKINST-001 Scenario 5): be explicit that
+		// the step was skipped, but do not flag it as a warning — onboard
+		// in a scratch dir is a legitimate use case.
+		fmt.Println("  skipped githook install: not a git repository")
+		return
+	}
+	if err != nil && !errors.Is(err, githooks.ErrConflict) {
+		fmt.Fprintf(os.Stderr, "warning: githooks install: %v\n", err)
+		return
+	}
+	prefix := ""
+	if dryRun {
+		prefix = "would "
+	}
+	for _, ev := range report.Events {
+		switch ev.Action {
+		case githooks.ActionConflict:
+			fmt.Fprintf(os.Stderr,
+				"warning: githook conflict at %s — run `mote githooks install --force` to overwrite\n",
+				ev.Path)
+		case githooks.ActionInstall:
+			fmt.Printf("  %sinstall githook: %s\n", prefix, ev.Path)
+		case githooks.ActionUpdate:
+			fmt.Printf("  %supdate githook: %s\n", prefix, ev.Path)
+		}
+	}
 }
 
 func runOnboardProject() error {
@@ -424,6 +461,7 @@ func runOnboardProject() error {
 			ensureGeminiSettings(filepath.Join(home, ".gemini"), true)
 		}
 		ensureMoteSkills(home, true)
+		ensureProjectGithooks(cwd, true)
 		if onboardCleanup && dirExists(filepath.Join(cwd, ".beads")) {
 			fmt.Println("  Would remove .beads/")
 		}
@@ -1485,60 +1523,4 @@ func migrateClaudeSettings(claudeDir string, dryRun bool) (int, error) {
 	}
 
 	return migrated, nil
-}
-
-const preCommitMarker = "# mote pre-commit hook"
-
-const preCommitScript = `#!/bin/sh
-# mote pre-commit hook
-# Soft warning if no active task mote exists. Always exits 0.
-if [ -d ".memory/nodes" ] && command -v mote >/dev/null 2>&1; then
-    count=$(mote ls --type=task --status=active --compact 2>/dev/null | grep -c . 2>/dev/null || echo 0)
-    if [ "$count" -eq 0 ]; then
-        echo "mote: no active task found. Consider: mote add --type=task --title=\"...\"" >&2
-    fi
-fi
-exit 0
-`
-
-// ensurePreCommitHook installs a soft-warning pre-commit hook in .git/hooks/pre-commit.
-// It is idempotent: if the hook already contains the mote marker it is skipped.
-// If an existing hook exists without the marker, the mote script is appended.
-func ensurePreCommitHook(projectRoot string, dryRun bool) error {
-	gitDir := filepath.Join(projectRoot, ".git")
-	info, err := os.Stat(gitDir)
-	if err != nil || !info.IsDir() {
-		return nil // not a git repo, skip silently
-	}
-
-	hookPath := filepath.Join(gitDir, "hooks", "pre-commit")
-
-	existing, readErr := os.ReadFile(hookPath)
-	if readErr == nil && strings.Contains(string(existing), preCommitMarker) {
-		return nil // already installed
-	}
-
-	if dryRun {
-		fmt.Println("  Would install pre-commit hook (soft task warning)")
-		return nil
-	}
-
-	if err := os.MkdirAll(filepath.Join(gitDir, "hooks"), 0755); err != nil {
-		return fmt.Errorf("create hooks dir: %w", err)
-	}
-
-	var content string
-	if readErr == nil && len(existing) > 0 {
-		// Append to existing hook
-		content = strings.TrimRight(string(existing), "\n") + "\n\n" + preCommitScript
-	} else {
-		content = preCommitScript
-	}
-
-	if err := os.WriteFile(hookPath, []byte(content), 0755); err != nil {
-		return fmt.Errorf("write pre-commit hook: %w", err)
-	}
-
-	fmt.Println("  installed pre-commit hook (soft task warning)")
-	return nil
 }

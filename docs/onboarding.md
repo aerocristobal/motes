@@ -75,8 +75,11 @@ mote onboard --include-closed
 - **Migrate bd hooks** — Replaces `bd prime` → `mote prime` and `bd sync` → `mote session-end` in existing hooks
 - **Install Codex hooks** (when `~/.codex/` is detected, or `--codex` is passed) — `SessionStart`, `UserPromptSubmit`, `Stop` in `~/.codex/hooks.json`; sets the `codex_hooks = true` feature flag in `~/.codex/config.toml`; mote skills also written to `~/.agents/skills/`. See [CODEX.md](../CODEX.md).
 - **Install Gemini CLI settings** (when `~/.gemini/` is detected, or `--gemini` is passed) — `SessionStart`, `BeforeAgent`, `SessionEnd` in `~/.gemini/settings.json` (with `300000ms` timeout on `SessionEnd` because Gemini's 60s default would kill the heavy flush); `context.fileName` configured to load both `GEMINI.md` and `AGENTS.md`; mote skills also written to `~/.agents/skills/`. See [GEMINI.md](../GEMINI.md).
+- **Install per-project git hooks** (when the project is a git working tree) — `post-checkout` runs `mote prime --hook --mode=resume` so agent context refreshes after a branch switch, and `pre-commit` refuses commits that stage edits to derived files (`.memory/index.jsonl`, `.memory/mote_bm25.json`). Templates are embedded in the `mote` binary and update with it — re-running `mote onboard` (or `mote githooks install`) after upgrading repairs drift; `mote doctor --fix` does the same. Each hook carries a `# managed-by: mote githooks install` sentinel so re-runs never clobber user-authored scripts (use `mote githooks install --force` to override an intentional conflict).
 
 The `~/.agents/skills/` install is shared between Codex and Gemini CLI — both honor that path at higher precedence than their tool-specific defaults, so one install reaches both.
+
+> **Migration note (v0.4.39):** Earlier mote versions installed a soft-warning `pre-commit` hook ("no active task found"). That hook lacks the new `# managed-by: mote githooks install` sentinel, so `mote githooks install` will flag it as a conflict. Run `mote githooks install --force` once to replace it with the current template, or delete `.git/hooks/pre-commit` manually if you prefer.
 
 ### Post-onboard cleanup
 

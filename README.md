@@ -307,9 +307,13 @@ mote onboard --codex                # Also install Codex hooks (~/.codex/hooks.j
 mote onboard --gemini               # Also install Gemini CLI settings (~/.gemini/settings.json with hooks + context.fileName) and skills at ~/.agents/skills/
 mote migrate MEMORY.md              # Convert flat markdown to motes
 mote migrate MEMORY.md --dry-run    # Preview without writing
+mote githooks install               # Install per-project git hooks (post-checkout, pre-commit) from binary-embedded templates
+mote githooks install --dry-run     # Preview hook actions without writing
+mote githooks install --force       # Overwrite user-authored hooks lacking the mote sentinel
+mote doctor --fix                   # Repair drifted mote-managed git hooks in place
 ```
 
-`mote onboard` always installs Claude Code integration (`~/.claude/settings.json` hooks, `~/.claude/skills/`). The Codex and Gemini CLI flags are auto-enabled when `~/.codex/` or `~/.gemini/` already exist, so existing users of those tools don't need to pass the flag. See [CODEX.md](CODEX.md), [GEMINI.md](GEMINI.md), [docs/example-codex-config.md](docs/example-codex-config.md), and [docs/example-gemini-config.md](docs/example-gemini-config.md) for the wired-up settings.
+`mote onboard` always installs Claude Code integration (`~/.claude/settings.json` hooks, `~/.claude/skills/`) and (when run inside a git working tree) the per-project git hooks shipped with the binary. The Codex and Gemini CLI flags are auto-enabled when `~/.codex/` or `~/.gemini/` already exist, so existing users of those tools don't need to pass the flag. See [CODEX.md](CODEX.md), [GEMINI.md](GEMINI.md), [docs/example-codex-config.md](docs/example-codex-config.md), and [docs/example-gemini-config.md](docs/example-gemini-config.md) for the wired-up settings.
 
 ## Storage Layout
 
