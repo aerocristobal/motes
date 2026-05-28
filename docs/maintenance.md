@@ -209,3 +209,52 @@ Prompts you to extract lessons and decisions from a finished task before archivi
 | Every session end | `mote session-end` |
 | Every few sessions | `mote dream` + `mote dream --review` |
 | Weekly or monthly | `mote doctor`, `mote stats`, `mote tags audit`, `mote clean-links --dry-run` |
+
+## Cutting a Release
+
+mote ships a single binary with one canonical version string. STORY-VERSIONS-001 added two scripts that make releases atomic and CI-enforceable.
+
+### The canonical version
+
+`internal/version/version.go` declares:
+
+```go
+const Value = "X.Y.Z"
+```
+
+This constant is the single source of truth. `cmd/mote/main.go` references it as `version.Value`; `scripts/bump-version.sh` rewrites it; `scripts/check-versions.sh` reads it.
+
+### Tracked locations
+
+Currently checked by `scripts/check-versions.sh`:
+
+| Location | What's compared |
+|----------|-----------------|
+| `internal/version/version.go` | The canonical value (the source). |
+| `docs/version-history.md` | The first `- **vX.Y.Z** —` bullet under the `## Version History` heading. |
+
+Historical entries below the head bullet are not compared (changelog-style policy; STORY-VERSIONS-001 Scenario 7).
+
+### Running a release
+
+1. Land all feature commits for the release on master.
+2. Bump: `scripts/bump-version.sh X.Y.Z --commit`. This rewrites `internal/version/version.go` and inserts a placeholder bullet at the head of `docs/version-history.md`, then creates a single commit. It does **not** tag, push, or open a PR.
+3. Edit the placeholder bullet in `docs/version-history.md` to describe the release; amend the commit (`git commit --amend`).
+4. Push, then create the git tag and any release artifacts separately.
+
+### Adding a new tracked location
+
+When a new file starts carrying a version string (a homebrew tap formula, a package manifest, an install snippet that pins a version), append one entry to the `tracked` array in `scripts/check-versions.sh`:
+
+```bash
+tracked=(
+    "docs/version-history.md|^- \*\*v([0-9]+\.[0-9]+\.[0-9]+...)\*\*|Version History"
+    "<new/path>|<regex with version in capture group 1>|<heading>"
+)
+```
+
+Also add a fixture-based test in `internal/version/check_test.go` that exercises the new location.
+
+### CI enforcement
+
+The `versions` job in `.github/workflows/ci.yml` runs `scripts/check-versions.sh` on every push and pull request and fails the build if any tracked location disagrees with `internal/version/version.go`.

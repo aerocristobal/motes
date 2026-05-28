@@ -371,26 +371,7 @@ All configuration lives in `.memory/config.yaml`. See [docs/configuration.md](do
 
 ## Version History
 
-- **v0.4.13** — Gemini CLI onboarding: refactored `GEMINI.md` to a tight Gemini-CLI prompt (~110 lines, with `@AGENTS.md` import). Vertex AI dream-cycle backend material consolidated in `docs/providers.md`. Added `docs/example-gemini-config.md` and a working `.gemini/settings.json` at the repo root with `context.fileName: ["GEMINI.md", "AGENTS.md"]` and an explicit 300000ms `SessionEnd` timeout (Gemini's default 60s would kill the heavy `mote session-end --hook` flush mid-flight). `mote onboard` auto-detects `~/.gemini/` and installs the same settings; pass `--gemini` to opt in explicitly. Skills now install at `~/.agents/skills/` when either Codex or Gemini CLI is enabled (shared condition).
-- **v0.4.12** — Codex (OpenAI) onboarding: tightened `AGENTS.md` to a Codex-friendly prompt (~80 lines), added `CODEX.md`, `docs/example-codex-config.md`, and a working `.codex/hooks.json` at the repo root. `mote onboard` auto-detects `~/.codex/` and installs hooks at `~/.codex/hooks.json` plus motes skills at `~/.agents/skills/` (alongside the existing `~/.claude/skills/`). Pass `--codex` to opt in explicitly.
-- **v0.4.11** — Multi-provider dream cycle: `Invoker` interface with backend dispatch (`claude-cli`, `openai`, `gemini` Vertex AI ADC). Per-stage provider configuration so batch and reconciliation can use different backends. `mote doctor` provider advisories. `config.yaml` now generated with backend hint comments via `yaml.v3` Node API.
-- **v0.4.10** — Larger batches (50 motes), tighter cap (12 batches); refreshed model IDs.
-- **v0.4.9** — Dream cycle token consumption reduced ~60%.
-- **v0.4.8** — `in_progress` status to distinguish queued from in-flight work.
-- **v0.4.7** — Lens mode: N parallel LLM runs with distinct mental model lenses (structural, survivorship bias, feedback loops, etc.) instead of redundant self-consistency voting. `CrossLensAgreement` confidence signal. `dream --quality --lens` per-lens breakdown. Vision provenance display in `--review`.
-- **v0.4.6** — Graph integrity: cross-project ref detection (`--cross-project`), `clean-links` command, doctor advisories (link density, chain depth, tag fragmentation)
-- **v0.4.5** — Second-order impact awareness: vision scoring shows downstream impact in `dream --review`
-- **v0.4.4** — Stocks and flows: inflow/outflow metrics in `stats`, bloat detection in `doctor`
-- **v0.4.2** — Global dream quality ledger: per-cycle metrics across projects; `dream --quality` and `dream --compare`
-- **v0.4.0** — Secret detection: security scanning of mote body content for embedded credentials
-- **v0.3.19** — Search filters (`--type`, `--tag`, `--status`); doctor complexity checks; context weighting
-- **v0.3.18** — Strata code artifact connections
-- **v0.3.15** — Concept vocabulary layer (wiki-links in body auto-create concept edges)
-- **v0.3.14** — BM25 auto-link on mote creation
-- **v0.3.13** — Global-by-default knowledge: decision/lesson/explore/context/question stored in `~/.claude/memory/` by default
-- **v0.3.0** — Beads feature transfer: JSONL import/export, external refs, `--json` flags, scan cache, cluster summarization
-- **v0.2.0** — Hierarchical planning: parent/child tasks, acceptance criteria, `plan`/`progress`/`check` commands
-- **v0.1.x** — Core system: mote CRUD, graph linking, scoring, context/prime, dream cycle, strata, constellations
+See [docs/version-history.md](docs/version-history.md) for the full release history. The head of that list is the canonical user-facing version statement and is CI-enforced equal to `internal/version.Value` by `scripts/check-versions.sh`.
 
 ## Design Principles
 

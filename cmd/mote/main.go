@@ -11,13 +11,14 @@ import (
 	"github.com/spf13/cobra"
 	"motes/internal/format"
 	"motes/internal/jsonenv"
+	"motes/internal/version"
 )
 
 var rootCmd = &cobra.Command{
 	Use:     "mote",
 	Short:   "AI-native context and memory system",
 	Long:    "Motes is an AI-native context and memory system. Knowledge is stored as atomic units (motes) linked in two dimensions: dependency links and semantic links.",
-	Version: "0.4.38",
+	Version: version.Value,
 }
 
 // noColorFlag is bound to the persistent --no-color flag on rootCmd. Renderers

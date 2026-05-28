@@ -65,6 +65,19 @@ func TestConcurrency_GroupKeyDistinguishesPRsFromBranches(t *testing.T) {
 	}
 }
 
+// --- STORY-VERSIONS-001: versions job present and wires up the check script ---
+
+func TestWorkflow_VersionsJobInvokesCheckScript(t *testing.T) {
+	_, raw := loadCIWorkflow(t)
+	body := string(raw)
+	if !strings.Contains(body, "\n  versions:\n") {
+		t.Fatal("ci.yml must declare a 'versions:' job at the top level of jobs:")
+	}
+	if !strings.Contains(body, "scripts/check-versions.sh") {
+		t.Errorf("versions job must invoke scripts/check-versions.sh; got:\n%s", body)
+	}
+}
+
 // --- Scenario 4 / 6: live ci.yml itself is SHA-pinned with a tag comment ---
 //
 // The fixture-driven tests in lint_actions_test.go exercise the lint script
