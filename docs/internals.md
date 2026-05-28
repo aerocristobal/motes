@@ -74,3 +74,11 @@ Motes never reads or writes any of these. Cross-agent shared knowledge flows thr
 - Parallel file reads use goroutines + sync.WaitGroup (see `ReadAllParallel`)
 - Dream cycle invokes `claude` CLI via `os/exec` — never handles OAuth/API keys directly
 - BM25 tokenizer: lowercase, split on non-alphanumeric, remove stop words, no stemming
+
+## CI
+
+Single workflow at `.github/workflows/ci.yml` with four jobs (`build`, `vet`, `test`, `lint-actions`) on `ubuntu-latest`. Top-level `concurrency` block uses the key `${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}` with `cancel-in-progress: true` so a force-push to a PR cancels the in-flight run. The `event_name` segment is load-bearing: without it, a `push` to master and a `pull_request` to the same branch would share a group and cancel each other. Tracked by `internal/ci/workflow_test.go`.
+
+Every `uses:` reference is pinned to a 40-character lowercase hex commit SHA followed by a trailing `# <tag>` comment (e.g. `actions/checkout@de0fac2e... # v6.0.2`). Tags are mutable — the action's maintainer (or an attacker with write access) can move them; a commit SHA cannot be silently rewritten. The tag comment preserves human-readable provenance. The rule applies uniformly to first-party (`actions/*`) and third-party actions, enforced by `scripts/lint-actions-pinning.sh` and the `lint-actions` CI job. Tested via `internal/ci/lint_actions_test.go` (fixture-based, mirrors the `internal/githook` shell-out pattern).
+
+The concurrency cancellation *behavior* is a property of the GitHub-hosted runner and cannot be unit-tested locally; the Go tests prove the *declaration* is correct. One-time smoke test: push a branch, immediately push a second commit, and verify in the Actions UI that the first run transitions to "cancelled".
