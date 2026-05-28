@@ -1,0 +1,21 @@
+# scripts/removed-flags.txt — known-removed CLI flags for the
+# doc-flag-freshness check (STORY-DOCFLAGS-001).
+#
+# When a flag is renamed or removed from the live Cobra tree, add it
+# here so docs that intentionally mention it in a CHANGELOG, Removed,
+# Deprecated, or Historical context continue to pass CI without
+# requiring the doc to be edited. Without an entry here, the check
+# treats a reference to a vanished flag as "unknown flag for
+# command" and fails the build.
+#
+# Format: one entry per line, `<command path> <--flag>`. The command
+# path is one or two whitespace-separated words matching the surface
+# name (e.g. `ls`, `compliance export`). Lines starting with `#` are
+# comments. Blank lines are ignored.
+#
+# Example:
+#   ls --legacy-index
+#   compliance export --old-format
+#
+# No flags have been removed from motes as of the bootstrap of this
+# check; the file is intentionally empty below.

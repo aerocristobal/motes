@@ -453,6 +453,7 @@ users want to try it on a personal branch without committing `.memory/`. A
 `--stealth` mode lowers the friction.
 
 **Adopt for mote:** mote already supports a `MOTE_DIR` env var by
+<!-- doc-flags: ignore-next -->
 convention; formalize `mote init --stealth` that writes
 `.memory/config.yaml` with `no-git-ops: true` and adds `.memory/` to a local
 (not committed) `.git/info/exclude`.
@@ -613,6 +614,7 @@ rules in one place.
 
 **Adopt for mote:** mote's prime context is currently baked into the
 binary. Add the same three-tier resolution against `MOTE_PRIME.md` (or
+<!-- doc-flags: ignore-next -->
 `.memory/PRIME.md`). Mote already has `mote prime --export`-equivalent
 plumbing in its skill system; making the override file-based is simpler.
 
