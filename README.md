@@ -115,7 +115,9 @@ The dream cycle works with multiple LLM backends — `claude-cli` (default), `op
 
 ### Agent Integration
 
-Motes installs the same lifecycle workflow (session-start priming, per-prompt context, session-end flushing, mote skills) for three AI coding agents — they wire up automatically when `mote onboard` detects each tool's config directory:
+If you use Claude Code, the fastest install path is the bundled marketplace plugin: `/plugin marketplace add aerocristobal/motes` then `/plugin install mote@motes`. The plugin ships the four mote skills and the same lifecycle hooks `mote onboard` would write. When you subsequently run `mote onboard`, it detects the marketplace install and skips the Claude Code dotfile shims. See [docs/onboarding.md](docs/onboarding.md#preferred-install-via-plugin-marketplace-claude-code) for the full marketplace install flow.
+
+Otherwise (or for Codex / Gemini CLI, which have no marketplace path yet), motes installs the same lifecycle workflow (session-start priming, per-prompt context, session-end flushing, mote skills) for three AI coding agents — they wire up automatically when `mote onboard` detects each tool's config directory:
 
 | Agent | Config | Hooks file | Skills path | Reads instruction file |
 |-------|--------|-----------|-------------|------------------------|

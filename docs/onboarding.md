@@ -65,6 +65,21 @@ By default only open issues are imported. To include closed issues:
 mote onboard --include-closed
 ```
 
+### Preferred: install via plugin marketplace (Claude Code)
+
+If you use Claude Code, the fastest path is to install the bundled `mote` plugin from its marketplace registration. Inside Claude Code, run:
+
+```
+/plugin marketplace add aerocristobal/motes
+/plugin install mote@motes
+```
+
+The plugin ships the four mote skills (`mote-capture`, `mote-retrieve`, `mote-plan`, `mote-subagent`) and the lifecycle hooks (SessionStart, PreCompact, UserPromptSubmit, Stop) — the same surface `mote onboard` would write to `~/.claude/skills/` and `~/.claude/settings.json`, but bundled with the binary so it refreshes on each release rather than going stale until you re-run `mote onboard`.
+
+When you subsequently run `mote onboard` in a project, it detects the marketplace install and **skips** the dotfile shim path for Claude Code — the summary reports `Claude Code: integrated via plugin (skipped dotfile install)`. Codex is treated symmetrically once OpenAI's plugin marketplace ships; the artifact at `plugins/mote/.codex-plugin/plugin.json` is forward-looking. Gemini CLI has no marketplace path yet — the existing `~/.gemini/settings.json` + `~/.agents/skills/` dotfile install is still the only way to wire Gemini.
+
+If you don't (yet) use Claude Code's marketplace, the dotfile install path below is unchanged and remains the fallback.
+
 ### What gets auto-installed
 
 `mote init` and `mote onboard` automatically:

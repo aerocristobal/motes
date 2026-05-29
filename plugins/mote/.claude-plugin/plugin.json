@@ -1,0 +1,22 @@
+{
+  "name": "mote",
+  "description": "Motes is an AI-native context and memory system. This plugin bundles mote's lifecycle hooks (session priming, per-prompt context, session-end flushing) and the four mote skills (capture, retrieve, plan, subagent) for Claude Code.",
+  "version": "0.4.39",
+  "author": {
+    "name": "aerocristobal"
+  },
+  "homepage": "https://github.com/aerocristobal/motes",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aerocristobal/motes.git"
+  },
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "context",
+    "agent",
+    "knowledge-graph",
+    "tasks"
+  ],
+  "hooks": "./hooks/hooks.json"
+}

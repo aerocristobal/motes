@@ -1,0 +1,27 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "motes",
+  "description": "Motes — AI-native context and memory system. Atomic knowledge units linked into a graph; lifecycle hooks, skills, and shared subagent context for Claude Code.",
+  "owner": {
+    "name": "aerocristobal"
+  },
+  "plugins": [
+    {
+      "name": "mote",
+      "description": "Lifecycle hooks (SessionStart/PreCompact/UserPromptSubmit/Stop) and the four mote skills (capture, retrieve, plan, subagent) for Claude Code.",
+      "category": "productivity",
+      "version": "0.4.39",
+      "source": {
+        "source": "github",
+        "url": "https://github.com/aerocristobal/motes",
+        "path": "plugins/mote"
+      },
+      "homepage": "https://github.com/aerocristobal/motes",
+      "tags": [
+        "memory",
+        "knowledge-graph",
+        "agent-context"
+      ]
+    }
+  ]
+}

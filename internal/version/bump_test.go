@@ -3,6 +3,7 @@
 package version_test
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -201,6 +202,104 @@ func TestBump_RejectsNoOp(t *testing.T) {
 	code, out := runBump(t, root, "0.4.37")
 	if code == 0 {
 		t.Fatalf("expected non-zero for no-op bump, got 0; output:\n%s", out)
+	}
+}
+
+// --- STORY-PLUGINS-001: plugin manifests get rewritten in lock-step ---
+
+// writePluginManifests creates the vendored plugin manifest stubs under root,
+// declaring the given version. Mirrors plugins/mote/ layout in the real repo.
+func writePluginManifests(t *testing.T, root, ver string) {
+	t.Helper()
+	type stub struct {
+		rel  string
+		body string
+	}
+	stubs := []stub{
+		{
+			rel:  "plugins/mote/.claude-plugin/plugin.json",
+			body: `{"name":"mote","version":"` + ver + `","description":"stub"}`,
+		},
+		{
+			rel:  "plugins/mote/.codex-plugin/plugin.json",
+			body: `{"name":"mote","version":"` + ver + `","description":"stub"}`,
+		},
+		{
+			rel:  "plugins/mote/.claude-plugin/marketplace.json",
+			body: `{"name":"motes","plugins":[{"name":"mote","version":"` + ver + `","source":{"source":"github","path":"plugins/mote"}}]}`,
+		},
+	}
+	for _, s := range stubs {
+		full := filepath.Join(root, s.rel)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatalf("mkdir %s: %v", s.rel, err)
+		}
+		if err := os.WriteFile(full, []byte(s.body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", s.rel, err)
+		}
+	}
+}
+
+func TestBump_RewritesPluginManifests(t *testing.T) {
+	root := setupBumpRepo(t, "0.4.37")
+	writePluginManifests(t, root, "0.4.37")
+	gitRun(t, root, "add", "-A")
+	gitRun(t, root, "commit", "-q", "-m", "add plugin manifests")
+
+	code, out := runBump(t, root, "0.4.38")
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; output:\n%s", code, out)
+	}
+
+	for _, rel := range []string{
+		"plugins/mote/.claude-plugin/plugin.json",
+		"plugins/mote/.codex-plugin/plugin.json",
+		"plugins/mote/.claude-plugin/marketplace.json",
+	} {
+		body := readFile(t, filepath.Join(root, rel))
+		if !strings.Contains(body, `"version":"0.4.38"`) && !strings.Contains(body, `"version": "0.4.38"`) {
+			t.Errorf("%s did not gain version 0.4.38:\n%s", rel, body)
+		}
+		if strings.Contains(body, `"version":"0.4.37"`) || strings.Contains(body, `"version": "0.4.37"`) {
+			t.Errorf("%s still references the old 0.4.37 version:\n%s", rel, body)
+		}
+	}
+}
+
+// When --commit is set and plugin manifests are present, the commit must
+// include them. The script's git_files list extends only with manifests it
+// actually rewrote, so absent manifests still produce a 2-file commit
+// (TestBump_CommitCreatesExactlyOneCommitWithNoTag continues to hold).
+func TestBump_CommitIncludesPluginManifestsWhenPresent(t *testing.T) {
+	root := setupBumpRepo(t, "0.4.37")
+	writePluginManifests(t, root, "0.4.37")
+	gitRun(t, root, "add", "-A")
+	gitRun(t, root, "commit", "-q", "-m", "add plugin manifests")
+
+	before := gitCommitCount(t, root)
+	code, out := runBump(t, root, "0.4.38", "--commit")
+	if code != 0 {
+		t.Fatalf("expected exit 0, got %d; output:\n%s", code, out)
+	}
+	if got := gitCommitCount(t, root) - before; got != 1 {
+		t.Errorf("expected exactly 1 new commit, got %d", got)
+	}
+
+	changed := strings.Fields(gitRun(t, root, "show", "--name-only", "--format=", "HEAD"))
+	want := map[string]bool{
+		"internal/version/version.go":                  true,
+		"docs/version-history.md":                      true,
+		"plugins/mote/.claude-plugin/plugin.json":      true,
+		"plugins/mote/.codex-plugin/plugin.json":       true,
+		"plugins/mote/.claude-plugin/marketplace.json": true,
+	}
+	if len(changed) != len(want) {
+		t.Fatalf("expected commit to touch exactly %d files; got %d: %v", len(want), len(changed), changed)
+	}
+	for _, f := range changed {
+		if !want[f] {
+			t.Errorf("unexpected file in commit diff: %s", f)
+		}
 	}
 }
 

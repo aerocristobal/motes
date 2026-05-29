@@ -1,0 +1,76 @@
+{
+  "description": "Mote lifecycle hooks — equivalent to what `mote onboard` writes to ~/.claude/settings.json. Bundled so marketplace install does not require running onboard separately for Claude Code skills/hooks.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MOTE_AGENT_KIND=claude mote prime --hook --mode=startup"
+          }
+        ]
+      },
+      {
+        "matcher": "resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MOTE_AGENT_KIND=claude mote prime --hook --mode=resume"
+          }
+        ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MOTE_AGENT_KIND=claude mote prime --hook --mode=compact"
+          }
+        ]
+      },
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MOTE_AGENT_KIND=claude mote prime --hook --mode=startup"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MOTE_AGENT_KIND=claude mote prime --hook --mode=compact"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MOTE_AGENT_KIND=claude mote prompt-context"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MOTE_AGENT_KIND=claude mote session-end --hook"
+          }
+        ]
+      }
+    ]
+  }
+}

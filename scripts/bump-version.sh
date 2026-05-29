@@ -185,13 +185,46 @@ if ! grep -qE "^- \*\*v${escaped_version}\*\*" "$vhistory_file"; then
     false
 fi
 
+# Rewrite version field in vendored plugin manifests (STORY-PLUGINS-001).
+# Files are tolerated as optional — test setups that don't create them are
+# unaffected; production repos always have them present. Each manifest carries
+# exactly one `"version": "X.Y.Z"` field; replace in place.
+escaped_current="${current//./\\.}"
+escaped_current="${escaped_current//+/\\+}"
+plugin_manifests=(
+    "plugins/mote/.claude-plugin/plugin.json"
+    "plugins/mote/.codex-plugin/plugin.json"
+    "plugins/mote/.claude-plugin/marketplace.json"
+)
+rewritten_manifests=()
+for rel in "${plugin_manifests[@]}"; do
+    f="${repo_root}/${rel}"
+    if [ ! -f "$f" ]; then
+        continue
+    fi
+    backup "$f"
+    tmp=$(mktemp)
+    sed -E "s|(\"version\"[[:space:]]*:[[:space:]]*\")${escaped_current}(\")|\1${version}\2|g" \
+        "$f" > "$tmp"
+    mv "$tmp" "$f"
+    if ! grep -qE "\"version\"[[:space:]]*:[[:space:]]*\"${escaped_version}\"" "$f"; then
+        echo "bump-version: failed to rewrite version field in ${rel}" >&2
+        false
+    fi
+    rewritten_manifests+=("${rel}")
+done
+
 for f in "${backed_up[@]}"; do
     rm -f "${f}.bumpbak"
 done
 trap - ERR
 
 if [ "$do_commit" -eq 1 ]; then
-    git -C "$repo_root" add internal/version/version.go docs/version-history.md
+    git_files=("internal/version/version.go" "docs/version-history.md")
+    for rel in "${rewritten_manifests[@]}"; do
+        git_files+=("${rel}")
+    done
+    git -C "$repo_root" add "${git_files[@]}"
     git -C "$repo_root" commit -q -m "chore(version): bump to ${version}"
 fi
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -114,6 +115,123 @@ func geminiEnabled(homeDir string) bool {
 // dominated by ~/.agents/skills/), so the install logic is shared.
 func agentsSkillsEnabled(homeDir string) bool {
 	return codexEnabled(homeDir) || geminiEnabled(homeDir)
+}
+
+// claudePluginInstalled reports whether a marketplace-installed motes plugin
+// is present under ~/.claude/plugins/. Detection walks the plugins tree
+// (depth-capped) looking for any `.claude-plugin/plugin.json` whose top-level
+// `name` field equals "mote". STORY-PLUGINS-001 Q1: walking the directory tree
+// is more robust against marketplace path churn than a sentinel file.
+//
+// Returns false (no error, no stderr) when the plugins dir is missing or any
+// manifest along the way is malformed — onboard's gating must never fail
+// because a third-party plugin has a typo in its JSON.
+func claudePluginInstalled(homeDir string) bool {
+	return pluginInstalledIn(filepath.Join(homeDir, ".claude", "plugins"), ".claude-plugin")
+}
+
+// codexPluginInstalled mirrors claudePluginInstalled under ~/.codex/plugins/.
+// Codex's marketplace and exact directory layout are still in flux; the
+// detector matches whatever path the marketplace ends up using as long as a
+// `.codex-plugin/plugin.json` with name == "mote" lives somewhere under
+// ~/.codex/plugins/.
+func codexPluginInstalled(homeDir string) bool {
+	return pluginInstalledIn(filepath.Join(homeDir, ".codex", "plugins"), ".codex-plugin")
+}
+
+// pluginInstalledIn walks pluginsDir (depth-capped) looking for any
+// <manifestDir>/plugin.json whose top-level `name` is "mote". Returns false
+// when pluginsDir is missing, when no matching manifest is found, or when
+// every candidate manifest fails to parse.
+func pluginInstalledIn(pluginsDir, manifestDir string) bool {
+	if _, err := os.Stat(pluginsDir); err != nil {
+		return false
+	}
+	rootDepth := strings.Count(filepath.Clean(pluginsDir), string(filepath.Separator))
+	found := false
+	_ = filepath.WalkDir(pluginsDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || found {
+			return nil
+		}
+		if d.IsDir() {
+			// Depth cap: marketplace layouts (~/.claude/plugins/marketplaces/
+			// <name>/plugins/<plugin>/.claude-plugin/) and direct layouts
+			// (~/.claude/plugins/<plugin>/.claude-plugin/) both fit within 5
+			// levels under pluginsDir.
+			depth := strings.Count(filepath.Clean(p), string(filepath.Separator)) - rootDepth
+			if depth > 5 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() != "plugin.json" || filepath.Base(filepath.Dir(p)) != manifestDir {
+			return nil
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		var m struct {
+			Name string `json:"name"`
+		}
+		if json.Unmarshal(data, &m) == nil && m.Name == "mote" {
+			found = true
+		}
+		return nil
+	})
+	return found
+}
+
+// ensureMoteSkillsGated installs mote skill files at the active skills
+// locations not already supplied by a marketplace-installed plugin.
+//
+// Always writes to ~/.claude/skills/ unless `claudePlugin` is true. Writes
+// to ~/.agents/skills/ when Codex or Gemini CLI is enabled, suppressing it
+// only when Codex is the sole consumer AND the Codex plugin supplies it
+// (Gemini has no plugin path in STORY-PLUGINS-001 — see Q7 non-goal).
+func ensureMoteSkillsGated(homeDir string, claudePlugin, codexPlugin bool, dryRun bool) error {
+	var targets []string
+	if !claudePlugin {
+		targets = append(targets, filepath.Join(homeDir, ".claude", "skills"))
+	}
+	agentsNeeded := codexEnabled(homeDir) && !codexPlugin
+
+	if geminiEnabled(homeDir) {
+		agentsNeeded = true
+	}
+	if agentsNeeded {
+		targets = append(targets, filepath.Join(homeDir, ".agents", "skills"))
+	}
+	for _, dir := range targets {
+		if err := installSkillsAt(dir, dryRun); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// printOnboardSummary emits one line per active agent host indicating whether
+// the install path was plugin-mediated (marketplace plugin detected) or
+// dotfile-mediated. Always emits for Claude Code; emits for Codex/Gemini only
+// when the host is enabled. STORY-PLUGINS-001 Scenarios 2, 3, 7.
+func printOnboardSummary(homeDir string, claudePlugin, codexPlugin bool) {
+	fmt.Println()
+	fmt.Println("Agent integration summary:")
+	if claudePlugin {
+		fmt.Println("  Claude Code: integrated via plugin (skipped dotfile install)")
+	} else {
+		fmt.Println("  Claude Code: dotfile install")
+	}
+	if codexEnabled(homeDir) {
+		if codexPlugin {
+			fmt.Println("  Codex: integrated via plugin (skipped dotfile install)")
+		} else {
+			fmt.Println("  Codex: dotfile install")
+		}
+	}
+	if geminiEnabled(homeDir) {
+		fmt.Println("  Gemini CLI: dotfile install")
+	}
 }
 
 func runOnboard(cmd *cobra.Command, args []string) error {
@@ -273,21 +391,25 @@ func promptRepo(r io.Reader) (string, error) {
 func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManager, dryRun bool) error {
 	home, _ := os.UserHomeDir()
 	claudeDir := filepath.Join(home, ".claude")
+	claudePlugin := claudePluginInstalled(home)
+	codexPlugin := codexPluginInstalled(home)
 
 	if dryRun {
 		settingsHasBd := settingsHasBdRefs(filepath.Join(claudeDir, "settings.json"))
 		if settingsHasBd {
 			migrateClaudeSettings(claudeDir, true)
 		}
-		ensureClaudeHooks(claudeDir, true)
+		if !claudePlugin {
+			_ = ensureClaudeHooks(claudeDir, true)
+		}
 		ensurePreToolUseHooks(claudeDir, true)
-		if codexEnabled(home) {
+		if codexEnabled(home) && !codexPlugin {
 			ensureCodexHooks(filepath.Join(home, ".codex"), true)
 		}
 		if geminiEnabled(home) {
 			ensureGeminiSettings(filepath.Join(home, ".gemini"), true)
 		}
-		ensureMoteSkills(home, true)
+		_ = ensureMoteSkillsGated(home, claudePlugin, codexPlugin, true)
 		ensureClaudeGlobalShim(home, true)
 		if codexEnabled(home) {
 			ensureCodexGlobalShim(home, true)
@@ -296,6 +418,7 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 			ensureGeminiGlobalShim(home, true)
 		}
 		ensureProjectGithooks(cwd, true)
+		printOnboardSummary(home, claudePlugin, codexPlugin)
 		return nil
 	}
 
@@ -319,9 +442,13 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 		fmt.Printf("Migrated %d hook(s) in ~/.claude/settings.json\n", migrated)
 	}
 
-	// Install hooks
-	if err := ensureClaudeHooks(claudeDir, false); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
+	// Install Claude hooks unless the marketplace plugin already supplies them
+	// (STORY-PLUGINS-001 Scenario 2). PreToolUse safety hooks stay below — they
+	// are not part of the plugin bundle.
+	if !claudePlugin {
+		if err := ensureClaudeHooks(claudeDir, false); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
+		}
 	}
 
 	// Install PreToolUse safety hooks (block-interactive-cmds, block-gh-watch,
@@ -330,22 +457,26 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 		fmt.Fprintf(os.Stderr, "warning: pretooluse hooks installation: %v\n", err)
 	}
 
-	// Install Codex hooks when --codex set or ~/.codex/ exists
-	if codexEnabled(home) {
+	// Install Codex hooks when --codex set or ~/.codex/ exists, unless the
+	// Codex plugin already supplies them (STORY-PLUGINS-001 Scenario 3).
+	if codexEnabled(home) && !codexPlugin {
 		if err := ensureCodexHooks(filepath.Join(home, ".codex"), false); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: codex hooks installation: %v\n", err)
 		}
 	}
 
-	// Install Gemini CLI hooks + context.fileName when --gemini set or ~/.gemini/ exists
+	// Install Gemini CLI hooks + context.fileName when --gemini set or ~/.gemini/ exists.
+	// Gemini has no plugin path in this story (Q7 non-goal).
 	if geminiEnabled(home) {
 		if err := ensureGeminiSettings(filepath.Join(home, ".gemini"), false); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: gemini settings installation: %v\n", err)
 		}
 	}
 
-	// Install skills (writes to ~/.agents/skills too when codex or gemini is enabled)
-	if err := ensureMoteSkills(home, false); err != nil {
+	// Install skills, gated per-host: Claude side is skipped when the Claude
+	// plugin supplies them; the shared ~/.agents/skills/ path is skipped only
+	// when Codex is the sole consumer and the Codex plugin supplies them.
+	if err := ensureMoteSkillsGated(home, claudePlugin, codexPlugin, false); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
 	}
 
@@ -367,6 +498,8 @@ func runCommonSetup(cwd, root string, mm *core.MoteManager, im *core.IndexManage
 	// Install per-project git hooks (post-checkout, pre-commit) from
 	// binary-embedded templates. See STORY-HOOKINST-001.
 	ensureProjectGithooks(cwd, false)
+
+	printOnboardSummary(home, claudePlugin, codexPlugin)
 
 	return nil
 }
@@ -449,22 +582,27 @@ func runOnboardProject() error {
 
 		home, _ := os.UserHomeDir()
 		claudeDir := filepath.Join(home, ".claude")
+		claudePlugin := claudePluginInstalled(home)
+		codexPlugin := codexPluginInstalled(home)
 		if d.settingsHasBd {
 			migrateClaudeSettings(claudeDir, true)
 		}
-		ensureClaudeHooks(claudeDir, true)
+		if !claudePlugin {
+			_ = ensureClaudeHooks(claudeDir, true)
+		}
 		ensurePreToolUseHooks(claudeDir, true)
-		if codexEnabled(home) {
+		if codexEnabled(home) && !codexPlugin {
 			ensureCodexHooks(filepath.Join(home, ".codex"), true)
 		}
 		if geminiEnabled(home) {
 			ensureGeminiSettings(filepath.Join(home, ".gemini"), true)
 		}
-		ensureMoteSkills(home, true)
+		_ = ensureMoteSkillsGated(home, claudePlugin, codexPlugin, true)
 		ensureProjectGithooks(cwd, true)
 		if onboardCleanup && dirExists(filepath.Join(cwd, ".beads")) {
 			fmt.Println("  Would remove .beads/")
 		}
+		printOnboardSummary(home, claudePlugin, codexPlugin)
 		return nil
 	} else {
 		// Interactive: show summary and prompt
@@ -591,6 +729,9 @@ func runOnboardGlobal() error {
 	}
 	fmt.Println()
 
+	claudePlugin := claudePluginInstalled(home)
+	codexPlugin := codexPluginInstalled(home)
+
 	if onboardDryRun {
 		fmt.Println("Dry run — no changes made.")
 		importCount := openBeads
@@ -603,18 +744,21 @@ func runOnboardGlobal() error {
 		if settingsHasBd {
 			migrateClaudeSettings(claudeDir, true)
 		}
-		ensureClaudeHooks(claudeDir, true)
+		if !claudePlugin {
+			_ = ensureClaudeHooks(claudeDir, true)
+		}
 		ensurePreToolUseHooks(claudeDir, true)
-		if codexEnabled(home) {
+		if codexEnabled(home) && !codexPlugin {
 			ensureCodexHooks(filepath.Join(home, ".codex"), true)
 		}
 		if geminiEnabled(home) {
 			ensureGeminiSettings(filepath.Join(home, ".gemini"), true)
 		}
-		ensureMoteSkills(home, true)
+		_ = ensureMoteSkillsGated(home, claudePlugin, codexPlugin, true)
 		if onboardCleanup && dirExists(filepath.Join(home, ".beads")) {
 			fmt.Println("  Would remove ~/.beads/")
 		}
+		printOnboardSummary(home, claudePlugin, codexPlugin)
 		return nil
 	}
 
@@ -679,9 +823,11 @@ func runOnboardGlobal() error {
 		fmt.Printf("Migrated %d hook(s) in ~/.claude/settings.json\n", migrated)
 	}
 
-	// --- Install hooks ---
-	if err := ensureClaudeHooks(claudeDir, false); err != nil {
-		fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
+	// --- Install Claude hooks (skip when marketplace plugin supplies them) ---
+	if !claudePlugin {
+		if err := ensureClaudeHooks(claudeDir, false); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: hooks installation: %v\n", err)
+		}
 	}
 
 	// --- Install PreToolUse safety hooks ---
@@ -691,8 +837,8 @@ func runOnboardGlobal() error {
 		fmt.Fprintf(os.Stderr, "warning: pretooluse hooks installation: %v\n", err)
 	}
 
-	// --- Install Codex hooks (when --codex set or ~/.codex/ exists) ---
-	if codexEnabled(home) {
+	// --- Install Codex hooks (when --codex set or ~/.codex/ exists, unless plugin supplies them) ---
+	if codexEnabled(home) && !codexPlugin {
 		if err := ensureCodexHooks(filepath.Join(home, ".codex"), false); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: codex hooks installation: %v\n", err)
 		}
@@ -705,8 +851,8 @@ func runOnboardGlobal() error {
 		}
 	}
 
-	// --- Install skills ---
-	if err := ensureMoteSkills(home, false); err != nil {
+	// --- Install skills (gated per-host) ---
+	if err := ensureMoteSkillsGated(home, claudePlugin, codexPlugin, false); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: skills installation: %v\n", err)
 	}
 
@@ -731,6 +877,8 @@ func runOnboardGlobal() error {
 	}
 
 	fmt.Printf("\nGlobal onboarding complete: %d motes created.\n", totalCreated)
+
+	printOnboardSummary(home, claudePlugin, codexPlugin)
 
 	globalBeadsDir := filepath.Join(home, ".beads")
 	if onboardCleanup && dirExists(globalBeadsDir) {
