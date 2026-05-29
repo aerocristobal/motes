@@ -4,6 +4,7 @@ The head of this list (the first `- **vX.Y.Z** —` bullet) is the canonical use
 
 ## Version History
 
+- **v0.4.40** — Adaptive `mote prime` MCP-mode detection across the three host settings files (`~/.claude`, `~/.codex`, `~/.gemini`); explicit `--mcp` / `--full` overrides with mutual-exclusivity; documented size budget in `docs/agents-guide.md` (MCP ~75 tokens, CLI ~2500 tokens); JSON envelope additively gains `mode` and `mode_source` (STORY-ADAPRIME-001).
 - **v0.4.39** — First-class `mote githooks install` from binary-embedded templates (post-checkout + pre-commit); `mote onboard` installs them automatically; `mote doctor --fix` repairs mote-managed drift (STORY-HOOKINST-001).
 - **v0.4.38** — CI hygiene: `check-doc-flags` subcommand and `doc-flags` CI job fail the build on stale flag references in docs (STORY-DOCFLAGS-001).
 - **v0.4.37** — `mote ls --ready --explain` surfaces per-mote justification for why each mote is ready (dep status, claim availability, score components).

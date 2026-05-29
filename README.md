@@ -138,6 +138,8 @@ mote session-end            # End: flush access counts, get suggestions
 
 `mote prime` now includes a **"## Ready to start"** section at the top listing tasks with all blockers cleared (sorted by weight, capped at 5). This makes actionable work visible without a separate `mote ls --ready` call.
 
+`mote prime` adapts its payload size to the host: when an `mcpServers.mote` entry is detected in `~/.claude/settings.json`, `~/.codex/settings.json`, or `~/.gemini/settings.json`, prime emits a brief ~75-token reminder; otherwise it emits the full ~2500-token payload. Pin the mode explicitly with `mote prime --mcp` or `mote prime --full`. See [docs/agents-guide.md §`mote prime` size budget](docs/agents-guide.md#mote-prime-size-budget).
+
 ### Creating Motes
 
 ```bash

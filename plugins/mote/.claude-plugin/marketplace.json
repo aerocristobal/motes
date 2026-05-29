@@ -10,7 +10,7 @@
       "name": "mote",
       "description": "Lifecycle hooks (SessionStart/PreCompact/UserPromptSubmit/Stop) and the four mote skills (capture, retrieve, plan, subagent) for Claude Code.",
       "category": "productivity",
-      "version": "0.4.39",
+      "version": "0.4.40",
       "source": {
         "source": "github",
         "url": "https://github.com/aerocristobal/motes",

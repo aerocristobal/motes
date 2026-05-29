@@ -220,6 +220,62 @@ This is a breaking change from the prior JSONL stream. `mote import` accepts bot
 
 ---
 
+## `mote prime` size budget
+
+`mote prime` emits one of two payload sizes, chosen automatically by detecting whether an MCP server for motes is wired up in your agent host's configuration. The detection lets the same `mote prime` command serve both worlds without requiring a flag at the call site:
+
+| Mode | Token budget | When |
+|---|---|---|
+| `mcp` | ≤ **75** tokens | An `mcpServers.mote` key exists in `~/.claude/settings.json`, `~/.codex/settings.json`, or `~/.gemini/settings.json` |
+| `cli` | ≤ **2500** tokens | No MCP server detected (the default today) |
+
+The MCP-mode payload is brief by design: it carries the truncation directive, persistent memories, and a single line pointing the agent at the MCP tools (`mote_ls`, `mote_search`, `mote_show`) for detail on demand. The CLI-mode payload is the full output you see today — ready tasks, active work, decisions, lessons, prior explorations, strata, and code context.
+
+### Explicit overrides
+
+Two flags pin the mode regardless of detection:
+
+- `mote prime --mcp` — force the brief MCP-mode payload (useful when you know your host is MCP-aware but settings aren't readable, or for one-off testing).
+- `mote prime --full` — force the full CLI-mode payload (useful when an MCP server is wired but you want the prose payload anyway).
+
+`--mcp` and `--full` are mutually exclusive; combining them exits non-zero with no partial output. `--memories-only` composes with both — it always emits just the memories block, but the JSON envelope still records the resolved `mode` and `mode_source` so a downstream parser can see what was asked for.
+
+Precedence: `--memories-only` (highest) > explicit `--mcp`/`--full` > auto-detection > default-CLI.
+
+### Mode vs density
+
+This axis is independent of `--mode startup|resume|compact`:
+
+- `--mode` controls density of mote **body content** (snippets, length).
+- `--mcp`/`--full` controls whether the **full payload is emitted at all**.
+
+The two compose: `mote prime --mode=compact --full` keeps the existing compact-mode behavior; `mote prime --mode=startup --mcp` emits the brief payload regardless of `--mode`.
+
+### Detection robustness
+
+Detection failures are silent by default (the same policy as STORY-BR-23-4): missing settings files, malformed JSON, and unexpected shapes all fall through to CLI mode without writing to stderr. Pass `--debug` (or set `MOTE_DEBUG=1`) to surface a one-line warning naming the path that failed to parse.
+
+The JSON form of `mote prime` adds two new top-level fields to the envelope:
+
+```json
+{
+  "mode": "cli" | "mcp",
+  "mode_source": "auto" | "flag",
+  "truncation_notice": "[mote prime] …",
+  …existing fields…
+}
+```
+
+Both are `omitempty`-encoded so consumers parsing the legacy shape continue to work.
+
+### Why this exists
+
+The `~/.claude/settings.json` schema is owned by Anthropic, not by mote — if upstream restructures `mcpServers`, detection silently breaks. The `--mcp`/`--full` overrides are the durable escape hatch: an agent that knows it is MCP-aware can pass `--mcp` and bypass detection entirely. When the mote MCP wrapper ships, its hook command will pass `--mcp` directly rather than rely on detection.
+
+The Gherkin specification lives at `features/session/adaptive_prime.feature` (living documentation, no Cucumber runner). The Go tests live at `internal/prime/*_test.go` and `cmd/mote/cmd_prime_adaptive_test.go`.
+
+---
+
 ## Execution metadata
 
 Tasks can carry optional structured hints that tell an orchestrator how to dispatch a subagent — without the orchestrator having to parse free-form prose. These are *hints*, not contracts: an orchestrator may ignore them, and `mote` does not itself launch anything. The hints exist because a running subagent cannot change its own model or reasoning effort after launch, so the orchestrator's first read decides everything.

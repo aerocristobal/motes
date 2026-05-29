@@ -16,6 +16,7 @@ import (
 	"motes/internal/core"
 	"motes/internal/dream"
 	"motes/internal/format"
+	"motes/internal/prime"
 	"motes/internal/strata"
 )
 
@@ -25,22 +26,30 @@ var (
 	primeMode         string
 	primeDebug        bool
 	primeMemoriesOnly bool
+	primeMCP          bool
+	primeFull         bool
 )
 
-// truncationDirective is prepended to every successful mote prime output
-// (as a leading text line for text/hook paths, and as the truncation_notice
-// field for --json). Agent hosts (Claude Code, Codex, Gemini CLI) silently
-// truncate hook output for display; this line tells the agent there is more
-// context on disk and where to find it.
-const truncationDirective = "[mote prime] If this output is truncated by your host, " +
-	"read the full persisted output at .memory/last_prime.txt before continuing; " +
-	"it may contain project memories and session rules not visible in the preview."
+// truncationDirective re-exports prime.TruncationDirective under the
+// pre-existing local name so existing references and downstream tests
+// continue to compile unchanged. The canonical literal lives in
+// internal/prime/render.go (STORY-ADAPRIME-001).
+const truncationDirective = prime.TruncationDirective
 
-// lastPrimeFilename is the basename of the persisted prime output, relative to .memory/.
-const lastPrimeFilename = "last_prime.txt"
+// lastPrimeFilename re-exports prime.LastPrimeFilename for the same reason.
+const lastPrimeFilename = prime.LastPrimeFilename
 
 // PrimeOutput is the JSON output structure for mote prime --json.
+//
+// STORY-ADAPRIME-001 added Mode and ModeSource at the top so the JSON
+// envelope leads with the resolved mode (auto-detected MCP/CLI or
+// explicit --mcp/--full). Both use `omitempty`: pre-story consumers see
+// the unchanged shape when the mode envelope is empty (which never
+// happens in current code paths but keeps the addition formally
+// non-breaking per Q5 / STORY-JSCHEMA-001).
 type PrimeOutput struct {
+	Mode             string             `json:"mode,omitempty"`
+	ModeSource       string             `json:"mode_source,omitempty"`
 	TruncationNotice string             `json:"truncation_notice"`
 	Memories         []MemoryEntry      `json:"memories"`
 	ReadyTasks       []MoteEntry        `json:"ready_tasks,omitempty"`
@@ -97,6 +106,8 @@ func init() {
 	primeCmd.Flags().StringVar(&primeMode, "mode", "startup", "Output mode: startup (full), resume (abbreviated), compact (full + body snippets)")
 	primeCmd.Flags().BoolVar(&primeDebug, "debug", false, "Surface underlying errors instead of failing silently (also: MOTE_DEBUG=1)")
 	primeCmd.Flags().BoolVar(&primeMemoriesOnly, "memories-only", false, "Emit only the persistent-memories section (compact hook contexts)")
+	primeCmd.Flags().BoolVar(&primeMCP, "mcp", false, "Force brief MCP-mode payload (overrides auto-detection)")
+	primeCmd.Flags().BoolVar(&primeFull, "full", false, "Force full CLI-mode payload (overrides auto-detection)")
 	rootCmd.AddCommand(primeCmd)
 }
 
@@ -140,7 +151,18 @@ func emitSilentEnvelope() {
 // missing .memory/, corrupt index, permission denied, or a recovered panic —
 // is converted into a silent exit 0 with the mode-appropriate empty payload
 // on stdout. Set MOTE_DEBUG=1 or pass --debug to surface the underlying error.
+//
+// STORY-ADAPRIME-001: --mcp / --full mutex is checked BEFORE the silent-
+// failure trap and BEFORE the stdout pipe so the error path produces no
+// partial output (Scenario 6: stdout empty, no truncation directive leak).
+// Flag misuse is a developer error, not an environmental condition, so it
+// always surfaces regardless of --debug.
 func runPrime(cmd *cobra.Command, args []string) (returnErr error) {
+	if primeMCP && primeFull {
+		return jsonEnvErr(primeJSON, "flag_conflict", 2,
+			"--mcp and --full are mutually exclusive")
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			if primeDebugEnabled() {
@@ -256,6 +278,43 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 		args = session.Topics
 	}
 
+	// Persistent memories — durable rules saved via `mote remember`. Always
+	// rendered before any other section so they survive bottom-up truncation
+	// by agent hosts (same rationale as truncationDirective below).
+	memStore := core.NewMemoryStore(root)
+	memories, memErr := memStore.List("")
+	if memErr != nil && primeDebugEnabled() {
+		return memErr
+	}
+
+	// STORY-ADAPRIME-001: resolve MCP-vs-CLI mode BEFORE printing the
+	// truncation directive so the MCP-mode renderer can own its full
+	// payload (including the directive). Detection failures are silent
+	// by default; --debug surfaces them on stderr.
+	homeDir, _ := os.UserHomeDir()
+	var detected bool
+	var detectWarnings []string
+	if homeDir != "" {
+		detected, detectWarnings = prime.DetectMCPServerVerbose(homeDir)
+	}
+	if primeDebugEnabled() {
+		for _, w := range detectWarnings {
+			fmt.Fprintln(os.Stderr, "mote prime: "+w)
+		}
+	}
+	mode, source := prime.ResolveMode(primeMCP, primeFull, detected)
+
+	if primeMemoriesOnly {
+		return emitMemoriesOnly(memories, mode, source)
+	}
+
+	if mode == prime.ModeMCP {
+		return emitMCPMode(memories, source)
+	}
+
+	// --- CLI mode below — byte-for-byte unchanged from pre-story baseline
+	//     for the text/hook paths; --json additively gains mode/mode_source. ---
+
 	// Truncation directive — first line of every text/hook output so that
 	// head-N style truncation still preserves it. JSON output emits the
 	// directive as the truncation_notice struct field instead, to keep the
@@ -265,17 +324,6 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 		fmt.Println()
 	}
 
-	// Persistent memories — durable rules saved via `mote remember`. Always
-	// rendered before any other section so they survive bottom-up truncation
-	// by agent hosts (same rationale as truncationDirective above).
-	memStore := core.NewMemoryStore(root)
-	memories, memErr := memStore.List("")
-	if memErr != nil && primeDebugEnabled() {
-		return memErr
-	}
-	if primeMemoriesOnly {
-		return emitMemoriesOnly(memories)
-	}
 	if len(memories) > 0 && !primeJSON {
 		printMemoriesSection(memories)
 	}
@@ -504,6 +552,8 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 			}
 		}
 		out := PrimeOutput{
+			Mode:             string(mode),
+			ModeSource:       string(source),
 			TruncationNotice: truncationDirective,
 			Memories:         memoriesToEntries(memories),
 			ReadyTasks:       scoredMotesToEntries(readyTasks, nil),
@@ -768,13 +818,20 @@ func memoriesToEntries(memories []core.MemoryRecord) []MemoryEntry {
 }
 
 // emitMemoriesOnly renders the --memories-only short-circuit output.
-// Text mode emits just the memories section (after the already-printed
-// truncationDirective). JSON mode emits a PrimeOutput envelope with only
-// Memories and TruncationNotice populated; downstream parsers see the
-// stable schema with empty arrays for the suppressed sections.
-func emitMemoriesOnly(memories []core.MemoryRecord) error {
+// Text mode emits the truncation directive followed by the memories
+// section. JSON mode emits a PrimeOutput envelope with only Memories and
+// TruncationNotice populated; downstream parsers see the stable schema
+// with empty arrays for the suppressed sections.
+//
+// STORY-ADAPRIME-001: mode/source are recorded on the JSON envelope so
+// Scenario 5 ("--memories-only composes with both detection and the new
+// flags") can pin precedence in the output even though the body is
+// identical regardless of mode.
+func emitMemoriesOnly(memories []core.MemoryRecord, mode prime.Mode, source prime.ModeSource) error {
 	if primeJSON {
 		out := PrimeOutput{
+			Mode:             string(mode),
+			ModeSource:       string(source),
 			TruncationNotice: truncationDirective,
 			Memories:         memoriesToEntries(memories),
 			ActiveTasks:      []MoteEntry{},
@@ -789,9 +846,39 @@ func emitMemoriesOnly(memories []core.MemoryRecord) error {
 		fmt.Println(string(data))
 		return nil
 	}
+	fmt.Println(truncationDirective)
+	fmt.Println()
 	if len(memories) > 0 {
 		printMemoriesSection(memories)
 	}
+	return nil
+}
+
+// emitMCPMode renders the brief MCP-mode prime payload — STORY-ADAPRIME-001
+// Scenario 1. Text mode delegates to prime.RenderMCPModeText (truncation
+// directive + memories + MCP notice line, ≤ MCPModeTokenBudget). JSON mode
+// emits a PrimeOutput envelope with mode/mode_source set, memories
+// populated, and the CLI-mode arrays empty.
+func emitMCPMode(memories []core.MemoryRecord, source prime.ModeSource) error {
+	if primeJSON {
+		out := PrimeOutput{
+			Mode:             string(prime.ModeMCP),
+			ModeSource:       string(source),
+			TruncationNotice: truncationDirective,
+			Memories:         memoriesToEntries(memories),
+			ActiveTasks:      []MoteEntry{},
+			Decisions:        []MoteEntry{},
+			Lessons:          []MoteEntry{},
+			Explores:         []MoteEntry{},
+		}
+		data, err := json.MarshalIndent(out, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal mcp-mode: %w", err)
+		}
+		fmt.Println(string(data))
+		return nil
+	}
+	_, _ = os.Stdout.Write(prime.RenderMCPModeText(memories))
 	return nil
 }
 
