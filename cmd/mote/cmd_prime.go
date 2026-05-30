@@ -345,10 +345,12 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 	// STORY-PRIMEOVR-001 — resolve the optional PRIME.md prose preamble.
 	// `--memories-only` short-circuits above (Sprint 1 contract), so
 	// override resolution happens only for the CLI and MCP render paths.
-	// Tier failures fall through silently; --debug surfaces them.
-	override := prime.ResolveOverride(root, homeDir)
-	if primeDebugEnabled() && override != nil {
-		for _, msg := range override.DebugMessages {
+	// Tier failures fall through silently; --debug surfaces them, even
+	// when no override resolved (so an operator with three failing tiers
+	// can still diagnose the misconfiguration).
+	override, overrideDebug := prime.ResolveOverride(root, homeDir)
+	if primeDebugEnabled() {
+		for _, msg := range overrideDebug {
 			fmt.Fprintln(os.Stderr, "mote prime: "+msg)
 		}
 	}

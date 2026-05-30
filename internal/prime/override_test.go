@@ -66,7 +66,7 @@ func TestResolveOverride_TierCloneWinsWhenAllPresent(t *testing.T) {
 	writeStr(t, tierPath(memoryRoot, home, prime.TierWorkspace), "beta")
 	writeStr(t, tierPath(memoryRoot, home, prime.TierUserGlobal), "gamma")
 
-	got := prime.ResolveOverride(memoryRoot, home)
+	got, dbg := prime.ResolveOverride(memoryRoot, home)
 	if got == nil {
 		t.Fatal("expected a resolved override, got nil")
 	}
@@ -85,6 +85,9 @@ func TestResolveOverride_TierCloneWinsWhenAllPresent(t *testing.T) {
 	if got.OriginalSize != len("alpha") {
 		t.Errorf("OriginalSize = %d, want %d", got.OriginalSize, len("alpha"))
 	}
+	if len(dbg) != 0 {
+		t.Errorf("no tier should be skipped when tier-1 resolves cleanly; got dbg=%v", dbg)
+	}
 }
 
 // Scenario 2 — Workspace-shared wins when tier 1 absent. ----------------
@@ -94,7 +97,7 @@ func TestResolveOverride_TierWorkspaceWhenCloneAbsent(t *testing.T) {
 	writeStr(t, tierPath(memoryRoot, home, prime.TierWorkspace), "shared rules for this repo")
 	writeStr(t, tierPath(memoryRoot, home, prime.TierUserGlobal), "global rules")
 
-	got := prime.ResolveOverride(memoryRoot, home)
+	got, _ := prime.ResolveOverride(memoryRoot, home)
 	if got == nil {
 		t.Fatal("expected resolved override, got nil")
 	}
@@ -115,7 +118,7 @@ func TestResolveOverride_TierUserGlobalWhenOnlyGlobalPresent(t *testing.T) {
 	memoryRoot, home := fakeProject(t)
 	writeStr(t, tierPath(memoryRoot, home, prime.TierUserGlobal), "my own rules across all projects")
 
-	got := prime.ResolveOverride(memoryRoot, home)
+	got, _ := prime.ResolveOverride(memoryRoot, home)
 	if got == nil {
 		t.Fatal("expected resolved override, got nil")
 	}
@@ -131,8 +134,12 @@ func TestResolveOverride_TierUserGlobalWhenOnlyGlobalPresent(t *testing.T) {
 
 func TestResolveOverride_NilWhenNoTier(t *testing.T) {
 	memoryRoot, home := fakeProject(t)
-	if got := prime.ResolveOverride(memoryRoot, home); got != nil {
+	got, dbg := prime.ResolveOverride(memoryRoot, home)
+	if got != nil {
 		t.Errorf("expected nil, got %+v", got)
+	}
+	if len(dbg) != 0 {
+		t.Errorf("no tier should be 'tried-and-skipped' when files don't exist; got dbg=%v", dbg)
 	}
 }
 
@@ -141,8 +148,46 @@ func TestResolveOverride_EmptyHomeDirSkipsTier3(t *testing.T) {
 	// Place a tier-3 file (in the *real* home), but pass empty homeDir
 	// to ResolveOverride — tier 3 should be skipped.
 	writeStr(t, tierPath(memoryRoot, home, prime.TierUserGlobal), "global")
-	if got := prime.ResolveOverride(memoryRoot, ""); got != nil {
+	got, _ := prime.ResolveOverride(memoryRoot, "")
+	if got != nil {
 		t.Errorf("expected nil when homeDir is empty, got %+v", got)
+	}
+}
+
+// Bug-fix coverage — when every tier is present but each fails to
+// load, ResolveOverride returns nil but the accumulated debug messages
+// must still be returned so --debug can surface them. Regression for
+// the "--debug shows nothing when all tiers fail" issue caught during
+// post-implementation validation.
+func TestResolveOverride_DebugMessagesReturnedWhenAllTiersFail(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("mode 0000 is bypassed by root")
+	}
+	memoryRoot, home := fakeProject(t)
+
+	clonePath := tierPath(memoryRoot, home, prime.TierClone)
+	workPath := tierPath(memoryRoot, home, prime.TierWorkspace)
+	globPath := tierPath(memoryRoot, home, prime.TierUserGlobal)
+	for _, p := range []string{clonePath, workPath, globPath} {
+		writeStr(t, p, "unreadable")
+		if err := os.Chmod(p, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func(p string) func() { return func() { _ = os.Chmod(p, 0o644) } }(p))
+	}
+
+	got, dbg := prime.ResolveOverride(memoryRoot, home)
+	if got != nil {
+		t.Errorf("expected nil result when every tier fails; got %+v", got)
+	}
+	if len(dbg) != 3 {
+		t.Errorf("expected one debug message per failing tier (3); got %d: %v", len(dbg), dbg)
+	}
+	joined := strings.Join(dbg, "\n")
+	for _, p := range []string{clonePath, workPath, globPath} {
+		if !strings.Contains(joined, p) {
+			t.Errorf("debug messages should name path %q; got:\n%s", p, joined)
+		}
 	}
 }
 
@@ -163,7 +208,7 @@ func TestResolveOverride_FallsThroughOnUnreadableFile(t *testing.T) {
 
 	writeStr(t, tierPath(memoryRoot, home, prime.TierWorkspace), "fallback content")
 
-	got := prime.ResolveOverride(memoryRoot, home)
+	got, dbg := prime.ResolveOverride(memoryRoot, home)
 	if got == nil {
 		t.Fatal("expected fallback to tier-workspace, got nil")
 	}
@@ -173,12 +218,12 @@ func TestResolveOverride_FallsThroughOnUnreadableFile(t *testing.T) {
 	if got.Content != "fallback content" {
 		t.Errorf("Content = %q", got.Content)
 	}
-	if len(got.DebugMessages) == 0 {
-		t.Errorf("expected DebugMessages naming the skipped tier-1 path; got none")
+	if len(dbg) == 0 {
+		t.Errorf("expected debug messages naming the skipped tier-1 path; got none")
 	} else {
-		joined := strings.Join(got.DebugMessages, "\n")
+		joined := strings.Join(dbg, "\n")
 		if !strings.Contains(joined, clonePath) {
-			t.Errorf("DebugMessages should mention the skipped path %q; got %q", clonePath, joined)
+			t.Errorf("debug messages should mention the skipped path %q; got %q", clonePath, joined)
 		}
 	}
 }
@@ -189,12 +234,12 @@ func TestResolveOverride_FallsThroughOnInvalidUTF8(t *testing.T) {
 	writeFile(t, tierPath(memoryRoot, home, prime.TierClone), []byte{0xFF, 0xFE, 0xFD})
 	writeStr(t, tierPath(memoryRoot, home, prime.TierWorkspace), "fallback")
 
-	got := prime.ResolveOverride(memoryRoot, home)
+	got, dbg := prime.ResolveOverride(memoryRoot, home)
 	if got == nil || got.Tier != prime.TierWorkspace || got.Content != "fallback" {
 		t.Fatalf("expected tier-2 fallback, got %+v", got)
 	}
-	if len(got.DebugMessages) == 0 {
-		t.Error("expected DebugMessages for invalid-UTF-8 fall-through")
+	if len(dbg) == 0 {
+		t.Error("expected debug messages for invalid-UTF-8 fall-through")
 	}
 }
 
@@ -206,7 +251,7 @@ func TestResolveOverride_FallsThroughOnBrokenSymlink(t *testing.T) {
 	}
 	writeStr(t, tierPath(memoryRoot, home, prime.TierWorkspace), "fallback")
 
-	got := prime.ResolveOverride(memoryRoot, home)
+	got, _ := prime.ResolveOverride(memoryRoot, home)
 	if got == nil || got.Tier != prime.TierWorkspace {
 		t.Fatalf("expected tier-2 fallback for broken symlink, got %+v", got)
 	}
@@ -219,7 +264,7 @@ func TestResolveOverride_EmptyFileIsValidNotSkipped(t *testing.T) {
 	memoryRoot, home := fakeProject(t)
 	writeStr(t, tierPath(memoryRoot, home, prime.TierClone), "")
 
-	got := prime.ResolveOverride(memoryRoot, home)
+	got, _ := prime.ResolveOverride(memoryRoot, home)
 	if got == nil {
 		t.Fatal("empty PRIME.md should resolve, not fall through")
 	}
@@ -240,7 +285,7 @@ func TestResolveOverride_TruncatesOversizeFileAndAppendsMarker(t *testing.T) {
 	}
 	writeFile(t, clonePath, big)
 
-	got := prime.ResolveOverride(memoryRoot, home)
+	got, _ := prime.ResolveOverride(memoryRoot, home)
 	if got == nil {
 		t.Fatal("expected override, got nil")
 	}

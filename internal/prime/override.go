@@ -69,22 +69,25 @@ var utf8BOM = []byte{0xEF, 0xBB, 0xBF}
 
 // ResolveResult is what ResolveOverride returns when *any* tier produces
 // a usable PRIME.md. A nil pointer means no tier produced a result —
-// the baked-in default (i.e., no prose preamble) should render.
+// the baked-in default (i.e., no prose preamble) should render. The
+// caller still receives accumulated tier-load failures via the second
+// return value of ResolveOverride, so --debug can surface them even
+// when no override resolved.
 //
 // Content has already been BOM-stripped, UTF-8-validated, and size-
 // truncated (with the truncation marker appended); the caller renders
 // it verbatim.
 type ResolveResult struct {
-	Tier          Tier
-	Path          string
-	Content       string
-	OriginalSize  int      // bytes on disk before any truncation
-	TruncatedAt   int      // 0 when Content was not truncated
-	DebugMessages []string // per-tier tried-and-skipped reasons (surfaced only under --debug)
+	Tier         Tier
+	Path         string
+	Content      string
+	OriginalSize int // bytes on disk before any truncation
+	TruncatedAt  int // 0 when Content was not truncated
 }
 
 // ResolveOverride walks the three tiers in priority order and returns
-// the first usable PRIME.md, or nil if none resolved.
+// the first usable PRIME.md (or nil if none) plus the accumulated
+// per-tier failure messages from any tiers that were tried-and-skipped.
 //
 // memoryRoot is the resolved `.memory/` directory (i.e., the value
 // returned by findMemoryRoot in cmd/mote/helpers.go). The workspace
@@ -93,10 +96,15 @@ type ResolveResult struct {
 // homeDir is the user's HOME directory; passing "" disables tier 3.
 //
 // Tiers are stop-at-first-hit, NOT merge. A tier that *exists* but
-// fails to load (read error, non-UTF-8, broken symlink) records a
-// debug message and falls through to the next tier — mirroring the
-// Sprint 1 silent-failure policy (STORY-BR-23-4).
-func ResolveOverride(memoryRoot, homeDir string) *ResolveResult {
+// fails to load (read error, non-UTF-8, broken symlink) appends a
+// message to debugMessages and falls through to the next tier —
+// mirroring the Sprint 1 silent-failure policy (STORY-BR-23-4).
+// Callers surface debugMessages only when --debug is active.
+//
+// The debugMessages slot is always returned (even when result is nil
+// because every tier failed), so callers can surface fall-through
+// reasons regardless of resolution outcome.
+func ResolveOverride(memoryRoot, homeDir string) (*ResolveResult, []string) {
 	candidates := []struct {
 		tier Tier
 		path string
@@ -129,15 +137,14 @@ func ResolveOverride(memoryRoot, homeDir string) *ResolveResult {
 			continue
 		}
 		return &ResolveResult{
-			Tier:          c.tier,
-			Path:          c.path,
-			Content:       content,
-			OriginalSize:  originalSize,
-			TruncatedAt:   truncatedAt,
-			DebugMessages: debugMsgs,
-		}
+			Tier:         c.tier,
+			Path:         c.path,
+			Content:      content,
+			OriginalSize: originalSize,
+			TruncatedAt:  truncatedAt,
+		}, debugMsgs
 	}
-	return nil
+	return nil, debugMsgs
 }
 
 // LoadPrimeMd reads one candidate PRIME.md file, strips a leading UTF-8

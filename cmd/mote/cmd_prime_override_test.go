@@ -175,6 +175,63 @@ func TestPrime_Override_FallThroughIsSilentUnlessDebug(t *testing.T) {
 	}
 }
 
+// Bug-fix coverage — when EVERY tier exists but each is unreadable,
+// `mote prime` falls through to "no preamble" silently by default, and
+// `--debug` surfaces a stderr warning for *every* failing tier even
+// though no override resolved. Regression for the "--debug shows nothing
+// when all tiers fail" issue caught in post-implementation validation.
+func TestPrime_Override_DebugSurfacesAllTierFailures(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("mode 0000 is bypassed by root")
+	}
+	defer resetAdaptivePrimeFlags()
+	home := withFakeHome(t)
+	root, cleanup := setupIntegrationTest(t)
+	defer cleanup()
+
+	clonePath := filepath.Join(root, prime.PrimeMdFilename)
+	workPath := filepath.Join(filepath.Dir(root), prime.PrimeMdFilename)
+	globPath := filepath.Join(home, ".motes", prime.PrimeMdFilename)
+	for _, p := range []string{clonePath, workPath, globPath} {
+		writePrimeMd(t, p, "unreadable")
+		if err := os.Chmod(p, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func(p string) func() { return func() { _ = os.Chmod(p, 0o644) } }(p))
+	}
+
+	// Default behaviour: silent, no preamble in rendered output.
+	stderr := captureStderr(func() {
+		out := captureStdout(func() {
+			if err := primeCmd.RunE(primeCmd, nil); err != nil {
+				t.Fatalf("prime: %v", err)
+			}
+		})
+		if strings.Contains(out, "unreadable") {
+			t.Errorf("unreadable content must not leak into rendered output:\n%s", out)
+		}
+	})
+	if stderr != "" {
+		t.Errorf("default mode should be silent when every tier fails; stderr:\n%s", stderr)
+	}
+
+	// --debug surfaces a warning for every failing tier.
+	resetAdaptivePrimeFlags()
+	primeDebug = true
+	stderr = captureStderr(func() {
+		_ = captureStdout(func() {
+			if err := primeCmd.RunE(primeCmd, nil); err != nil {
+				t.Fatalf("prime --debug: %v", err)
+			}
+		})
+	})
+	for _, p := range []string{clonePath, workPath, globPath} {
+		if !strings.Contains(stderr, p) {
+			t.Errorf("--debug stderr should name failing tier path %q; got:\n%s", p, stderr)
+		}
+	}
+}
+
 // Scenario 7 — oversize PRIME.md is truncated; the marker is visible in
 // rendered output.
 func TestPrime_Override_OversizeTruncatedWithMarker(t *testing.T) {
