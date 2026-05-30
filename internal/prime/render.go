@@ -61,6 +61,8 @@ func EstimateTokens(text string) int {
 //
 //	[TruncationDirective]
 //
+//	<prose preamble — only when non-empty>
+//
 //	## Persistent memories
 //
 //	  key1   body1
@@ -68,14 +70,24 @@ func EstimateTokens(text string) int {
 //
 //	[MCPNoticeLine]
 //
+// The prose argument carries an optional preamble — typically the
+// resolved PRIME.md override (STORY-PRIMEOVR-001). Pass "" when no
+// override applies; the empty case is treated identically to the
+// pre-story payload (no extra blank lines, no marker).
+//
 // The memories section is omitted entirely when there are no memories,
 // mirroring the CLI-mode renderer's behaviour. Caller should pin the
 // total under MCPModeTokenBudget for the typical memory set; large
-// memory sets may exceed the budget and the docs flag this.
-func RenderMCPModeText(memories []core.MemoryRecord) []byte {
+// memory sets — and large prose preambles — may exceed the budget and
+// the docs flag this.
+func RenderMCPModeText(memories []core.MemoryRecord, prose string) []byte {
 	var b strings.Builder
 	b.WriteString(TruncationDirective)
 	b.WriteString("\n\n")
+	if prose != "" {
+		b.WriteString(prose)
+		b.WriteString("\n\n")
+	}
 	if len(memories) > 0 {
 		b.WriteString("## Persistent memories\n\n")
 		keyWidth := 0

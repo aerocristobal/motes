@@ -28,6 +28,7 @@ var (
 	primeMemoriesOnly bool
 	primeMCP          bool
 	primeFull         bool
+	primeExport       bool
 )
 
 // truncationDirective re-exports prime.TruncationDirective under the
@@ -51,6 +52,7 @@ type PrimeOutput struct {
 	Mode             string             `json:"mode,omitempty"`
 	ModeSource       string             `json:"mode_source,omitempty"`
 	TruncationNotice string             `json:"truncation_notice"`
+	ProseSection     string             `json:"prose_section,omitempty"`
 	Memories         []MemoryEntry      `json:"memories"`
 	ReadyTasks       []MoteEntry        `json:"ready_tasks,omitempty"`
 	ActiveTasks      []MoteEntry        `json:"active_tasks"`
@@ -108,6 +110,7 @@ func init() {
 	primeCmd.Flags().BoolVar(&primeMemoriesOnly, "memories-only", false, "Emit only the persistent-memories section (compact hook contexts)")
 	primeCmd.Flags().BoolVar(&primeMCP, "mcp", false, "Force brief MCP-mode payload (overrides auto-detection)")
 	primeCmd.Flags().BoolVar(&primeFull, "full", false, "Force full CLI-mode payload (overrides auto-detection)")
+	primeCmd.Flags().BoolVar(&primeExport, "export", false, "Print the baked-in default PRIME.md template to stdout for customization (no live data)")
 	rootCmd.AddCommand(primeCmd)
 }
 
@@ -163,6 +166,14 @@ func runPrime(cmd *cobra.Command, args []string) (returnErr error) {
 			"--mcp and --full are mutually exclusive")
 	}
 
+	// STORY-PRIMEOVR-001 — handle --export BEFORE the silent-failure trap
+	// and the stdout pipe. The export path emits a static template (no
+	// project state involved), so silent-failure is unnecessary; and the
+	// TTY hint (Scenario 9) needs the real stdout FD, not the pipe.
+	if primeExport {
+		return runPrimeExport()
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			if primeDebugEnabled() {
@@ -203,6 +214,29 @@ func runPrime(cmd *cobra.Command, args []string) (returnErr error) {
 		return emitHookEnvelope(captured)
 	}
 	_, _ = os.Stdout.Write(captured)
+	return nil
+}
+
+// runPrimeExport implements `mote prime --export` (STORY-PRIMEOVR-001
+// Scenarios 5 and 9). Writes the baked-in starter template to stdout
+// and, when stdout is a TTY, appends a one-line redirect hint to
+// stderr so an interactive user doesn't end up staring at the template
+// wondering what just happened.
+//
+// Composition rules:
+//   - Output does NOT include the truncation directive (mote-generated
+//     at render time, not part of the user-customizable body).
+//   - Output does NOT include any data section (memories, ready tasks,
+//     decisions, lessons, ...) — this is a TEMPLATE, not a live render.
+//   - Exit code is always 0.
+//   - The TTY hint is suppressed when stdout is piped, so
+//     `mote prime --export > .memory/PRIME.md` produces a clean file.
+func runPrimeExport() error {
+	_, _ = io.WriteString(os.Stdout, prime.DefaultExportTemplate())
+	if format.IsTTY(os.Stdout.Fd()) {
+		fmt.Fprintln(os.Stderr,
+			"Hint: pipe to a file, e.g., `mote prime --export > .memory/PRIME.md`")
+	}
 	return nil
 }
 
@@ -308,8 +342,23 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 		return emitMemoriesOnly(memories, mode, source)
 	}
 
+	// STORY-PRIMEOVR-001 — resolve the optional PRIME.md prose preamble.
+	// `--memories-only` short-circuits above (Sprint 1 contract), so
+	// override resolution happens only for the CLI and MCP render paths.
+	// Tier failures fall through silently; --debug surfaces them.
+	override := prime.ResolveOverride(root, homeDir)
+	if primeDebugEnabled() && override != nil {
+		for _, msg := range override.DebugMessages {
+			fmt.Fprintln(os.Stderr, "mote prime: "+msg)
+		}
+	}
+	overrideContent := ""
+	if override != nil {
+		overrideContent = override.Content
+	}
+
 	if mode == prime.ModeMCP {
-		return emitMCPMode(memories, source)
+		return emitMCPMode(memories, source, overrideContent)
 	}
 
 	// --- CLI mode below — byte-for-byte unchanged from pre-story baseline
@@ -322,6 +371,13 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 	if !primeJSON {
 		fmt.Println(truncationDirective)
 		fmt.Println()
+		// STORY-PRIMEOVR-001 — PRIME.md prose preamble between the
+		// truncation directive and the data sections. Verbatim, with a
+		// trailing blank line so the next section header is offset.
+		if overrideContent != "" {
+			fmt.Println(overrideContent)
+			fmt.Println()
+		}
 	}
 
 	if len(memories) > 0 && !primeJSON {
@@ -555,6 +611,7 @@ func runPrimeInner(cmd *cobra.Command, args []string) error {
 			Mode:             string(mode),
 			ModeSource:       string(source),
 			TruncationNotice: truncationDirective,
+			ProseSection:     overrideContent,
 			Memories:         memoriesToEntries(memories),
 			ReadyTasks:       scoredMotesToEntries(readyTasks, nil),
 			ActiveTasks:      scoredMotesToEntries(activeTasks, nil),
@@ -859,12 +916,13 @@ func emitMemoriesOnly(memories []core.MemoryRecord, mode prime.Mode, source prim
 // directive + memories + MCP notice line, ≤ MCPModeTokenBudget). JSON mode
 // emits a PrimeOutput envelope with mode/mode_source set, memories
 // populated, and the CLI-mode arrays empty.
-func emitMCPMode(memories []core.MemoryRecord, source prime.ModeSource) error {
+func emitMCPMode(memories []core.MemoryRecord, source prime.ModeSource, overrideContent string) error {
 	if primeJSON {
 		out := PrimeOutput{
 			Mode:             string(prime.ModeMCP),
 			ModeSource:       string(source),
 			TruncationNotice: truncationDirective,
+			ProseSection:     overrideContent,
 			Memories:         memoriesToEntries(memories),
 			ActiveTasks:      []MoteEntry{},
 			Decisions:        []MoteEntry{},
@@ -878,7 +936,7 @@ func emitMCPMode(memories []core.MemoryRecord, source prime.ModeSource) error {
 		fmt.Println(string(data))
 		return nil
 	}
-	_, _ = os.Stdout.Write(prime.RenderMCPModeText(memories))
+	_, _ = os.Stdout.Write(prime.RenderMCPModeText(memories, overrideContent))
 	return nil
 }
 

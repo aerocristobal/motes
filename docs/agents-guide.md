@@ -276,6 +276,73 @@ The Gherkin specification lives at `features/session/adaptive_prime.feature` (li
 
 ---
 
+## Customizing `mote prime` with `PRIME.md`
+
+`mote prime` accepts an optional **prose preamble** loaded from a `PRIME.md` file. The preamble is emitted verbatim between the truncation directive and the data sections (persistent memories, ready tasks, active work, decisions, lessons, ...) so every agent that runs in your project sees your project-specific operating rules at session start — without forking the `mote` binary and without each agent's user having to install a dotfile.
+
+### Three-tier resolution
+
+`mote prime` looks for `PRIME.md` at three locations, in priority order. The first file that exists wins; lower tiers do not contribute:
+
+| Tier | Path | Use for |
+|---|---|---|
+| 1 | `./.memory/PRIME.md` | Per-developer rules (gitignore by convention) |
+| 2 | `<workspace>/PRIME.md` | Per-project rules committed alongside source |
+| 3 | `~/.motes/PRIME.md` | Per-user rules that apply in every project you open |
+
+The workspace root is the parent directory of `.memory/` (same root used by every other `mote` subcommand). Tier 3 mirrors the `~/.motes/` global-layer convention used elsewhere in motes.
+
+### Seeding from a template
+
+`mote prime --export` writes a hand-crafted starter template to stdout. It emits **only** the template — no truncation directive, no live data sections — so the output can be piped directly to any of the three tiers:
+
+```bash
+mote prime --export > .memory/PRIME.md     # tier 1 (per-developer)
+mote prime --export > PRIME.md             # tier 2 (per-project)
+mote prime --export > ~/.motes/PRIME.md    # tier 3 (per-user)
+```
+
+When run interactively (stdout is a TTY), `--export` prints a one-line hint on stderr suggesting the redirect form so an interactive user doesn't end up staring at template output wondering what just happened. The hint is suppressed when stdout is piped.
+
+### Conventions and limits
+
+- **Encoding.** Files are read as UTF-8. A leading byte-order mark is stripped if present. Invalid UTF-8 is treated as a read failure and falls through to the next tier (see "Fall-through" below).
+- **Size cap.** Files larger than **16 KiB** are truncated to that size and a footer marker (`\n[PRIME.md truncated at 16384 bytes — see <path>]`) is appended. The cap exists because PRIME.md is rendered into the prime body, which is itself bounded by the agent host's preview budget.
+- **Gitignore by convention.** Tier 1 (`./.memory/PRIME.md`) is documented as per-developer and should be in `.gitignore` if you don't want to share it. `mote init` does not modify `.gitignore` today; add the entry yourself if your team's conventions need it.
+- **MCP-mode composition.** PRIME.md content also surfaces in MCP-mode payloads (between the directive and the memories block). A large preamble may push the payload past `MCP_MODE_TOKEN_BUDGET` (75 tokens) — keep MCP-mode-relevant rules concise.
+- **--memories-only bypass.** `mote prime --memories-only` ignores PRIME.md entirely (Sprint 1 contract preserved). Use it from hooks that only need the persistent-memories block.
+- **--export bypass.** `mote prime --export` is also bypassed — it always emits the static template, never live PRIME.md content.
+
+### Fall-through behaviour
+
+A tier that exists but cannot be read (permission denied, broken symlink, invalid UTF-8) falls through to the next tier silently under default behaviour. This matches the Sprint 1 silent-failure policy: `mote prime` is wired into hooks that gate session start, and a misconfigured PRIME.md should never block the session.
+
+Pass `--debug` (or set `MOTE_DEBUG=1`) to surface a one-line warning naming each skipped path and the failure reason. The warning lands on stderr; stdout still carries the resolved payload (from whichever tier succeeded, or the baked-in default with no preamble).
+
+### JSON shape
+
+The JSON form of `mote prime` gains an additional top-level field:
+
+```json
+{
+  "mode": "cli" | "mcp",
+  "mode_source": "auto" | "flag",
+  "truncation_notice": "[mote prime] …",
+  "prose_section": "<PRIME.md content, when resolved>",
+  …existing fields…
+}
+```
+
+`prose_section` is `omitempty`-encoded — when no override resolves, the field is dropped from the envelope so consumers parsing the pre-story shape continue to work.
+
+### Why this exists
+
+Forking `mote` to bake in project rules is heavy-handed; checking everything into `CLAUDE.md` and hoping the agent reads it is unreliable. PRIME.md gives projects (and individual users) a deliberate, version-controlled mechanism to teach agents the rules they need from session start. The three tiers map cleanly to three social structures: my own machine, our shared repo, every project I open.
+
+The Gherkin specification lives at `features/session/prime_override.feature` (living documentation). The Go tests live at `internal/prime/override_test.go`, `cmd/mote/cmd_prime_override_test.go`, and `cmd/mote/cmd_prime_export_test.go`.
+
+---
+
 ## Execution metadata
 
 Tasks can carry optional structured hints that tell an orchestrator how to dispatch a subagent — without the orchestrator having to parse free-form prose. These are *hints*, not contracts: an orchestrator may ignore them, and `mote` does not itself launch anything. The hints exist because a running subagent cannot change its own model or reasoning effort after launch, so the orchestrator's first read decides everything.

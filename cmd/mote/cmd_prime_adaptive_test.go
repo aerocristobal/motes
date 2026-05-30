@@ -57,6 +57,7 @@ func resetAdaptivePrimeFlags() {
 	primeMemoriesOnly = false
 	primeMCP = false
 	primeFull = false
+	primeExport = false
 }
 
 // --- Scenario 1: auto-detection → MCP-mode brief payload. ---

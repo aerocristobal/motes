@@ -172,6 +172,10 @@ mote dream --review     # Review and apply/reject each vision
 
 The dream cycle detects missing links, stale content, contradictions, and more. Each finding becomes a "vision" that you review interactively. See [docs/maintenance.md](docs/maintenance.md) for the full maintenance workflow.
 
+## Customizing `mote prime` for your project
+
+Drop a `PRIME.md` file at `./.memory/PRIME.md` (per-developer; gitignore by convention), `<workspace>/PRIME.md` (per-project, committed), or `~/.motes/PRIME.md` (per-user, applies everywhere). Its contents are emitted verbatim by `mote prime` between the truncation directive and the data sections, so every agent that runs in this project sees your rules at session start. Run `mote prime --export > .memory/PRIME.md` to seed a starting template. See [docs/agents-guide.md](agents-guide.md) → "Customizing `mote prime` with `PRIME.md`" for the full three-tier resolution rules and the 16 KiB size cap.
+
 ## Example CLAUDE.md Configurations
 
 - [Project-level CLAUDE.md](example-claude-md-project.md) — What a project CLAUDE.md looks like with motes

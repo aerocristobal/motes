@@ -18,7 +18,7 @@ func TestRenderMCPModeText_IncludesDirectiveMemoriesAndNotice(t *testing.T) {
 		{Key: "test-flag", Body: "use -race"},
 		{Key: "fmt", Body: "always gofmt"},
 	}
-	got := string(prime.RenderMCPModeText(memories))
+	got := string(prime.RenderMCPModeText(memories, ""))
 
 	if !strings.Contains(got, prime.TruncationDirective) {
 		t.Errorf("expected TruncationDirective in MCP-mode output:\n%s", got)
@@ -59,7 +59,7 @@ func TestRenderMCPModeText_StaysWithinTokenBudget(t *testing.T) {
 		{Key: "race", Body: "use -race"},
 		{Key: "fmt", Body: "always gofmt"},
 	}
-	out := prime.RenderMCPModeText(memories)
+	out := prime.RenderMCPModeText(memories, "")
 	tokens := prime.EstimateTokens(string(out))
 	if tokens > prime.MCPModeTokenBudget {
 		t.Errorf("MCP-mode output exceeds budget: %d tokens > %d budget\noutput:\n%s",
@@ -69,7 +69,7 @@ func TestRenderMCPModeText_StaysWithinTokenBudget(t *testing.T) {
 
 // Empty memory store: section is omitted but directive + notice still emit.
 func TestRenderMCPModeText_NoMemories(t *testing.T) {
-	out := string(prime.RenderMCPModeText(nil))
+	out := string(prime.RenderMCPModeText(nil, ""))
 	if !strings.Contains(out, prime.TruncationDirective) {
 		t.Errorf("directive missing:\n%s", out)
 	}
@@ -78,6 +78,24 @@ func TestRenderMCPModeText_NoMemories(t *testing.T) {
 	}
 	if !strings.Contains(out, prime.MCPNoticeLine) {
 		t.Errorf("notice line missing:\n%s", out)
+	}
+}
+
+// STORY-PRIMEOVR-001 — when a prose preamble is supplied it is inserted
+// between the truncation directive and the persistent-memories section,
+// separated by a blank line on each side.
+func TestRenderMCPModeText_InsertsProseBetweenDirectiveAndMemories(t *testing.T) {
+	memories := []core.MemoryRecord{{Key: "k", Body: "v"}}
+	got := string(prime.RenderMCPModeText(memories, "Project rules: run make test"))
+
+	if !strings.Contains(got, "Project rules: run make test") {
+		t.Errorf("prose preamble missing from output:\n%s", got)
+	}
+	dirIdx := strings.Index(got, prime.TruncationDirective)
+	proseIdx := strings.Index(got, "Project rules:")
+	memIdx := strings.Index(got, "## Persistent memories")
+	if dirIdx >= proseIdx || proseIdx >= memIdx {
+		t.Errorf("expected order: directive < prose < memories; got dirIdx=%d proseIdx=%d memIdx=%d", dirIdx, proseIdx, memIdx)
 	}
 }
 
