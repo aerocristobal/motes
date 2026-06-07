@@ -4,7 +4,7 @@ This file is loaded into your context at session start. Keep it short.
 For extended background, common pitfalls, and the agent-native principle,
 read `docs/agents-guide.md`.
 
-## Setup
+## Build & Development Commands
 
 ```bash
 make build       # go build -o mote ./cmd/mote

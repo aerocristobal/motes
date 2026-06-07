@@ -252,8 +252,14 @@ test_CLAUDE_md_references_the_wrapper_not_bare_go_test() {
 test_AGENTS_md_references_the_wrapper_not_bare_go_test() {
     local doc="${REPO_ROOT}/AGENTS.md"
     [ -f "$doc" ] || fail "AGENTS.md not found at $doc"
+    grep -qF "## Build & Development Commands" "$doc" \
+        || fail "AGENTS.md is missing the ## Build & Development Commands section"
     grep -qF "bash scripts/test.sh" "$doc" \
         || fail "AGENTS.md does not reference wrapper"
+    if awk '/^## Build & Development Commands/,/^## [^B]/' "$doc" \
+        | grep -qE "^go test \./\.\.\."; then
+        fail "AGENTS.md still has bare 'go test ./...' in Build & Development Commands"
+    fi
 }
 
 # --- BOUNDARY (Scenario 11) -----------------------------------------------
