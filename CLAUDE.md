@@ -36,6 +36,7 @@ Motes is an AI-native context and memory system. Knowledge is stored as atomic u
 - `docs/internals.md` — Architecture, storage layout, and design decisions
 - `docs/providers.md` — Multi-provider dream cycle setup (claude-cli, openai, gemini Vertex AI)
 - `docs/configuration.md` — Full `.memory/config.yaml` field reference
+- `docs/UI_PHILOSOPHY.md` — CLI design rules: icons, fix-op consolidation, command-count ceiling
 - `docs/example-codex-config.md` — Codex `.codex/hooks.json` reference
 - `docs/example-gemini-config.md` — Gemini CLI `.gemini/settings.json` reference (timeouts in ms!)
 - `AGENTS.md` — Cross-agent contract for any AI coding agent working in this repo

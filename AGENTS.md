@@ -85,3 +85,4 @@ Agent-specific guides:
 - `docs/agents-guide.md` — extended pitfalls, common patterns, "agent-native" principle
 - `docs/internals.md` — architecture, storage layout, design decisions
 - `docs/configuration.md` — every `.memory/config.yaml` field explained
+- `docs/UI_PHILOSOPHY.md` — CLI design rules: icons, fix-op consolidation, command-count ceiling
