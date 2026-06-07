@@ -188,19 +188,66 @@ sibling section below and filled in by STORY-COLOR-001.
 
 ---
 
-## Semantic color tokens
+## Semantic color palette
 
 <a id="semantic-color-tokens"></a>
 
-This section is owned by **STORY-COLOR-001 (§23.13)** and lands when that
-story merges. It will define the palette (status, severity, category) and the
-mapping from token to ANSI escape. New renderers must consume tokens from
-that table; ad-hoc literal `\x1b[…m` escapes outside `internal/format/` are a
-review-blocker once the palette is in.
+All ANSI styling in mote flows through six **semantic color tokens** defined
+once in `internal/format/style.go`: `Pass`, `Warn`, `Fail`, `Accent`,
+`Muted`, `Command`. Renderers call the token whose name answers the question
+"what does this color mean?" — never a raw `\x1b[32m`. Reviewers grep
+`\\x1b\[` and reject any hit outside `internal/format/style.go`.
 
-Until STORY-COLOR-001 merges, the only sanctioned styled output is
-`format.Muted` (ANSI dim) gated by `format.ShouldColor`. See
-[Operational details → The color decision](#the-color-decision).
+Each token is an `AdaptiveColor{Light, Dark string}` — a pair of 24-bit hex
+values. At render time mote calls `detectBackground()`, which reads the
+`COLORFGBG` environment variable (a convention shared with rxvt, urxvt, and
+lipgloss). When the trailing background field is in the high-color range
+(8–15) mote emits the Light variant; otherwise — including absent or
+unparseable values — mote emits the Dark variant. The default is dark
+because over-darkening is recoverable; washing out an unintended light
+variant on a dark terminal is not.
+
+The palette:
+
+| Token   | Use for                                                 | Light hex      | Dark hex       |
+|---------|---------------------------------------------------------|----------------|----------------|
+| Pass    | Successful checks, passing tests, healthy state         | #86b300        | #c2d94c        |
+| Warn    | Drift detected, recoverable problems, deprecation       | #f2ae49        | #ffb454        |
+| Fail    | Errors, failed checks, blocking conditions              | #f07171        | #f07178        |
+| Accent  | Mote IDs, command examples, primary highlights          | #399ee6        | #59c2ff        |
+| Muted   | Closed motes, secondary metadata                        | SGR dim (`2`)¹ | SGR dim (`2`)¹ |
+| Command | Inline command names in help / error text               | #55b4d4        | #95e6cb        |
+
+Pass / Warn / Fail are pinned from the Ayu palette as published in
+beads-recommendations §23.13. Accent / Command are the Ayu Sublime / VS Code
+values picked to match the Pass/Warn/Fail tonality during STORY-COLOR-001
+Three Amigos.
+
+¹ **Muted is implemented via the SGR dim attribute (`\x1b[2m`) rather than
+a 24-bit hex color**, preserving byte-for-byte compatibility with
+STORY-MUTED-001's existing snapshot tests. Dim composes multiplicatively
+with the terminal's foreground, so it always reads as "secondary" against
+any background — no light/dark variant needed. The `MutedColor`
+`AdaptiveColor` constant in `internal/format/style.go` (`#828c99` /
+`#5c6773`) documents what a hex-based Muted *would* look like, and is the
+value future renderers should reach for if they need an explicit fill (a
+header badge background, for example). It is not what `format.Muted` emits
+today.
+
+**Color is never the sole signal.** Every closed mote is also rendered as
+muted *text*; every fail message also contains the word `FAIL` (or names the
+failing category in plain English); every warning also carries the `⚠` (or
+`!`) prefix. A grep of `mote doctor` output sees the same information
+whether the terminal supports color or not. This is the redundancy required
+by Section 508 and by WCAG 2.1's "color is not the only visual means" guideline
+— a future formal audit is not in scope for this section, but the
+single-source-of-truth palette is the hook for one.
+
+The color decision (when to emit ANSI at all) and the suppression contracts
+(`--no-color`, `NO_COLOR`, non-TTY, `--json`) are unchanged from the
+[When NOT to color](#when-not-to-color) rules above and from
+[Operational details → The color decision](#the-color-decision). Tokens are
+*what* color to emit; those contracts are *whether*.
 
 ---
 

@@ -41,6 +41,17 @@ func init() {
 		"Colorless, line-oriented output for pipelines (mutually exclusive with --json and --pretty)")
 	rootCmd.PersistentFlags().BoolVar(&prettyFlag, "pretty", false,
 		"Force ANSI + Tufte-styled output even on non-TTY (mutually exclusive with --json and --plain)")
+
+	// STORY-COLOR-001: feed the resolved color decision into the format
+	// package once, after persistent flags are parsed, so the 1-arg
+	// semantic tokens (format.Pass / Warn / Fail / Accent / Command) can
+	// consult a single source of truth without each command threading
+	// useColor through. The 2-arg format.Muted callers continue to pass
+	// useColorOutput() explicitly and are unaffected.
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		format.SetColorEnabled(useColorOutput())
+		return nil
+	}
 }
 
 // useColorOutput decides whether the current invocation should emit ANSI styles

@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/internal/format"
 	"motes/internal/githooks"
 	"motes/internal/jsonenv"
 )
@@ -60,7 +61,7 @@ func discoverProjectMotes(projectsRoot, currentMemRoot string) ([]*core.Mote, er
 		pm := core.NewMoteManager(filepath.Join(projDir, ".memory"))
 		motes, err := pm.ReadAllParallel()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: cross-project: skipping %s: %v\n", projDir, err)
+			fmt.Fprintln(os.Stderr, format.Warn(fmt.Sprintf("warning: cross-project: skipping %s: %v", projDir, err)))
 			continue
 		}
 		all = append(all, motes...)
@@ -107,7 +108,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 		}
 		extra, err := discoverProjectMotes(projectsRoot, root)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: cross-project scan: %v\n", err)
+			fmt.Fprintln(os.Stderr, format.Warn(fmt.Sprintf("warning: cross-project scan: %v", err)))
 		}
 		for _, m := range extra {
 			if _, exists := moteMap[m.ID]; !exists {
@@ -127,7 +128,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	fix, _ := cmd.Flags().GetBool("fix")
 	driftIssues, fixedPaths := runGithookDriftCheck(cwd, fix)
 	for _, p := range fixedPaths {
-		fmt.Printf("Fixed git-hook drift: %s\n", p)
+		fmt.Println(format.Pass(fmt.Sprintf("Fixed git-hook drift: %s", p)))
 	}
 	issues = append(issues, driftIssues...)
 
@@ -142,7 +143,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(errorIssues) == 0 && len(crossRefs) == 0 {
-		fmt.Println("No issues found. Graph is healthy.")
+		fmt.Println(format.Pass("No issues found. Graph is healthy."))
 	} else {
 		if len(errorIssues) > 0 {
 			fmt.Printf("%-16s  %-26s  %s\n", "ISSUE", "MOTE", "DETAIL")
@@ -150,7 +151,8 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 			for _, iss := range errorIssues {
 				fmt.Printf("%-16s  %-26s  %s\n", iss.Category, iss.MoteID, iss.Detail)
 			}
-			fmt.Printf("\n%d issue(s) found.\n", len(errorIssues))
+			fmt.Println()
+			fmt.Println(format.Fail(fmt.Sprintf("%d issue(s) found.", len(errorIssues))))
 		} else {
 			fmt.Println("No integrity issues found.")
 		}
@@ -188,7 +190,7 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	if len(advisories) > 0 {
 		fmt.Println()
 		for _, w := range advisories {
-			fmt.Printf("⚠ %s\n", w)
+			fmt.Println(format.Warn(fmt.Sprintf("⚠ %s", w)))
 		}
 	}
 
