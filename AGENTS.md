@@ -113,6 +113,8 @@ Agent-specific guides:
 
 ### ⚠ Anti-patterns (the plane has not landed)
 
+*Tagline: the plane has not landed until `git push` succeeds.*
+
 - Saying "ready to push when you are" — **YOU** must push, not the human
 - Stopping after commit but before push
 - Calling a feature done when tests are skipped without a `.test-skip` ref

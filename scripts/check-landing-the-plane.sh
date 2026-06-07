@@ -64,12 +64,13 @@ test_anti_patterns_callout_exists() {
 }
 
 test_anti_patterns_uses_required_tagline() {
-    # Case-insensitive: the production block opens a sentence with a capital
-    # "T" ("**The plane has not landed until `git push` succeeds.**"); the
-    # story's contract phrase is lowercase. Both spellings carry the same
-    # intent — we accept either so legitimate sentence case doesn't fail CI.
-    grep -qiF "the plane has not landed until \`git push\` succeeds" "$SECTION" \
-        || { echo "FAIL: required tagline missing" >&2; exit 1; }
+    # The literal lowercase phrase must appear inside the callout body (per
+    # STORY-LAND-001 Scenario 2 "as its tagline"), not only as a capitalized
+    # sentence-start in the section lead-in.
+    local callout_body
+    callout_body="$(awk '/^### ⚠ Anti-patterns/{flag=1; next} flag && /^### /{flag=0} flag' "$SECTION")"
+    printf '%s\n' "$callout_body" | grep -qF "the plane has not landed until \`git push\` succeeds" \
+        || { echo "FAIL: literal tagline missing from the anti-patterns callout body" >&2; exit 1; }
 }
 
 # --- SCENARIO 3: example session bash block ---
