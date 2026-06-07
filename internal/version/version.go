@@ -12,4 +12,4 @@ package version
 // kept in semver MAJOR.MINOR.PATCH form (with optional pre-release and
 // build-metadata suffixes per semver 2.0.0). scripts/bump-version.sh is
 // the only tool that should rewrite this literal.
-const Value = "0.4.45"
+const Value = "0.4.46"

@@ -1,7 +1,7 @@
 {
   "name": "mote",
   "description": "Motes is an AI-native context and memory system. This plugin bundles mote's lifecycle hooks (SessionStart, UserPromptSubmit, Stop) and the four mote skills (capture, retrieve, plan, subagent) for OpenAI Codex. Codex's marketplace and exact manifest schema are still in flux at the time of writing; this file mirrors the Claude shape and will be revised when the Codex spec stabilizes.",
-  "version": "0.4.45",
+  "version": "0.4.46",
   "author": {
     "name": "aerocristobal"
   },

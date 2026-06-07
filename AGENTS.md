@@ -86,3 +86,66 @@ Agent-specific guides:
 - `docs/internals.md` — architecture, storage layout, design decisions
 - `docs/configuration.md` — every `.memory/config.yaml` field explained
 - `docs/UI_PHILOSOPHY.md` — CLI design rules: icons, fix-op consolidation, command-count ceiling
+
+## Landing the Plane (Session Completion)
+
+> **The plane has not landed until `git push` succeeds.** Complete ALL eight
+> steps, in order. Work is NOT complete until step 8 emits a handoff prompt.
+
+1. **File issues** for remaining work
+2. **Run quality gates** (if code changed): `go test ./...`, `go vet ./...`
+3. **Update task status** — close finished work
+4. **Push to remote** (MANDATORY):
+   ```bash
+   git pull --rebase && git push && git status
+   ```
+   If push fails, resolve and retry. **Resolve = `git pull --rebase`,
+   NOT `git push --force`.**
+5. **Verify** — all changes committed AND pushed:
+   - `git status` → "nothing to commit, working tree clean"
+   - `git log @{u}..HEAD` → empty (no unpushed commits)
+   - `git stash list` → empty
+   - `git diff --stat HEAD~1` → shows the just-pushed diff
+6. **Clean local repo state**: `git stash clear`
+7. **Clean remote refs**: `git remote prune origin`
+8. **Hand off** — emit the follow-up-prompt for the next session
+   (see template below)
+
+### ⚠ Anti-patterns (the plane has not landed)
+
+- Saying "ready to push when you are" — **YOU** must push, not the human
+- Stopping after commit but before push
+- Calling a feature done when tests are skipped without a `.test-skip` ref
+- Leaving WIP in a stash instead of either committing or discarding it
+- Closing a task whose acceptance criteria still have unmet checkboxes
+- Using `git push --force` (or `--force-with-lease`) on shared branches to
+  make a push "succeed" — **this is not landing, it is crashing**
+
+### Hand-off follow-up prompt
+
+> Continue work on mote-<id>: <title>. Done: <one line>. Next: <one line>.
+
+Example:
+
+> Continue work on mote-T1abc: Implement two-zone header format. Done:
+> updated `cmd_show.go` to emit `<icon> <id> · <title> [w0.7 · ACTIVE]`.
+> Next: extend the same renderer to `cmd_ls.go --ready` per STORY-HDRZ-001.
+
+### Example session (copy verbatim)
+
+```bash
+# 1-3. Files, gates, statuses — task-specific
+# 4. Push
+git pull --rebase && git push && git status
+# 5. Verify
+git status
+git log @{u}..HEAD
+git stash list
+git diff --stat HEAD~1
+# 6-7. Clean
+git stash clear
+git remote prune origin
+# 8. Hand off
+echo "Continue work on mote-<task-id>: <title>. Done: <one line>. Next: <one line>."
+```
+
