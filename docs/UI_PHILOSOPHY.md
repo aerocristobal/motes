@@ -141,7 +141,7 @@ discoverability budget, not a hard SLO: at ~30 it is a yellow flag, past 30 it
 is a serious design pressure that should be answered by consolidation, not
 accommodation.
 
-Today, mote is **over** the ceiling (46 top-level commands as of v0.4.41).
+Today, mote is **over** the ceiling (46 top-level commands as of v0.4.42).
 That is a known overshoot. The CI tooth to mechanically enforce a threshold
 (warn-at-N, fail-at-N+k) lands in STORY-UIPHI-002 once Three Amigos confirms
 the numbers in light of the current count. The Rule applies in PR review
