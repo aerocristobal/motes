@@ -127,6 +127,8 @@ Otherwise (or for Codex / Gemini CLI, which have no marketplace path yet), motes
 
 [AGENTS.md](AGENTS.md) is the cross-agent working contract; agent-specific tooling notes live in [CLAUDE.md](CLAUDE.md), [CODEX.md](CODEX.md), and [GEMINI.md](GEMINI.md). Reference settings: [docs/example-settings-json.md](docs/example-settings-json.md), [docs/example-codex-config.md](docs/example-codex-config.md), [docs/example-gemini-config.md](docs/example-gemini-config.md).
 
+When a project lists `doctor.instruction_docs.shared_sections` in `.memory/config.yaml`, `mote doctor` reconciles those H2 sections across the four agent docs so a change to (for example) `## Landing the Plane (Session Completion)` in `CLAUDE.md` is propagated verbatim into `AGENTS.md`, `CODEX.md`, and `GEMINI.md` by `mote doctor --fix`. See [docs/configuration.md](docs/configuration.md) for the config keys.
+
 ## CLI Reference
 
 ### Session Lifecycle
@@ -139,6 +141,8 @@ mote session-end            # End: flush access counts, get suggestions
 `mote prime` now includes a **"## Ready to start"** section at the top listing tasks with all blockers cleared (sorted by weight, capped at 5). This makes actionable work visible without a separate `mote ls --ready` call.
 
 `mote prime` adapts its payload size to the host: when an `mcpServers.mote` entry is detected in `~/.claude/settings.json`, `~/.codex/settings.json`, or `~/.gemini/settings.json`, prime emits a brief ~75-token reminder; otherwise it emits the full ~2500-token payload. Pin the mode explicitly with `mote prime --mcp` or `mote prime --full`. See [docs/agents-guide.md §`mote prime` size budget](docs/agents-guide.md#mote-prime-size-budget).
+
+`mote prime` also reads an optional `PRIME.md` prose preamble — checked in order at `.memory/PRIME.md`, `<workspace>/PRIME.md`, then `~/.motes/PRIME.md` — and inserts it above the data sections in both CLI and MCP modes. Tier failures fall through silently; `mote prime --debug` surfaces them. `mote prime --export` prints the baked-in default template to stdout for customization. See [docs/agents-guide.md §Customizing PRIME.md](docs/agents-guide.md#customizing-primemd).
 
 ### Creating Motes
 
@@ -286,8 +290,10 @@ mote feedback <id> irrelevant  # Mark as irrelevant (reduces scoring)
 ### Maintenance
 
 ```bash
-mote doctor                          # Graph integrity: broken links, orphans, cycles, stale, bloat
+mote doctor                          # Graph integrity: broken links, orphans, cycles, stale, bloat — and (when configured) instruction-doc reconciliation across CLAUDE.md / AGENTS.md / CODEX.md / GEMINI.md
 mote doctor --cross-project          # Also validate cross-project references across sibling projects
+mote doctor --verbose                # Per-section status lines for the instruction-doc reconciliation check
+mote doctor --fix                    # Repair mote-managed git-hook drift and instruction-doc divergence in place
 mote clean-links                     # Remove dead link references from frontmatter
 mote clean-links --global --dry-run  # Preview which global refs would be stripped
 mote stats                  # Health dashboard
@@ -411,6 +417,8 @@ make clean         # Remove binary
 ```
 
 After cloning, run `make install-hooks` (or `make install`) to wire the staged-only Go pre-commit hook. See [docs/LINTING.md](docs/LINTING.md) for the `--new-from-rev=HEAD` model and how to inspect the baseline.
+
+`make test` delegates to `bash scripts/test.sh`, the canonical test invocation. The wrapper reads `.test-skip` at the repo root (each entry must carry a `# mote-<id>` rationale or the wrapper exits 2 before `go test` runs), applies a 5-minute default timeout (override with `TEST_TIMEOUT=10m`), and maps `TEST_VERBOSE=1` to `go test -v` and `TEST_RUN=TestX` to `-run TestX`. After the run completes, it lists real tests via `go test -list` and prints `WARNING: .test-skip entry <name> matched 0 tests` on stderr for stale entries without changing the exit code. Use the wrapper directly (`bash scripts/test.sh` or `TEST_RUN=TestScoreEngine bash scripts/test.sh`) so the skip list and timeout match CI.
 
 ## Performance Benchmarks
 

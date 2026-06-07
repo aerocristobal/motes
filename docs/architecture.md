@@ -6,7 +6,7 @@
 
 The nebula is a CLI tool invoked dozens of times per session — on every context load, every prime, every show, every link operation. Startup latency matters. Go compiles to a single native binary that starts in < 1ms, requires no runtime installation, and distributes as `cp mote ~/.local/bin/`. No Python version management, no pip, no venv, no "which python3."
 
-Go's design strengths align precisely with this system's profile: file I/O, YAML/JSON parsing, arithmetic scoring, BFS graph traversal, subprocess management, and text formatting. The language's deliberate simplicity means faster implementation across 46 stories, clearer code for Claude to read and modify during sessions, and fewer compilation surprises than Rust's borrow checker would produce for a system with no complex concurrent state.
+Go's design strengths align precisely with this system's profile: file I/O, YAML/JSON parsing, arithmetic scoring, BFS graph traversal, subprocess management, and text formatting. The language's deliberate simplicity means faster implementation across the story backlog, clearer code for Claude to read and modify during sessions, and fewer compilation surprises than Rust's borrow checker would produce for a system with no complex concurrent state.
 
 **Total external dependencies: two.**
 
@@ -544,6 +544,7 @@ type Config struct {
     Priming PrimingConfig `yaml:"priming"`
     Dream   DreamConfig   `yaml:"dream"`
     Strata  StrataConfig  `yaml:"strata"`
+    Doctor  DoctorConfig  `yaml:"doctor"`  // doctor.instruction_docs.shared_sections, etc.
 }
 
 func LoadConfig(root string) (*Config, error) {
@@ -558,6 +559,8 @@ func LoadConfig(root string) (*Config, error) {
     return cfg, nil
 }
 ```
+
+The optional `doctor.instruction_docs` block opts a project into cross-doc reconciliation: any H2 heading listed under `shared_sections` (e.g. `## Landing the Plane (Session Completion)`) is checked across `CLAUDE.md`, `AGENTS.md`, `CODEX.md`, `GEMINI.md`. Drift surfaces as `instruction_doc_drift` findings; `mote doctor --fix` rewrites diverged peers from the authoritative file (default `CLAUDE.md`). See [docs/configuration.md](configuration.md) for the full key reference.
 
 ### Hierarchical Planning
 
@@ -901,6 +904,10 @@ func (do *DreamOrchestrator) Run(dryRun bool) (*DreamResult, error) {
     return &DreamResult{Status: "complete", Batches: len(batches), Visions: len(finalVisions)}, nil
 }
 ```
+
+#### Lens mode (v0.4.7+)
+
+When `batching.self_consistency_runs > 1`, the orchestrator invokes each batch N times and `VoteVisions` keeps only visions a majority of runs agree on. Lens mode is the alternative path: instead of running the same prompt N times, each run applies a distinct mental-model lens (`structural`, `survivorship_bias`, `feedback_loops`, `confirmation_bias`, `inversion`, `probabilistic`, `first_principles`, `opportunity_cost`, `occams_razor`). `MergeLensResults` then preserves all findings as a tagged union; visions that two or more lenses independently flag gain `CrossLensAgreement`, a stronger confidence signal than vote count. Enable with `batching.lens_mode.enabled: true` and `batching.lens_mode.lenses: [...]` in `.memory/config.yaml`; lens mode and `self_consistency_runs > 1` are mutually exclusive. See [docs/configuration.md](configuration.md) for the lens config block and [docs/maintenance.md](maintenance.md) for the operational workflow.
 
 ### Pre-Scanner
 
@@ -1253,6 +1260,8 @@ func main() {
 ```
 
 Each command lives in its own file for clarity. `findMemoryRoot()` walks up from cwd looking for `.memory/`.
+
+The CLI surface shares one rendering subsystem at `internal/format/`: semantic color tokens (`Pass`, `Warn`, `Fail`, `Accent`, `Command`, `Muted`) backed by Ayu-palette `AdaptiveColor{Light, Dark}` pairs with `COLORFGBG`-based detection, plus the two-zone header (`format.RenderHeader`) used by `mote show` and every `mote ls` row. `--no-color`, `NO_COLOR`, `--plain`, `--pretty`, and `--json` form the output-mode contract — `--json` is byte-for-byte unaffected by the color/header changes. The rules and palette are documented in [docs/UI_PHILOSOPHY.md](UI_PHILOSOPHY.md).
 
 ---
 

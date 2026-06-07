@@ -1,5 +1,27 @@
 # Beads → Mote: Recommendations for Incorporation
 
+> **PARTIALLY ADOPTED** — Several of the patterns recommended below have shipped since this document was written (2026-05-06). It remains useful as a pattern catalogue for the items that have not yet been adopted, and as historical context for the ones that have. See [docs/version-history.md](version-history.md) for current state.
+>
+> **Adoption status (as of v0.4.47):**
+>
+> | Section | Pattern | Status |
+> |---|---|---|
+> | §1 | Claude Code PreToolUse safety hooks | Shipped (v0.4.19) |
+> | §2 | Staged-only Go pre-commit hook with re-stage | Shipped (v0.4.20) |
+> | §3 | First-class `mote onboard` / `mote githooks install` | Shipped (v0.4.39) |
+> | §5 | Time-based scheduling (`--due`, `--defer`, `ls --overdue`) | Shipped (v0.4.32) |
+> | §6 | Orchestration-hint metadata on motes | Shipped (v0.4.31) |
+> | §7 | Atomic `--claim` primitive for multi-agent coordination | Shipped (v0.4.25) |
+> | §23.4 | Silent-failure `mote prime` with `--debug` escape hatch | Shipped (v0.4.24) |
+> | §23.5 | First-class memory verbs (`remember` / `memories` / `recall` / `forget`) | Shipped (v0.4.28) |
+> | §23.10 | Progressive disclosure on `mote show` (`--short` / default / `--long`) | Shipped (v0.4.29) |
+> | §23.12 | Visual muting of closed/completed motes in lists | Shipped (v0.4.30) |
+> | §23.13 | Ayu-palette semantic color tokens | Shipped (v0.4.43) |
+>
+> Sections not listed above are either still open recommendations or are pattern-catalogue notes that don't fit mote's design. Treat shipped items below as historical justification for decisions already made, not as actions to take.
+
+---
+
 Source: analysis of [`gastownhall/beads`](https://github.com/gastownhall/beads) at the
 time of writing (commit graph as of 2026-05-06). Beads is a Dolt-backed,
 agent-first issue tracker that has converged on many useful agent-ergonomics

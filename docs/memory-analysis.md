@@ -1,3 +1,7 @@
+> **HISTORICAL** — This is a 2026-05-06 snapshot taken when motes was at v0.4.17. Motes has since shipped customizable `PRIME.md` override (v0.4.41), instruction-doc reconciliation in `mote doctor` (v0.4.45), the canonical `scripts/test.sh` test wrapper (v0.4.47), and several other capabilities not represented below. See [docs/version-history.md](version-history.md) for the current state. The bidirectional comparison is preserved as a design-context record — its analysis of the two systems' architectural shapes is still useful for orientation, but feature-level claims about motes should be cross-checked against the current docs before acting on them.
+
+---
+
 # Memory Analysis: Beads (`bd`) vs. Motes (`mote`)
 
 A deep comparative analysis of two AI-native persistence systems.
