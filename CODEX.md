@@ -12,7 +12,7 @@ For the project's working agreements (which Codex auto-loads as part of its syst
 2. **Hooks live in `.codex/hooks.json`** (or `[hooks]` in `.codex/config.toml`). The repo ships a working `.codex/hooks.json` and `mote onboard --codex` writes the global one at `~/.codex/hooks.json`.
 3. **Skills live at `.agents/skills/<name>/SKILL.md`**. `mote onboard --codex` installs the motes skills there alongside the existing `~/.claude/skills/` install.
 4. **OpenAI as the dream-cycle backend** is configured separately — see [`docs/providers.md`](docs/providers.md#openai). It's independent of Codex driving you as the agent.
-5. **Tests must pass:** `go vet ./... && go test ./...`. Push your work; a session is not done until `git push` succeeds.
+5. **Tests must pass:** `go vet ./... && bash scripts/test.sh`. Push your work; a session is not done until `git push` succeeds.
 
 ---
 
@@ -162,7 +162,7 @@ Same as `AGENTS.md` workflow contract — Codex auto-loads it. The short version
 1. **Before coding**: `mote add --type=task --title="..." --tag=...`
 2. **While coding**: capture lessons/decisions/explore notes as you find them
 3. **On errors**: `mote search "<phrase>" --type=lesson` first
-4. **After coding**: `go vet ./... && go test ./...`, close task motes, `git push`
+4. **After coding**: `go vet ./... && bash scripts/test.sh`, close task motes, `git push`
 
 A session is not done until `git push` succeeds.
 
@@ -239,7 +239,7 @@ This file, like the rest of the project, is MIT-licensed.
 > steps, in order. Work is NOT complete until step 8 emits a handoff prompt.
 
 1. **File issues** for remaining work
-2. **Run quality gates** (if code changed): `go test ./...`, `go vet ./...`
+2. **Run quality gates** (if code changed): `bash scripts/test.sh`, `go vet ./...`
 3. **Update task status** — close finished work
 4. **Push to remote** (MANDATORY):
    ```bash

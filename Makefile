@@ -7,7 +7,7 @@ build:
 	go build -o $(BUILD_DIR)/$(BINARY) ./cmd/mote
 
 test:
-	go test ./...
+	bash scripts/test.sh
 
 vet:
 	go vet ./...

@@ -8,7 +8,7 @@ read `docs/agents-guide.md`.
 
 ```bash
 make build       # go build -o mote ./cmd/mote
-make test        # go test ./...
+make test        # bash scripts/test.sh  (honors .test-skip + 5m timeout)
 make vet         # go vet ./...
 ```
 
@@ -93,7 +93,7 @@ Agent-specific guides:
 > steps, in order. Work is NOT complete until step 8 emits a handoff prompt.
 
 1. **File issues** for remaining work
-2. **Run quality gates** (if code changed): `go test ./...`, `go vet ./...`
+2. **Run quality gates** (if code changed): `bash scripts/test.sh`, `go vet ./...`
 3. **Update task status** — close finished work
 4. **Push to remote** (MANDATORY):
    ```bash

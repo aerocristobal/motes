@@ -10,7 +10,7 @@ This project uses motes for all planning, memory, and task tracking. Knowledge i
 > steps, in order. Work is NOT complete until step 8 emits a handoff prompt.
 
 1. **File issues** for remaining work
-2. **Run quality gates** (if code changed): `go test ./...`, `go vet ./...`
+2. **Run quality gates** (if code changed): `bash scripts/test.sh`, `go vet ./...`
 3. **Update task status** — close finished work
 4. **Push to remote** (MANDATORY):
    ```bash
@@ -94,12 +94,14 @@ Motes is an AI-native context and memory system. Knowledge is stored as atomic u
 ## Build & Development Commands
 
 ```bash
-go build -o mote ./cmd/mote    # Build
-go test ./...                   # Run all tests
-go test ./internal/scoring      # Run tests for a single package
-go test -run TestScoreEngine    # Run a specific test
-go vet ./...                    # Lint
+go build -o mote ./cmd/mote                    # Build
+bash scripts/test.sh                           # Run all tests (canonical)
+TEST_RUN=TestScoreEngine bash scripts/test.sh  # Run a specific test
+go test ./internal/scoring                     # Run tests for one package (dev shortcut)
+go vet ./...                                   # Lint
 ```
+
+Use the wrapper so `.test-skip` + timeout match CI. Set `TEST_RUN=TestX` for a single test.
 
 See [docs/internals.md](docs/internals.md) for architecture, storage layout, and design decisions.
 
