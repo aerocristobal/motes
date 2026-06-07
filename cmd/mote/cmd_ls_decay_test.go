@@ -303,7 +303,10 @@ func TestLs_DeprecatedPrefix_PreservedAndMuted(t *testing.T) {
 }
 
 func TestLs_ForcedTTY_ColumnAlignmentPreserved(t *testing.T) {
-	// Scenario 10: stripping ANSI escapes must leave columns aligned.
+	// STORY-HDRZ-001 Scenario 3: the two-zone header refactor replaces the
+	// old printf-table. The new alignment contract is: every row's
+	// right-zone bracket starts at the same visible column when ANSI is
+	// stripped. (Prior to HDRZ this test asserted the 24-char ID column.)
 	root, cleanup := setupIntegrationTest(t)
 	defer cleanup()
 	defer resetDecayFlags()
@@ -313,6 +316,7 @@ func TestLs_ForcedTTY_ColumnAlignmentPreserved(t *testing.T) {
 	createDeterministicMoteWithStatus(t, root, "proj-T3GHI", "deprecated", "A much longer title here")
 
 	t.Setenv("MOTE_FORCE_TTY", "1")
+	t.Setenv("MOTE_FORCE_WIDTH", "100")
 	t.Setenv("NO_COLOR", "")
 
 	var err error
@@ -323,8 +327,6 @@ func TestLs_ForcedTTY_ColumnAlignmentPreserved(t *testing.T) {
 		t.Fatalf("ls: %v", err)
 	}
 
-	// Strip ANSI; data rows (those containing "proj-") must all start with the
-	// same column layout (24-char ID column, 2-space gap, then type column).
 	var dataLines []string
 	for _, line := range strings.Split(stdout, "\n") {
 		if strings.Contains(line, "proj-") {
@@ -334,15 +336,28 @@ func TestLs_ForcedTTY_ColumnAlignmentPreserved(t *testing.T) {
 	if len(dataLines) != 3 {
 		t.Fatalf("expected 3 data rows, got %d: %q", len(dataLines), stdout)
 	}
-	// The runes 0..25 (24-char ID + 2 spaces) should be visually identical-length
-	// when ANSI is stripped. We use a less brittle test: every stripped row has
-	// "task" starting at byte 26 (since type is "task" for all rows).
+	// Right-edge alignment: each stripped row is exactly the target width
+	// (100 cells), so the closing `]` lands at the same visible column on
+	// every row regardless of status. Mixed statuses have different right-
+	// zone widths (`[○ ACTIVE w0.5]` is 15 cells, `[✓ COMPLETED]` is 13),
+	// so the opening `[` floats — but the right edge is invariant.
 	for _, line := range dataLines {
 		stripped := stripCSI(line)
-		if !strings.HasPrefix(stripped[26:], "task") {
-			t.Errorf("type column misaligned in row: stripped=%q", stripped)
+		if !strings.HasSuffix(stripped, "]") {
+			t.Errorf("row should end at right-zone `]`: stripped=%q", stripped)
+		}
+		if w := utf8RuneCount(stripped); w != 100 {
+			t.Errorf("row visible width should be 100, got %d: stripped=%q", w, stripped)
 		}
 	}
+}
+
+func utf8RuneCount(s string) int {
+	n := 0
+	for range s {
+		n++
+	}
+	return n
 }
 
 // TestLs_NonTTY_ByteStableAgainstSnapshot verifies that non-TTY plain text

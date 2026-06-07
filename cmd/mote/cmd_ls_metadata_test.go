@@ -546,12 +546,12 @@ func TestRunLs_MetadataField_Table(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ls: %v", err)
 	}
-	if !strings.Contains(stdout, "ID") || !strings.Contains(stdout, "TITLE") {
-		t.Errorf("table header missing; got %q", stdout)
-	}
+	// STORY-HDRZ-001: the old printf-table column header (ID/TYPE/STATUS/
+	// WEIGHT/TITLE) is dropped; the two-zone header rows are self-describing.
+	// Only the per-mote presence assertions remain.
 	for _, id := range []string{"motes-1", "motes-2", "motes-3", "motes-6"} {
 		if !strings.Contains(stdout, id) {
-			t.Errorf("table missing %s; got %q", id, stdout)
+			t.Errorf("ls missing %s; got %q", id, stdout)
 		}
 	}
 }

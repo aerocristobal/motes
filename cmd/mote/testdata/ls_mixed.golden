@@ -1,5 +1,3 @@
-ID                        TYPE            STATUS        WEIGHT    TITLE
---------------------------------------------------------------------------------
-proj-T1ABC                task            active        0.50      Add login flow
-proj-T2DEF                task            completed     0.50      Refactor router
-proj-T3GHI                task            deprecated    0.50      [deprecated] Old auth
+○ proj-T1ABC · Add login flow                                    [○ ACTIVE w0.5]
+✓ proj-T2DEF · Refactor router                                     [✓ COMPLETED]
+❄ proj-T3GHI · [deprecated] Old auth                              [❄ DEPRECATED]

@@ -42,15 +42,18 @@ func TestShowPlain_KeyValueLines_NoTufteChrome(t *testing.T) {
 		t.Errorf("plain show emitted Tufte chrome: %q", stdout)
 	}
 
-	// Must include at minimum: id, type, status, title, tag (one per tag), weight, origin.
+	// STORY-HDRZ-001: id, status, title, and weight now live on the
+	// two-zone header line (`<id> - <title>  |  [ACTIVE w<weight>]`) and
+	// are NOT printed as standalone `key: value` lines. The remaining
+	// fields (type, tag, origin) still print one-per-line.
+	headerWant := seeded.ID + " - important decision  |  [o ACTIVE"
+	if !strings.Contains(stdout, headerWant) {
+		t.Errorf("plain show missing header substring %q; full output:\n%s", headerWant, stdout)
+	}
 	mustHave := []string{
-		"id: " + seeded.ID,
 		"type: decision",
-		"status: active",
-		"title: important decision",
 		"tag: alpha",
 		"tag: beta",
-		"weight: ",
 		"origin: ",
 	}
 	for _, want := range mustHave {
@@ -58,9 +61,22 @@ func TestShowPlain_KeyValueLines_NoTufteChrome(t *testing.T) {
 			t.Errorf("plain show missing %q; full output:\n%s", want, stdout)
 		}
 	}
+	mustNotHave := []string{
+		"id: " + seeded.ID + "\n",
+		"status: active\n",
+		"title: important decision\n",
+		"weight: ",
+	}
+	for _, banned := range mustNotHave {
+		if strings.Contains(stdout, banned) {
+			t.Errorf("redundant standalone line %q should not appear (now in two-zone header); full output:\n%s", banned, stdout)
+		}
+	}
 
-	// `format.Field` pads keys to 16 chars with `%-16s`. Plain must NOT use it,
-	// so no line should contain the run of spaces that padding produces.
+	// `format.Field` pads keys to 16 chars with `%-16s`. Plain must NOT use
+	// it, so no line should contain four contiguous spaces of padding. The
+	// two-zone header uses `  |  ` (two-space-pipe-two-space) which has no
+	// four-space run.
 	for _, line := range strings.Split(stdout, "\n") {
 		if strings.Contains(line, "    ") {
 			t.Errorf("plain show emitted padded line: %q", line)

@@ -67,6 +67,61 @@ If a new symbol is needed, extend `StatusIcon` (or a sibling table in
 
 ---
 
+## Header structure
+
+<a id="header-structure"></a>
+
+Header lines split into two zones:
+
+- **Left** = status icon + Accent-colored ID + ` · ` + title.
+- **Right** = `[<status-icon> <STATUS>` + (` w<weight>` if the mote is open) + `]`, right-aligned to the terminal width.
+
+Closed motes (status in `{completed, archived, deprecated}`) mute the entire
+line via `format.Muted` and drop the weight segment from the right zone —
+weight is a triage signal, and triage is done. When the title is too long
+for the available left-zone budget, it truncates with `…` (pretty) or `...`
+(plain); the right zone is never truncated. Width detection lives in
+`format.TerminalWidth()`, which honors the undocumented test-only
+`MOTE_FORCE_WIDTH` env var.
+
+In `--plain` mode the same content renders with ASCII icons, a literal
+`  |  ` separator between zones, no right-alignment padding, and no ANSI.
+This is the LLM-grep-friendly shape — `awk -F'|'` works.
+
+The header is rendered by `format.RenderHeader` (internal/format/header.go),
+which takes a `HeaderInput` struct of primitives so the format package does
+not need to import `internal/core`. Two callsites today: `cmd_show.go`'s
+default + plain rendering, and `cmd_ls.go`'s per-row loop. Other renderers
+(`mote pulse`, `mote constellation`, `mote context`) intentionally do NOT
+call it — a static scope guard in the test suite enforces that.
+
+### Accept
+
+The first line of `mote show T1abc7` on a 100-column TTY reads:
+
+```
+○ T1abc7 · Add login form                                                       [○ ACTIVE w0.6]
+```
+
+Each row of `mote ls --ready` has the same shape. The eye saccades to one
+zone or the other depending on whether the reader is scanning for the mote
+ID (left) or work state (right). In a `--plain` pipeline the same row is:
+
+```
+o T1abc7 - Add login form  |  [o ACTIVE w0.6]
+```
+
+### Reject
+
+A PR that re-introduces the old flat `=== T1abc7 ===` header followed by
+key/value `type: …`, `status: …`, `title: …`, `weight: …` lines for `mote
+show` — that block is the redundancy the two-zone header replaced. A PR
+that introduces a NEW renderer (say `mote audit`) emitting a one-line mote
+summary should call `format.RenderHeader` instead of hand-rolling its own
+layout, so all header-emitting commands stay consistent.
+
+---
+
 ## Rule 3: Recovery/fix operations consolidate into `mote doctor --fix`
 
 Mote will accrue many things that can drift, regress, or need repair —

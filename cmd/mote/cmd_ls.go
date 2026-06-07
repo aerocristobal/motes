@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -239,23 +238,28 @@ func doLs(filters core.ListFilters, sortByWeight bool, compact bool, jsonOutput 
 		return nil
 	}
 
-	fmt.Printf("%-24s  %-14s  %-12s  %-8s  %s\n",
-		"ID", "TYPE", "STATUS", "WEIGHT", "TITLE")
-	fmt.Println(strings.Repeat("-", 80))
-
+	// STORY-HDRZ-001: each row is now a two-zone header (icon + ID + title
+	// on the left, [icon STATUS w<weight>] on the right, right-aligned to
+	// terminal width). The previous table column header (ID/TYPE/STATUS/
+	// WEIGHT/TITLE) and the `---` divider are dropped — the rows are now
+	// self-describing and consistent with `mote show`'s first line.
 	useColor := useColorOutput()
+	width := format.TerminalWidth()
+	ascii := format.IconASCIIFromEnv()
 	for i, m := range motes {
-		title := format.Truncate(m.Title, 40)
+		// Preserve the historical `[deprecated] ` prefix on the title for
+		// existing log scrapers (UI_PHILOSOPHY "Backward compatibility for
+		// textual markers"). The mute styling is applied inside RenderHeader.
+		title := m.Title
 		if m.Status == "deprecated" {
 			title = "[deprecated] " + title
 		}
-		// Pad/format the raw row first, then wrap in ANSI so column edges align.
-		row := fmt.Sprintf("%-24s  %-14s  %-12s  %-8.2f  %s",
-			m.ID, m.Type, m.Status, m.Weight, title)
-		if format.IsClosed(m.Status) {
-			row = format.Muted(row, useColor)
-		}
-		fmt.Println(row)
+		fmt.Println(format.RenderHeader(format.HeaderInput{
+			ID:     m.ID,
+			Status: m.Status,
+			Title:  title,
+			Weight: m.Weight,
+		}, width, format.HeaderPretty, ascii, useColor))
 		if explainMode {
 			writeExplainLines(os.Stdout, explanations[i], useColor)
 		}

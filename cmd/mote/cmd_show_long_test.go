@@ -39,7 +39,10 @@ func TestShow_Long_HasInternalStateSection(t *testing.T) {
 	})
 
 	// The internal-state section is appended; default content must still appear.
-	for _, want := range []string{"=== " + m.ID + " ===", "--- internal state ---"} {
+	// STORY-HDRZ-001: the old `=== <id> ===` header was replaced by the
+	// two-zone header. The ID still appears on the first line as part of
+	// the left zone.
+	for _, want := range []string{m.ID, "--- internal state ---"} {
 		if !strings.Contains(longOut, want) {
 			t.Errorf("--long output should contain %q; got:\n%s", want, longOut)
 		}

@@ -317,15 +317,21 @@ func emitShowJSON(payload any) error {
 // no `--- section ---` dividers. Lists become repeated keyed lines so each
 // data point fits on one grep-able row. The body is appended after a blank
 // line so awk can extract it with `/^body:/,/^$/`-style ranges.
+//
+// STORY-HDRZ-001: the first line is the two-zone header. The id, status,
+// title, and weight fields are no longer printed as standalone `key: value`
+// lines — they live in the header. Other fields print unchanged below.
 func emitShowPlain(m *core.Mote, mm *core.MoteManager, idx *core.EdgeIndex) {
-	fmt.Printf("id: %s\n", m.ID)
+	fmt.Println(format.RenderHeader(format.HeaderInput{
+		ID:     m.ID,
+		Status: m.Status,
+		Title:  m.Title,
+		Weight: m.Weight,
+	}, 0, format.HeaderPlain, true, false))
 	fmt.Printf("type: %s\n", m.Type)
-	fmt.Printf("status: %s\n", m.Status)
-	fmt.Printf("title: %s\n", m.Title)
 	for _, tag := range m.Tags {
 		fmt.Printf("tag: %s\n", tag)
 	}
-	fmt.Printf("weight: %.2f\n", m.Weight)
 	fmt.Printf("origin: %s\n", m.Origin)
 	if m.Size != "" {
 		fmt.Printf("size: %s\n", m.Size)
@@ -582,13 +588,23 @@ func buildShowLongOutput(base ShowOutput, m *core.Mote, root string) ShowLongOut
 // emitDefaultText writes the existing default-mode rich text output to stdout.
 // Extracted so --long can call it first and then append the internal-state
 // section, preserving Scenario 3's "default output is present unchanged".
+//
+// STORY-HDRZ-001: the first line is the two-zone header (left: status icon
+// + accent ID + title; right: [status icon STATUS w<weight>], right-aligned
+// to the terminal width). The status, title, and weight fields are no
+// longer rendered as standalone Field lines below — they live in the
+// header. `type` remains because the header carries no type signal.
 func emitDefaultText(m *core.Mote, mm *core.MoteManager, idx *core.EdgeIndex) {
-	fmt.Println(format.Header(m.ID))
+	ascii := showASCII || format.IconASCIIFromEnv()
+	useColor := useColorOutput()
+	fmt.Println(format.RenderHeader(format.HeaderInput{
+		ID:     m.ID,
+		Status: m.Status,
+		Title:  m.Title,
+		Weight: m.Weight,
+	}, format.TerminalWidth(), format.HeaderPretty, ascii, useColor))
 	fmt.Println(format.Field("type", m.Type))
-	fmt.Println(format.Field("status", m.Status))
-	fmt.Println(format.Field("title", m.Title))
 	fmt.Println(format.Field("tags", format.TagList(m.Tags)))
-	fmt.Println(format.Field("weight", fmt.Sprintf("%.2f", m.Weight)))
 	fmt.Println(format.Field("origin", m.Origin))
 	if m.Size != "" {
 		fmt.Println(format.Field("size", m.Size))
