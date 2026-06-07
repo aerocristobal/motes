@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"motes/internal/core"
+	"motes/internal/doctor"
 	"motes/internal/format"
 	"motes/internal/githooks"
 	"motes/internal/jsonenv"
@@ -28,7 +29,8 @@ func init() {
 	rootCmd.AddCommand(doctorCmd)
 	doctorCmd.Flags().Bool("cross-project", false, "validate cross-project refs by loading all discovered projects under --projects-root")
 	doctorCmd.Flags().String("projects-root", "", "root directory to scan for sibling projects (default: parent of current project)")
-	doctorCmd.Flags().Bool("fix", false, "Repair mote-managed git-hook drift in place (never touches user-authored hooks)")
+	doctorCmd.Flags().Bool("fix", false, "Repair mote-managed git-hook drift and instruction-doc divergence in place")
+	doctorCmd.Flags().Bool("verbose", false, "Print per-section status lines for the instruction-doc reconciliation check")
 }
 
 // extractMotePrefix returns the project prefix of a mote ID (e.g. "turingpi" from "turingpi-Txxx").
@@ -126,11 +128,18 @@ func runDoctor(cmd *cobra.Command, args []string) error {
 	// install path (which never touches user-authored hooks).
 	cwd, _ := os.Getwd()
 	fix, _ := cmd.Flags().GetBool("fix")
+	verbose, _ := cmd.Flags().GetBool("verbose")
 	driftIssues, fixedPaths := runGithookDriftCheck(cwd, fix)
 	for _, p := range fixedPaths {
 		fmt.Println(format.Pass(fmt.Sprintf("Fixed git-hook drift: %s", p)))
 	}
 	issues = append(issues, driftIssues...)
+
+	// STORY-DIVRG-001: instruction-doc reconciliation. Compare H2 sections
+	// declared in .memory/config.yaml across CLAUDE.md/AGENTS.md/CODEX.md/
+	// GEMINI.md. Honors the <!-- mote-doctor-divergence: ok --> marker.
+	docIssues := runInstructionDocsCheck(cwd, cfg.Doctor.InstructionDocs, fix, verbose)
+	issues = append(issues, docIssues...)
 
 	// Separate cross_project_ref advisories from integrity errors.
 	var errorIssues, crossRefs []doctorIssue
@@ -258,6 +267,83 @@ func runGithookDriftCheck(cwd string, fix bool) ([]doctorIssue, []string) {
 		})
 	}
 	return out, nil
+}
+
+// runInstructionDocsCheck runs the STORY-DIVRG-001 reconciliation check.
+// When fix is true, drift is repaired in place first and the check is re-run
+// against the post-fix state; any remaining drift (e.g., marked sections
+// that fix intentionally skipped) is reported. Verbose prints per-section
+// status lines (Scenarios 2, 3, 5, 6).
+func runInstructionDocsCheck(root string, cfg core.InstructionDocsConfig, fix, verbose bool) []doctorIssue {
+	if fix {
+		fixVerbose, err := doctor.FixInstructionDocs(root, cfg)
+		if err != nil && !errors.Is(err, doctor.ErrSkipped) {
+			return []doctorIssue{{
+				Category: "instruction_doc_fix",
+				MoteID:   "-",
+				Detail:   err.Error(),
+			}}
+		}
+		if verbose {
+			for _, line := range fixVerbose {
+				fmt.Println(format.Pass("instruction_doc: " + line))
+			}
+		}
+	}
+	checkVerbose, err := doctor.CheckInstructionDocs(root, cfg)
+	if errors.Is(err, doctor.ErrSkipped) {
+		if verbose {
+			fmt.Println("instruction-doc reconciliation: not configured (see docs/UI_PHILOSOPHY.md)")
+		}
+		return nil
+	}
+	if verbose {
+		for _, line := range checkVerbose {
+			fmt.Println("instruction_doc: " + line)
+		}
+	}
+	if err == nil {
+		return nil
+	}
+	// Convert each *DriftError / *MissingSectionError into a doctorIssue.
+	// errors.Join exposes its wrapped errors via Unwrap() []error; if the
+	// returned error isn't a join, treat it as a single finding.
+	type unwrapper interface{ Unwrap() []error }
+	var leaves []error
+	if u, ok := err.(unwrapper); ok {
+		leaves = u.Unwrap()
+	} else {
+		leaves = []error{err}
+	}
+	var issues []doctorIssue
+	for _, leaf := range leaves {
+		// Drift errors and missing-section errors get the multi-line block
+		// on stderr so the user can read it cleanly (Scenario 4).
+		fmt.Fprintln(os.Stderr, leaf.Error())
+		var drift *doctor.DriftError
+		var missing *doctor.MissingSectionError
+		switch {
+		case errors.As(leaf, &drift):
+			issues = append(issues, doctorIssue{
+				Category: "instruction_doc_drift",
+				MoteID:   "-",
+				Detail:   fmt.Sprintf("%s diverged from %s: %s", drift.Section, drift.AuthoritativeFile, strings.Join(drift.DivergedFiles, ", ")),
+			})
+		case errors.As(leaf, &missing):
+			issues = append(issues, doctorIssue{
+				Category: "instruction_doc_drift",
+				MoteID:   "-",
+				Detail:   fmt.Sprintf("%s present in %s, missing from %s", missing.Section, missing.AuthoritativeFile, strings.Join(missing.MissingFrom, ", ")),
+			})
+		default:
+			issues = append(issues, doctorIssue{
+				Category: "instruction_doc_drift",
+				MoteID:   "-",
+				Detail:   leaf.Error(),
+			})
+		}
+	}
+	return issues
 }
 
 func runDoctorChecks(mm *core.MoteManager, im *core.IndexManager, idx *core.EdgeIndex, moteMap map[string]*core.Mote, cfg *core.Config) []doctorIssue {

@@ -20,9 +20,25 @@ type Config struct {
 }
 
 type DoctorConfig struct {
-	MaxAvgLinks   float64 `yaml:"max_avg_links"`   // advisory threshold: avg edges per mote
-	MaxChainDepth int     `yaml:"max_chain_depth"` // advisory threshold: depends_on chain depth
-	SingletonPct  float64 `yaml:"singleton_pct"`   // advisory threshold: % singleton tags
+	MaxAvgLinks     float64               `yaml:"max_avg_links"`    // advisory threshold: avg edges per mote
+	MaxChainDepth   int                   `yaml:"max_chain_depth"`  // advisory threshold: depends_on chain depth
+	SingletonPct    float64               `yaml:"singleton_pct"`    // advisory threshold: % singleton tags
+	InstructionDocs InstructionDocsConfig `yaml:"instruction_docs"` // STORY-DIVRG-001: shared-section reconciliation across CLAUDE.md/AGENTS.md/CODEX.md/GEMINI.md
+}
+
+// InstructionDocsConfig configures the shared-section reconciliation check
+// in `mote doctor` (STORY-DIVRG-001). When SharedSections is empty the
+// check is a no-op.
+type InstructionDocsConfig struct {
+	// SharedSections lists H2 headings (including the "## " prefix) that
+	// must match across the instruction docs. Example: "## Landing the Plane".
+	SharedSections []string `yaml:"shared_sections,omitempty"`
+	// AuthoritativeFile is the file that `--fix` copies FROM. Defaults to
+	// "CLAUDE.md" when empty.
+	AuthoritativeFile string `yaml:"authoritative_file,omitempty"`
+	// ComparePeers is the list of files reconciled against the authoritative
+	// file. Defaults to {CLAUDE.md, AGENTS.md, CODEX.md, GEMINI.md} when empty.
+	ComparePeers []string `yaml:"compare_peers,omitempty"`
 }
 
 type LinkingConfig struct {

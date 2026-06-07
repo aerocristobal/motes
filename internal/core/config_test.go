@@ -204,6 +204,44 @@ func TestLoadConfig_DoctorSection(t *testing.T) {
 	}
 }
 
+// STORY-DIVRG-001: instruction-doc reconciliation config block.
+func TestLoadConfig_InstructionDocsSection(t *testing.T) {
+	dir := t.TempDir()
+	yamlContent := `doctor:
+  instruction_docs:
+    shared_sections:
+      - "## Landing the Plane"
+      - "## Key Documents"
+    authoritative_file: "CLAUDE.md"
+`
+	if err := os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(yamlContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Doctor.InstructionDocs.SharedSections) != 2 {
+		t.Fatalf("SharedSections: got %d, want 2", len(cfg.Doctor.InstructionDocs.SharedSections))
+	}
+	if cfg.Doctor.InstructionDocs.SharedSections[0] != "## Landing the Plane" {
+		t.Errorf("SharedSections[0]: got %q", cfg.Doctor.InstructionDocs.SharedSections[0])
+	}
+	if cfg.Doctor.InstructionDocs.AuthoritativeFile != "CLAUDE.md" {
+		t.Errorf("AuthoritativeFile: got %q, want CLAUDE.md", cfg.Doctor.InstructionDocs.AuthoritativeFile)
+	}
+	// Empty config (no instruction_docs block) leaves zero-value, which is the
+	// no-op state for the doctor check.
+	dir2 := t.TempDir()
+	cfg2, err := LoadConfig(dir2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg2.Doctor.InstructionDocs.SharedSections) != 0 {
+		t.Errorf("default SharedSections should be empty, got %v", cfg2.Doctor.InstructionDocs.SharedSections)
+	}
+}
+
 func TestLoadConfig_LensModeConfig(t *testing.T) {
 	dir := t.TempDir()
 	yamlContent := `dream:
