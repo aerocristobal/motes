@@ -20,7 +20,7 @@ func TestVotingConfigLabel(t *testing.T) {
 			name: "single sonnet",
 			cfg: core.DreamConfig{
 				Batching: core.BatchingConfig{SelfConsistencyRuns: 1},
-				Provider: core.DreamProvider{Batch: core.ProviderEntry{Model: "claude-sonnet-4-20250514"}},
+				Provider: core.DreamProvider{Batch: core.ProviderEntry{Model: "claude-sonnet-5"}},
 			},
 			want: "1x-sonnet",
 		},
@@ -28,7 +28,7 @@ func TestVotingConfigLabel(t *testing.T) {
 			name: "triple sonnet",
 			cfg: core.DreamConfig{
 				Batching: core.BatchingConfig{SelfConsistencyRuns: 3},
-				Provider: core.DreamProvider{Batch: core.ProviderEntry{Model: "claude-sonnet-4-20250514"}},
+				Provider: core.DreamProvider{Batch: core.ProviderEntry{Model: "claude-sonnet-5"}},
 			},
 			want: "3x-sonnet",
 		},
@@ -36,7 +36,7 @@ func TestVotingConfigLabel(t *testing.T) {
 			name: "zero defaults to 1",
 			cfg: core.DreamConfig{
 				Batching: core.BatchingConfig{SelfConsistencyRuns: 0},
-				Provider: core.DreamProvider{Batch: core.ProviderEntry{Model: "claude-sonnet-4-20250514"}},
+				Provider: core.DreamProvider{Batch: core.ProviderEntry{Model: "claude-sonnet-5"}},
 			},
 			want: "1x-sonnet",
 		},
@@ -78,7 +78,7 @@ func TestVotingConfigLabel(t *testing.T) {
 						Lenses:  []string{"inversion"},
 					},
 				},
-				Provider: core.DreamProvider{Batch: core.ProviderEntry{Model: "claude-sonnet-4-20250514"}},
+				Provider: core.DreamProvider{Batch: core.ProviderEntry{Model: "claude-sonnet-5"}},
 			},
 			want: "1x-lens[inv]",
 		},

@@ -798,7 +798,7 @@ The dream orchestrator invokes Claude CLI via `os/exec`. It never handles OAuth 
 
 ```go
 type ClaudeInvoker struct {
-    batchModel string // e.g. "claude-sonnet-4-20250514"
+    batchModel string // e.g. "claude-sonnet-5"
     reconModel string // e.g. "claude-opus-4-20250514"
     timeout    time.Duration
 }

@@ -36,7 +36,7 @@ func TestEstimateCost(t *testing.T) {
 		output int
 		want   float64
 	}{
-		{"sonnet by exact id", "claude-sonnet-4-20250514", 1000, 500, calc(1000, 500, 3.0, 15.0)},
+		{"sonnet by exact id", "claude-sonnet-5", 1000, 500, calc(1000, 500, 3.0, 15.0)},
 		{"opus by exact id", "claude-opus-4-20250514", 1000, 500, calc(1000, 500, 15.0, 75.0)},
 		{"sonnet case-insensitive", "Claude-Sonnet-Latest", 100, 100, calc(100, 100, 3.0, 15.0)},
 		{"unknown model returns zero", "unknown-model", 1000, 500, 0},

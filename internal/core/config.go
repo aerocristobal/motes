@@ -314,7 +314,7 @@ func DefaultConfig() *Config {
 			ReviewMode:          "auto",
 			ConfidenceThreshold: 0.6,
 			Provider: DreamProvider{
-				Batch:          ProviderEntry{Backend: "claude-cli", Auth: "oauth", Model: "claude-sonnet-4-6"},
+				Batch:          ProviderEntry{Backend: "claude-cli", Auth: "oauth", Model: "claude-sonnet-5"},
 				Reconciliation: ProviderEntry{Backend: "claude-cli", Auth: "oauth", Model: "claude-opus-4-6"},
 			},
 			Batching: BatchingConfig{

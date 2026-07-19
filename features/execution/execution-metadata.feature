@@ -97,7 +97,7 @@ Feature: Execution metadata on motes
   # ---- Validation: free-form fields ----
 
   Scenario: `execution_suggested_model` accepts arbitrary alphanumeric + hyphen tokens
-    When I run `mote add --type=task --title=t --execution-suggested-model=claude-sonnet-4-7`
+     When I run `mote add --type=task --title=t --execution-suggested-model=claude-sonnet-5`
     Then the command exits 0
 
   Scenario Outline: `execution_*` free-form fields reject shell metacharacters and traversal

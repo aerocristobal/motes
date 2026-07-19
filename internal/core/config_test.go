@@ -285,7 +285,7 @@ func TestLoadConfig_RejectsUnknownBatchBackend(t *testing.T) {
     batch:
       backend: anthropic-direct
       auth: oauth
-      model: claude-sonnet-4-6
+      model: claude-sonnet-5
     reconciliation:
       backend: claude-cli
       auth: oauth
@@ -569,7 +569,7 @@ func TestLoadConfig_PerAgentRejectsInvalidBackend(t *testing.T) {
     batch:
       backend: claude-cli
       auth: oauth
-      model: claude-sonnet-4-6
+      model: claude-sonnet-5
     per_agent:
       codex:
         batch:

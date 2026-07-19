@@ -33,7 +33,7 @@ The orchestrator constructs **two** invokers per dream run — one for batch rea
 
 ### `claude-cli` (Default)
 
-No additional configuration needed beyond having the `claude` CLI on `PATH`. The default `mote init` config uses this backend with `claude-sonnet-4-6` (batch) and `claude-opus-4-6` (reconciliation).
+No additional configuration needed beyond having the `claude` CLI on `PATH`. The default `mote init` config uses this backend with `claude-sonnet-5` (batch) and `claude-opus-4-8` (reconciliation).
 
 ```yaml
 dream:
@@ -41,11 +41,11 @@ dream:
     batch:
       backend: claude-cli
       auth: oauth                   # placeholder — claude handles its own auth
-      model: claude-sonnet-4-6
+      model: claude-sonnet-5
     reconciliation:
       backend: claude-cli
       auth: oauth
-      model: claude-opus-4-6
+      model: claude-opus-4-8
 ```
 
 **Implementation:** `internal/dream/invoker.go` (`ClaudeInvoker`). Shells out via `exec.CommandContext` with the JSON-only system prompt and 5-minute timeout.
@@ -189,7 +189,7 @@ dream:
     reconciliation:
       backend: claude-cli
       auth: oauth
-      model: claude-opus-4-6
+      model: claude-opus-4-8
 ```
 
 ### Local default, paid escalation
@@ -200,7 +200,7 @@ dream:
     batch:
       backend: claude-cli            # uses your existing claude subscription
       auth: oauth
-      model: claude-sonnet-4-6
+      model: claude-sonnet-5
     reconciliation:
       backend: gemini                # only the single recon call hits Vertex AI
       auth: vertex-ai

@@ -110,7 +110,7 @@ dream:
     batch:
       backend: claude-cli
       auth: oauth
-      model: claude-sonnet-4-20250514
+      model: claude-sonnet-5
     reconciliation:
       backend: claude-cli
       auth: oauth
@@ -224,7 +224,7 @@ Controls the headless LLM maintenance cycle.
 | `schedule_hint_days` | int | `2` | Suggested interval between dream runs |
 | `provider.batch.backend` | string | `claude-cli` | LLM backend for batch reasoning. See [Provider Backends](#provider-backends) below |
 | `provider.batch.auth` | string | `oauth` | Credential — env var name (recommended), literal value, or `vertex-ai` for Gemini ADC |
-| `provider.batch.model` | string | `claude-sonnet-4-6` | Model identifier as the backend expects it |
+| `provider.batch.model` | string | `claude-sonnet-5` | Model identifier as the backend expects it |
 | `provider.batch.options` | map | `{}` | Backend-specific options (e.g. `gcp_project`, `gcp_region` for Gemini) |
 | `provider.reconciliation.backend` | string | `claude-cli` | Same as batch — can differ from batch backend |
 | `provider.reconciliation.auth` | string | `oauth` | Same as batch |

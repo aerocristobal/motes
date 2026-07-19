@@ -2040,7 +2040,7 @@ dream:
     batch:
       backend: claude-cli
       auth: oauth
-      model: claude-sonnet-4-20250514
+      model: claude-sonnet-5
     reconciliation:
       backend: claude-cli
       auth: oauth

@@ -96,7 +96,7 @@ func decorateProviderEntry(provider *yaml.Node, stage string) {
 		k.HeadComment = "Auth: env var name (recommended) holding the credential, or 'vertex-ai' for Gemini ADC, or 'oauth' for claude-cli."
 	}
 	if k := mappingKey(stageNode, "model"); k != nil {
-		k.HeadComment = "Model identifier as the backend expects it (e.g. claude-sonnet-4-6, gpt-4o, gemini-2.5-flash)."
+		k.HeadComment = "Model identifier as the backend expects it (e.g. claude-sonnet-5, gpt-4o, gemini-2.5-flash)."
 	}
 	if stageKey := mappingKey(provider, stage); stageKey != nil && stageKey.HeadComment == "" {
 		switch stage {

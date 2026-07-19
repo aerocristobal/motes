@@ -350,7 +350,7 @@ Tasks can carry optional structured hints that tell an orchestrator how to dispa
 | Field | Type | Values | Purpose |
 |---|---|---|---|
 | `execution_agent_type` | free-form (alnum + `._-`, ≤256) | e.g. `mote-subagent` | Which subagent persona / role to spawn |
-| `execution_suggested_model` | free-form | e.g. `haiku`, `claude-sonnet-4-7` | Which model the subagent should run; orchestrator interprets the token |
+| `execution_suggested_model` | free-form | e.g. `haiku`, `claude-sonnet-5` | Which model the subagent should run; orchestrator interprets the token |
 | `execution_reasoning_effort` | enum | `low` \| `medium` \| `high` | Reasoning budget for the subagent |
 | `execution_mode` | enum | `local` \| `delegated` \| `parallel` | Dispatch shape (in-process, delegated to a child agent, or one of many parallel siblings) |
 | `execution_parallel_group` | free-form | e.g. `group-A` | Membership in a fan-out group for parallel mode |

@@ -87,7 +87,7 @@ var _ Invoker = (*ClaudeInvoker)(nil)
 func NewClaudeInvoker(entry core.ProviderEntry, rateLimitRPM int) *ClaudeInvoker {
 	model := entry.Model
 	if model == "" {
-		model = "claude-sonnet-4-6"
+		model = "claude-sonnet-5"
 	}
 	return &ClaudeInvoker{
 		model:       model,

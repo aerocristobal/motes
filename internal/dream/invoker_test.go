@@ -17,7 +17,7 @@ func TestNewInvoker_ClaudeCLIBackend(t *testing.T) {
 	}{
 		{
 			name:  "explicit claude-cli backend",
-			entry: core.ProviderEntry{Backend: "claude-cli", Model: "claude-sonnet-4-6"},
+			entry: core.ProviderEntry{Backend: "claude-cli", Model: "claude-sonnet-5"},
 		},
 		{
 			name:  "empty backend defaults to claude-cli",

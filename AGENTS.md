@@ -1,7 +1,7 @@
 # AGENTS.md — Working with motes
 
 This file is loaded into your context at session start. Keep it short.
-For extended background, common pitfalls, and the agent-native principle,
+For extended background, common pitfalls, and the "agent-native" principle,
 read `docs/agents-guide.md`.
 
 ## Build & Development Commands
@@ -51,7 +51,7 @@ of record.
 |---|---|
 | Add a CLI command | `cmd/mote/cmd_<name>.go` + `init()` registers with `rootCmd` |
 | Add a mote field | `internal/core/mote.go` (`Mote` struct) — also update index, search, frontmatter parser |
-| Set orchestration hints | `--execution-agent-type`, `--execution-suggested-model`, `--execution-reasoning-effort` (`low\|medium\|high`), `--execution-mode` (`local\|delegated\|parallel`), `--execution-parallel-group` on `mote add` / `mote update` |
+| Set orchestration hints | `--execution-agent-type`, `--execution-suggested-model`, `--execution-reasoning-effort`, `--execution-mode`, `--execution-parallel-group` on `mote add` / `mote update` |
 | Dispatch a subagent | Read execution metadata before prose — see `docs/agents-guide.md#read-execution-metadata-before-prose` (`mote show <id> --execution-only`) |
 | Tune scoring | `internal/scoring/` + `ScoringConfig` in `internal/core/config.go` |
 | Tune dream cycle | `internal/dream/` + `DreamConfig` in `internal/core/config.go` |
@@ -150,4 +150,3 @@ git remote prune origin
 # 8. Hand off
 echo "Continue work on mote-<task-id>: <title>. Done: <one line>. Next: <one line>."
 ```
-

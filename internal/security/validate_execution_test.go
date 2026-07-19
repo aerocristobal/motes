@@ -68,7 +68,7 @@ func TestValidateExecutionField_EmptyClearsAllFields(t *testing.T) {
 func TestValidateExecutionField_FreeForm_Accepts(t *testing.T) {
 	cases := []string{
 		"mote-subagent",
-		"claude-sonnet-4-7",
+		"claude-sonnet-5",
 		"haiku",
 		"group_A",
 		"group-A.1",
