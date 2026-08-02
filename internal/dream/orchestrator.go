@@ -50,10 +50,12 @@ func NewDreamOrchestrator(root string, cfg *core.Config) (*DreamOrchestrator, er
 	if err != nil {
 		return nil, fmt.Errorf("batch invoker: %w", err)
 	}
+	batchInvoker = Gated(batchInvoker, cfg.Dream.Provider.MaxInFlight)
 	reconInvoker, err := NewInvoker(cfg.Dream.Provider.Reconciliation, cfg.Dream.Provider.RateLimitRPM)
 	if err != nil {
 		return nil, fmt.Errorf("reconciliation invoker: %w", err)
 	}
+	reconInvoker = Gated(reconInvoker, cfg.Dream.Provider.MaxInFlight)
 
 	return &DreamOrchestrator{
 		root:         root,

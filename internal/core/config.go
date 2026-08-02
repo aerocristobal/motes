@@ -112,6 +112,7 @@ type DreamProvider struct {
 	Batch          ProviderEntry            `yaml:"batch"`
 	Reconciliation ProviderEntry            `yaml:"reconciliation"`
 	RateLimitRPM   int                      `yaml:"rate_limit_rpm"` // 0 = unlimited
+	MaxInFlight    int                      `yaml:"max_in_flight"`  // 0 = unlimited
 	PerAgent       map[string]AgentProvider `yaml:"per_agent,omitempty"`
 }
 
@@ -172,6 +173,11 @@ func validateConfig(cfg *Config) error {
 				"dream.provider.per_agent.%s.reconciliation.backend %q is not recognized; valid values: %v",
 				kind, ap.Reconciliation.Backend, ValidProviderBackends)
 		}
+	}
+	if cfg.Dream.Provider.MaxInFlight < 0 {
+		return fmt.Errorf(
+			"dream.provider.max_in_flight must be >= 0 (0 = unlimited); got %d",
+			cfg.Dream.Provider.MaxInFlight)
 	}
 	return nil
 }

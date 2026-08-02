@@ -260,6 +260,36 @@ func TestOpenAIInvoker_BaseURLOptionRoutesRequests(t *testing.T) {
 	}
 }
 
+func TestNewOpenAIInvoker_HonorsTimeoutOption(t *testing.T) {
+	inv, err := NewOpenAIInvoker(core.ProviderEntry{
+		Auth:    "sk-x",
+		Model:   "web-research",
+		Options: map[string]string{"timeout_seconds": "900"},
+	}, 0)
+	if err != nil {
+		t.Fatalf("NewOpenAIInvoker: %v", err)
+	}
+	if inv.timeout != 15*time.Minute {
+		t.Errorf("timeout: got %v, want 15m", inv.timeout)
+	}
+	if inv.httpClient.Timeout != 15*time.Minute {
+		t.Errorf("httpClient timeout: got %v, want 15m", inv.httpClient.Timeout)
+	}
+}
+
+func TestNewOpenAIInvoker_RejectsBadTimeoutOption(t *testing.T) {
+	for _, raw := range []string{"0", "-5", "soon"} {
+		_, err := NewOpenAIInvoker(core.ProviderEntry{
+			Auth:    "sk-x",
+			Model:   "gpt-4o",
+			Options: map[string]string{"timeout_seconds": raw},
+		}, 0)
+		if err == nil {
+			t.Errorf("timeout_seconds=%q should be rejected", raw)
+		}
+	}
+}
+
 func TestNewInvoker_DispatchesToOpenAI(t *testing.T) {
 	inv, err := NewInvoker(core.ProviderEntry{
 		Backend: "openai",

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +58,13 @@ func NewOpenAIInvoker(entry core.ProviderEntry, rateLimitRPM int) (*OpenAIInvoke
 		baseURL = openAIDefaultBaseURL
 	}
 	timeout := 5 * time.Minute
+	if raw := entry.Options["timeout_seconds"]; raw != "" {
+		secs, err := strconv.Atoi(raw)
+		if err != nil || secs <= 0 {
+			return nil, fmt.Errorf("openai options.timeout_seconds must be a positive integer; got %q", raw)
+		}
+		timeout = time.Duration(secs) * time.Second
+	}
 	return &OpenAIInvoker{
 		apiKey:  apiKey,
 		model:   entry.Model,

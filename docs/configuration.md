@@ -231,6 +231,7 @@ Controls the headless LLM maintenance cycle.
 | `provider.reconciliation.model` | string | `claude-opus-4-6` | Model for cross-batch reconciliation |
 | `provider.reconciliation.options` | map | `{}` | Same as batch |
 | `provider.rate_limit_rpm` | int | `0` | Requests/minute cap shared across stages. `0` = unlimited |
+| `provider.max_in_flight` | int | `0` | Hard cap on concurrent LLM requests per stage. `0` = unlimited. Needed because lens mode fans out one request per lens inside each batch slot, so real concurrency is `batching.max_concurrent × len(lenses)` — self-hosted backends answer that burst with 429/502 |
 | `batching.strategy` | string | `hybrid` | `hybrid` = 60% tag-clustered + 40% interleaved |
 | `batching.max_motes_per_batch` | int | `10` | Maximum motes per LLM batch |
 | `batching.clustered_fraction` | float | `0.6` | Fraction of motes in clustered batches |
@@ -263,7 +264,7 @@ The dream cycle dispatches to one of five LLM backends, configured per stage so 
 | Backend | Auth Format | Required Options | Notes |
 |---------|-------------|------------------|-------|
 | `claude-cli` | `oauth` (literal placeholder) | none | Shells out to the `claude` CLI binary. The default — works inside Claude Code with no extra setup. |
-| `openai` | env var name (e.g. `OPENAI_API_KEY`) holding `sk-…`, or literal key | none; optional `base_url` | Calls `https://api.openai.com/v1/chat/completions` by default. Set `options.base_url` to target any OpenAI-compatible server (llama-swap, vLLM, Ollama, LM Studio) — include the `/v1` suffix; a trailing slash is trimmed. |
+| `openai` | env var name (e.g. `OPENAI_API_KEY`) holding `sk-…`, or literal key | none; optional `base_url`, `timeout_seconds` | Calls `https://api.openai.com/v1/chat/completions` by default. Set `options.base_url` to target any OpenAI-compatible server (llama-swap, vLLM, Ollama, LM Studio) — include the `/v1` suffix; a trailing slash is trimmed. `options.timeout_seconds` (default `300`) raises the per-request timeout for slow local hardware. |
 | `gemini` | `vertex-ai` (sentinel — uses Application Default Credentials via `gcloud auth print-access-token`) | `gcp_project`; `gcp_region` (default `us-central1`); optional `safety_threshold` (default `BLOCK_ONLY_HIGH`) | Calls Vertex AI's `generateContent` endpoint. Requires `gcloud` on PATH and a Google Cloud project with the Vertex AI API enabled. API-key auth (`generativelanguage.googleapis.com`) is not currently supported. |
 | `codex-cli` | `oauth` (literal placeholder) | none | Shells out to `codex exec`. Inherits whatever `codex login` set up (Sign in with ChatGPT or API key). Requires the `codex` binary on PATH. |
 | `gemini-cli` | `oauth` (literal placeholder) | none | Shells out to `gemini -p`. Inherits whatever the gemini CLI is logged in as (Login with Google or API key). Requires the `gemini` binary on PATH. |

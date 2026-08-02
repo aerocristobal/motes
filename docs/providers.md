@@ -85,7 +85,17 @@ dream:
       model: web-research           # model id as the server advertises it
       options:
         base_url: http://192.168.11.140:8000/v1
+        timeout_seconds: 900        # default 300; local hardware is slower
+    max_in_flight: 4                # never exceed the server's concurrency
 ```
+
+**Sizing `max_in_flight`:** lens mode issues one request per lens inside each
+batch slot, so without a cap the dream cycle offers
+`batching.max_concurrent × len(lenses)` requests at once — 12 with stock
+settings. Hosted APIs absorb that; a single-GPU server answers with
+`429 Too many requests` (queue full) or `502` (model still loading). Set
+`max_in_flight` at or below what the server actually serves in parallel
+(vLLM's `--max-num-seqs`, llama.cpp's `-np`).
 
 **Implementation:** `internal/dream/openai_invoker.go`. Uses `net/http` only (no SDK dependency).
 

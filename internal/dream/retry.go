@@ -14,12 +14,15 @@ type RetryPolicy struct {
 	Retryable   func(err error) bool
 }
 
-// DefaultRetryPolicy returns a policy for transient LLM/API errors.
+// DefaultRetryPolicy returns a policy for transient LLM/API errors. The
+// backoff spans ~30s across all attempts so a backend that is briefly
+// overloaded — or a self-hosted one still loading a model — gets time to
+// recover instead of being written off in a few seconds.
 func DefaultRetryPolicy() *RetryPolicy {
 	return &RetryPolicy{
-		MaxAttempts: 3,
-		BaseDelay:   1 * time.Second,
-		MaxDelay:    4 * time.Second,
+		MaxAttempts: 5,
+		BaseDelay:   2 * time.Second,
+		MaxDelay:    30 * time.Second,
 		Retryable:   IsTransientError,
 	}
 }
