@@ -205,6 +205,61 @@ func TestNewOpenAIInvoker_RejectsEmptyModel(t *testing.T) {
 	}
 }
 
+func TestNewOpenAIInvoker_DefaultsBaseURL(t *testing.T) {
+	inv, err := NewOpenAIInvoker(core.ProviderEntry{Auth: "sk-x", Model: "gpt-4o"}, 0)
+	if err != nil {
+		t.Fatalf("NewOpenAIInvoker: %v", err)
+	}
+	if inv.baseURL != openAIDefaultBaseURL {
+		t.Errorf("baseURL: got %q, want %q", inv.baseURL, openAIDefaultBaseURL)
+	}
+}
+
+func TestNewOpenAIInvoker_HonorsBaseURLOption(t *testing.T) {
+	inv, err := NewOpenAIInvoker(core.ProviderEntry{
+		Auth:    "sk-x",
+		Model:   "web-research",
+		Options: map[string]string{"base_url": "http://192.168.11.140:8000/v1/"},
+	}, 0)
+	if err != nil {
+		t.Fatalf("NewOpenAIInvoker: %v", err)
+	}
+	// Trailing slash is trimmed so the "/chat/completions" suffix stays single-slashed.
+	if inv.baseURL != "http://192.168.11.140:8000/v1" {
+		t.Errorf("baseURL: got %q", inv.baseURL)
+	}
+}
+
+// A local OpenAI-compatible server must receive requests at its own host,
+// not api.openai.com — this exercises the full path through Invoke.
+func TestOpenAIInvoker_BaseURLOptionRoutesRequests(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		if r.URL.Path != "/chat/completions" {
+			t.Errorf("path: got %q", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(openAIOKResponse(`{"visions":[]}`))
+	}))
+	defer srv.Close()
+
+	inv, err := NewOpenAIInvoker(core.ProviderEntry{
+		Auth:    "local",
+		Model:   "web-research",
+		Options: map[string]string{"base_url": srv.URL},
+	}, 0)
+	if err != nil {
+		t.Fatalf("NewOpenAIInvoker: %v", err)
+	}
+	if _, err := inv.Invoke("p", "sonnet"); err != nil {
+		t.Fatalf("Invoke: %v", err)
+	}
+	if hits != 1 {
+		t.Errorf("expected 1 request to the configured base_url, got %d", hits)
+	}
+}
+
 func TestNewInvoker_DispatchesToOpenAI(t *testing.T) {
 	inv, err := NewInvoker(core.ProviderEntry{
 		Backend: "openai",

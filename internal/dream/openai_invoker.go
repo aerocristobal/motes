@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"motes/internal/core"
 )
 
-// openAIDefaultBaseURL is the production endpoint. Tests inject an
+// openAIDefaultBaseURL is the production endpoint, used when
+// options.base_url is unset. Any OpenAI-compatible server (llama-swap, vLLM,
+// Ollama, LM Studio) can be targeted by setting that option. Tests inject an
 // httptest.Server URL through the unexported baseURL field on OpenAIInvoker.
 const openAIDefaultBaseURL = "https://api.openai.com/v1"
 
@@ -49,11 +52,15 @@ func NewOpenAIInvoker(entry core.ProviderEntry, rateLimitRPM int) (*OpenAIInvoke
 	if entry.Model == "" {
 		return nil, fmt.Errorf("openai backend requires provider.model to be set (e.g. gpt-4o)")
 	}
+	baseURL := strings.TrimRight(entry.Options["base_url"], "/")
+	if baseURL == "" {
+		baseURL = openAIDefaultBaseURL
+	}
 	timeout := 5 * time.Minute
 	return &OpenAIInvoker{
 		apiKey:  apiKey,
 		model:   entry.Model,
-		baseURL: openAIDefaultBaseURL,
+		baseURL: baseURL,
 		timeout: timeout,
 		httpClient: &http.Client{
 			Timeout: timeout,

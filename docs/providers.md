@@ -11,7 +11,7 @@ This document covers setup, troubleshooting, cost guidance, and how to add a new
 | Backend | Auth Mechanism | Network Calls | Required Tools |
 |---------|---------------|---------------|----------------|
 | `claude-cli` (default) | Whatever `claude` CLI is configured with | `claude` shells out to Anthropic | `claude` binary on PATH |
-| `openai` | API key (env var name or literal) | HTTPS to `api.openai.com` | None — uses Go stdlib `net/http` |
+| `openai` | API key (env var name or literal) | HTTPS to `api.openai.com`, or any OpenAI-compatible host via `options.base_url` | None — uses Go stdlib `net/http` |
 | `gemini` | Vertex AI ADC (gcloud OAuth token) | HTTPS to `*-aiplatform.googleapis.com` | `gcloud` on PATH; GCP project with Vertex AI enabled |
 | `codex-cli` | Whatever `codex` CLI is logged in as (Sign in with ChatGPT or API key) | `codex` shells out to OpenAI | `codex` binary on PATH (`codex login` already run) |
 | `gemini-cli` | Whatever `gemini` CLI is logged in as (Login with Google or API key) | `gemini` shells out to Google | `gemini` binary on PATH (already authenticated) |
@@ -73,6 +73,19 @@ mote dream
 ```
 
 **Auth resolution:** The `auth` field is interpreted as an environment variable name when `os.LookupEnv` finds it. Otherwise it's used as a literal credential. Names that look like env vars (`UPPERCASE_WITH_UNDERSCORES`) but aren't exported produce an explicit error rather than being silently sent as a credential — see `internal/dream/auth.go` for the heuristic.
+
+**Local / self-hosted servers:** set `options.base_url` to point the same backend at any OpenAI-compatible endpoint (llama-swap, vLLM, Ollama, LM Studio). Include the `/v1` suffix; a trailing slash is trimmed. `auth` is still required — servers that ignore the bearer token take any non-empty literal.
+
+```yaml
+dream:
+  provider:
+    batch:
+      backend: openai
+      auth: local                   # literal; local server ignores the token
+      model: web-research           # model id as the server advertises it
+      options:
+        base_url: http://192.168.11.140:8000/v1
+```
 
 **Implementation:** `internal/dream/openai_invoker.go`. Uses `net/http` only (no SDK dependency).
 
